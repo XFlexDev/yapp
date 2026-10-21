@@ -57,7 +57,7 @@ async function doRefresh(): Promise<boolean> {
 
 export async function clear() {
   access = null; refresh = null;
-  await SecureStore.deleteItemAsync(KEY);
+  await SecureStore.deleteItemAsync(KEY).catch(() => {});
 }
 
 export async function req<T>(path: string, opts: { method?: string; body?: unknown; raw?: Blob | ArrayBuffer; ctype?: string } = {}, retry = true): Promise<T> {
@@ -86,5 +86,5 @@ export async function confirmLogin(email: string, code: string): Promise<Me> {
 }
 export async function logout() {
   if (refresh) await req('/v1/auth/logout', { method: 'POST', body: { refresh_token: refresh } }).catch(() => {});
-  await clear();
+  await clear().catch(() => {});
 }

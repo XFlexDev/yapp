@@ -62,7 +62,7 @@ export function Swap({ text, style }: { text: string; style?: any }) {
   const [shown, setShown] = useState(text);
   const o = useSharedValue(1);
   useEffect(() => {
-    if (text === shown) return;
+    if (text === shown) { o.value = withTiming(1, { duration: 160, easing: EASE }); return; }
     o.value = withTiming(0, { duration: 110, easing: EASE });
     const t = setTimeout(() => setShown(text), 110);
     return () => clearTimeout(t);

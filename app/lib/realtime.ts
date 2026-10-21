@@ -48,7 +48,7 @@ function onEvent(e: any) {
       set((s) => ({ talkingTo: { ...s.talkingTo, [e.from_id]: false } }));
       break;
     case 'poke':
-      set((s) => ({ pokedAt: { ...s.pokedAt, [e.from.id]: Date.now() }, pokeCount: { ...s.pokeCount, [e.from.id]: e.count || 1 }, selectedId: s.call ? s.selectedId : e.from.id }));
+      set((s) => ({ pokedAt: { ...s.pokedAt, [e.from.id]: Date.now() }, pokeCount: { ...s.pokeCount, [e.from.id]: e.count || 1 } }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       break;
     case 'call_ringing':

@@ -19,7 +19,7 @@ startUpdates();
 export function signOutLocal() {
   stopRealtime();
   stopVoice();
-  set({ status: 'out', me: null, friends: [], incoming: [], outgoing: [], selectedId: null });
+  set({ status: 'out', me: null, friends: [], incoming: [], outgoing: [], selectedId: null, call: null });
 }
 
 export default function Root() {
@@ -62,7 +62,9 @@ export default function Root() {
           <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
           <Stack.Screen name="settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack.Protected>
-        <Stack.Screen name="crop" options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: '#000' } }} />
+        <Stack.Protected guard={status === 'in'}>
+          <Stack.Screen name="crop" options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: '#000' } }} />
+        </Stack.Protected>
       </Stack>
     </GestureHandlerRootView>
   );
