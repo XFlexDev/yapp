@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,10 +15,12 @@ import { Glyph } from './chat';
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 const preview = (m: ChatMsg | null | undefined, me?: string) => (m ? `${m.from === me ? 'you: ' : ''}${m.kind === 'image' ? 'photo' : m.body}` : 'say hi');
 
-function Row({ title, sub, unread, left, onPress }: { title: string; sub: string; unread: number; left: React.ReactNode; onPress: () => void }) {
+function Row({ title, sub, unread, left, onPress }: { title: string; sub: string; unread: number; left: React.ReactNode; onPress: (from?: { x: number; y: number; s: number }) => void }) {
+  const ref = useRef<React.ComponentRef<typeof View>>(null);
+  const press = () => (ref.current ? ref.current.measureInWindow((x, y, w) => onPress({ x, y, s: w })) : onPress());
   return (
-    <Squish onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
-      {left}
+    <Squish onPress={press} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+      <View ref={ref}>{left}</View>
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>{title}</Text>
         <Text numberOfLines={1} style={{ color: unread ? '#fff' : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 }}>{sub}</Text>
@@ -77,7 +79,7 @@ export default function Inbox() {
       <Row key={`g:${g.id}`} title={g.name} sub={preview(g.last, me?.id)} unread={g.unread} left={<Stack3 users={g.members.filter((u) => u.id !== me?.id)} />} onPress={() => router.push({ pathname: '/group', params: { id: g.id } })} />
     ) })),
     ...friends.map((f) => { const c = chats[f.id]; const last = c?.messages.find((m) => !m.pending); return { key: f.id, at: last?.created_at ?? 0, node: (
-      <Row key={f.id} title={nameOf(f)} sub={preview(last, me?.id)} unread={c?.unread ?? 0} left={<Avatar user={f} size={48} />} onPress={() => router.push({ pathname: '/chat', params: { id: f.id } })} />
+      <Row key={f.id} title={nameOf(f)} sub={preview(last, me?.id)} unread={c?.unread ?? 0} left={<Avatar user={f} size={48} />} onPress={(r) => router.push({ pathname: '/chat', params: { id: f.id, ...(r ? { ax: String(r.x), ay: String(r.y), as: String(r.s) } : {}) } })} />
     ) }; }),
   ].sort((a, b) => b.at - a.at);
   const create = async () => {

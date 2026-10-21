@@ -7,7 +7,7 @@ import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, chatOf, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, setBackground } from '../lib/chat';
@@ -54,6 +54,13 @@ export function Backdrop({ bg, photo }: { bg: string | null; photo: string | nul
   );
 }
 
+function sxy(v: number) {
+  'worklet';
+  return [{ scaleX: v }, { scaleY: v }];
+}
+const AV = 38;
+const MORPH = { damping: 24, stiffness: 260, mass: 0.8 };
+
 export function Bubble({ m, mine, joined, fresh, seen, onRetry, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; author?: string }) {
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
@@ -67,8 +74,31 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, author }: { m: C
 }
 
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, ax, ay, as } = useLocalSearchParams<{ id: string; ax?: string; ay?: string; as?: string }>();
   const insets = useSafeAreaInsets();
+  // Avatar morph: flies from where it sat in the chat list up into the header.
+  const from = useRef(ax && ay && as ? { x: +ax, y: +ay, s: +as } : null).current;
+  const avRef = useRef<React.ComponentRef<typeof View>>(null);
+  const [land, setLand] = useState<{ x: number; y: number } | null>(null);
+  const morph = useSharedValue(from ? 0 : 1);
+  const onAvLayout = () => {
+    if (!from || land) return;
+    avRef.current?.measureInWindow((x, y) => { setLand({ x, y }); morph.value = withSpring(1, MORPH); });
+  };
+  const avStyle = useAnimatedStyle(() => {
+    if (!from) return {};
+    if (!land) return { opacity: 0 };
+    const p = morph.value, k = from.s / AV;
+    return {
+      opacity: 1,
+      transform: [
+        { translateX: (from.x - land.x + (from.s - AV) / 2) * (1 - p) },
+        { translateY: (from.y - land.y + (from.s - AV) / 2) * (1 - p) },
+        ...sxy(k + (1 - k) * p),
+      ],
+    };
+  });
+  const textIn = useAnimatedStyle(() => ({ opacity: morph.value, transform: [{ translateX: (1 - morph.value) * -12 }] }));
   const friend = useStore((s) => s.friends.find((f) => f.id === id));
   const chat = useStore((s) => s.chats[id!]) ?? chatOf(id!);
   const meId = useStore((s) => s.me?.id);
@@ -76,7 +106,7 @@ export default function ChatScreen() {
   const [picker, setPicker] = useState(false);
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
-  const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom) + 8 }));
+  const lift = useAnimatedStyle(() => ({ transform: [{ translateY: -Math.max(kb.height.value - insets.bottom, 0) }] }));
 
   useEffect(() => {
     set({ openChat: id });
@@ -98,17 +128,19 @@ export default function ChatScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop bg={chat.background} photo={avatarUrl(friend)} />
-      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <View style={{ zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
-        <Avatar user={friend} size={38} />
-        <View style={{ flex: 1 }}>
+        <Animated.View ref={avRef} onLayout={onAvLayout} style={avStyle}><Avatar user={friend} size={AV} /></Animated.View>
+        <Animated.View style={[{ flex: 1 }, textIn]}>
           <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{nameOf(friend)}</Text>
           <Text style={{ color: friend.online ? C.online : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>{friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline'}</Text>
-        </View>
+        </Animated.View>
         <Squish onPress={() => { Haptics.selectionAsync(); setPicker(true); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="gear" /></Squish>
       </View>
-      <Animated.View style={[{ flex: 1 }, lift]}>
+      <Animated.View entering={FadeIn.duration(260)} style={[{ flex: 1, paddingBottom: insets.bottom + 8 }, lift]}>
         <FlatList
+          windowSize={9}
+          maxToRenderPerBatch={12}
           inverted
           data={msgs}
           keyExtractor={(m) => m.id}
