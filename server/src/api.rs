@@ -569,7 +569,7 @@ async fn drop_media(st: &S, key: String) {
     let used: i64 = st
         .db()
         .query_row(
-            "SELECT (SELECT COUNT(*) FROM users WHERE avatar=?1 OR pfp=?1) + (SELECT COUNT(*) FROM chat_meta WHERE background=?1) + (SELECT COUNT(*) FROM messages WHERE kind='image' AND body=?1)",
+            "SELECT (SELECT COUNT(*) FROM users WHERE avatar=?1 OR pfp=?1) + (SELECT COUNT(*) FROM chat_meta WHERE background=?1) + (SELECT COUNT(*) FROM groups WHERE background=?1) + (SELECT COUNT(*) FROM messages WHERE kind='image' AND body=?1)",
             [&key],
             |r| r.get(0),
         )
@@ -1115,6 +1115,230 @@ async fn set_chat_background(State(st): State<S>, Authed(me): Authed, Path(other
     apply_background(&st, &me, &other, bg).await
 }
 
+// ---------- group chats ----------
+
+fn member_ids(c: &Connection, g: &str) -> rusqlite::Result<Vec<String>> {
+    let mut q = c.prepare("SELECT user_id FROM group_members WHERE group_id=? ORDER BY joined_at")?;
+    let v = q.query_map([g], |r| r.get(0))?.collect();
+    v
+}
+
+fn is_member(c: &Connection, g: &str, u: &str) -> rusqlite::Result<bool> {
+    Ok(c.query_row("SELECT 1 FROM group_members WHERE group_id=? AND user_id=?", [g, u], |_| Ok(())).optional()?.is_some())
+}
+
+fn group_view(c: &Connection, g: &str, viewer: &str) -> R<Value> {
+    let (name, owner, background): (String, String, Option<String>) = c
+        .query_row("SELECT name, owner, background FROM groups WHERE id=?", [g], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()?
+        .ok_or_else(|| not_found("Group not found"))?;
+    let mut members = Vec::new();
+    let mut reads = serde_json::Map::new();
+    let mut q = c.prepare("SELECT user_id, read_at FROM group_members WHERE group_id=? ORDER BY joined_at")?;
+    let rows: Vec<(String, i64)> = q.query_map([g], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    let mut mine = 0;
+    for (u, at) in rows {
+        if u == viewer { mine = at; }
+        reads.insert(u.clone(), json!(at));
+        members.push(public_user(c, &u)?);
+    }
+    let last = c.query_row(&format!("SELECT {MSG_COLS} FROM messages WHERE a=? AND b='#' ORDER BY created_at DESC LIMIT 1"), [g], row_msg).optional()?;
+    let unread: i64 = c.query_row("SELECT COUNT(*) FROM messages WHERE a=?1 AND b='#' AND sender<>?2 AND created_at>?3", params![g, viewer, mine], |r| r.get(0))?;
+    Ok(json!({ "id": g, "name": name, "owner": owner, "background": background, "members": members, "reads": reads, "last": last, "unread": unread }))
+}
+
+fn tell_group(st: &S, ids: &[String], ev: &Value) {
+    for u in ids { st.hub.send(u, ev); }
+}
+
+fn broadcast_group(st: &S, g: &str) -> R<()> {
+    let (ids, views) = {
+        let c = st.db();
+        let ids = member_ids(&c, g)?;
+        let views: Vec<(String, Value)> = ids.iter().map(|u| group_view(&c, g, u).map(|v| (u.clone(), v))).collect::<R<_>>()?;
+        (ids, views)
+    };
+    let _ = ids;
+    for (u, v) in views { st.hub.send(&u, &json!({ "type": "group_updated", "group": v })); }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct NewGroup {
+    name: String,
+    members: Vec<String>,
+}
+
+fn clean_name(n: &str) -> R<String> {
+    let n = n.trim().to_string();
+    if n.is_empty() || n.chars().count() > 40 { return Err(bad("Group names are 1-40 characters")); }
+    Ok(n)
+}
+
+async fn create_group(State(st): State<S>, Authed(me): Authed, Json(r): Json<NewGroup>) -> R<Json<Value>> {
+    let name = clean_name(&r.name)?;
+    let mut ids: Vec<String> = r.members.into_iter().filter(|m| *m != me).collect();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() || ids.len() > 31 { return Err(bad("Pick 1 to 31 friends")); }
+    let id = random_token()[..16].to_string();
+    {
+        let c = st.db();
+        for m in &ids {
+            if !are_friends(&c, &me, m)? { return Err(not_friends()); }
+        }
+        let t = now_ms();
+        let tx = c.unchecked_transaction()?;
+        tx.execute("INSERT INTO groups(id, name, owner, created_at) VALUES (?,?,?,?)", params![id, name, me, t])?;
+        for u in std::iter::once(&me).chain(ids.iter()) {
+            tx.execute("INSERT INTO group_members(group_id, user_id, joined_at) VALUES (?,?,?)", params![id, u, t])?;
+        }
+        tx.commit()?;
+    }
+    broadcast_group(&st, &id)?;
+    let v = group_view(&st.db(), &id, &me)?;
+    Ok(Json(v))
+}
+
+async fn list_groups(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let c = st.db();
+    let mut q = c.prepare("SELECT group_id FROM group_members WHERE user_id=?")?;
+    let gs: Vec<String> = q.query_map([&me], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let v: Vec<Value> = gs.iter().map(|g| group_view(&c, g, &me)).collect::<R<_>>()?;
+    Ok(Json(json!({ "groups": v })))
+}
+
+async fn group_messages(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, axum::extract::Query(p): axum::extract::Query<Page>) -> R<Json<Value>> {
+    let c = st.db();
+    if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+    let mut q = c.prepare(&format!("SELECT {MSG_COLS} FROM messages WHERE a=?1 AND b='#' AND created_at<?2 ORDER BY created_at DESC LIMIT ?3"))?;
+    let msgs: Vec<ChatMsg> = q.query_map(params![g, p.before.unwrap_or(i64::MAX), p.limit.unwrap_or(50).clamp(1, 100)], row_msg)?.collect::<rusqlite::Result<_>>()?;
+    Ok(Json(json!({ "messages": msgs, "group": group_view(&c, &g, &me)? })))
+}
+
+async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Json(r): Json<SendMsg>) -> R<Json<ChatMsg>> {
+    let body = r.body.trim().to_string();
+    if body.is_empty() { return Err(bad("Say something")); }
+    if body.chars().count() > 2000 { return Err(bad("That message is too long")); }
+    let (m, ids, title) = {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        let last: Option<i64> = c.query_row("SELECT MAX(created_at) FROM messages WHERE a=? AND b='#'", [&g], |r| r.get(0))?;
+        let t = last.map_or(now_ms(), |l| now_ms().max(l + 1));
+        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: g.clone(), kind: "text".into(), body, created_at: t };
+        c.execute("INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at) VALUES (?,?,'#',?,?,?,?,?)", params![m.id, g, m.from, m.to, m.kind, m.body, m.created_at])?;
+        c.execute("UPDATE group_members SET read_at=? WHERE group_id=? AND user_id=?", params![t, g, me])?;
+        let gname: String = c.query_row("SELECT name FROM groups WHERE id=?", [&g], |r| r.get(0))?;
+        let u = public_user(&c, &me)?;
+        (m, member_ids(&c, &g)?, format!("{gname} · {}", label(&u)))
+    };
+    tell_group(&st, &ids, &json!({ "type": "group_message", "group_id": g, "message": &m }));
+    let preview: String = m.body.chars().take(120).collect();
+    for u in ids.iter().filter(|u| **u != me && !st.hub.online(u)) {
+        push(&st, u, title.clone(), preview.clone(), json!({ "type": "group_message", "group_id": g }));
+    }
+    Ok(Json(m))
+}
+
+async fn group_read(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Json(r): Json<ReadReq>) -> R<Json<Value>> {
+    let at = r.at.min(now_ms() + 60_000);
+    let ids = {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        c.execute("UPDATE group_members SET read_at=MAX(read_at, ?) WHERE group_id=? AND user_id=?", params![at, g, me])?;
+        member_ids(&c, &g)?
+    };
+    tell_group(&st, &ids, &json!({ "type": "group_read", "group_id": g, "user_id": me, "at": at }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct GroupPatch {
+    name: Option<String>,
+    background: Option<Option<String>>,
+}
+
+async fn group_patch(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Json(r): Json<GroupPatch>) -> R<Json<Value>> {
+    let old_bg = {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        if let Some(n) = &r.name { c.execute("UPDATE groups SET name=? WHERE id=?", params![clean_name(n)?, g])?; }
+        let mut old = None;
+        if let Some(bg) = &r.background {
+            if bg.as_deref().is_some_and(|b| b.starts_with("b-") || b.len() > 64) { return Err(bad("Unknown background")); }
+            old = c.query_row("SELECT background FROM groups WHERE id=?", [&g], |r| r.get::<_, Option<String>>(0))?;
+            c.execute("UPDATE groups SET background=? WHERE id=?", params![bg, g])?;
+        }
+        old
+    };
+    if let Some(o) = old_bg { drop_media(&st, o).await; }
+    broadcast_group(&st, &g)?;
+    Ok(Json(group_view(&st.db(), &g, &me)?))
+}
+
+async fn group_background_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, body: axum::body::Bytes) -> R<Json<Value>> {
+    let Some((ext, ctype)) = crate::storage::image_kind(&body).filter(|_| body.len() >= 100) else { return Err(bad("Upload a JPEG or WebP photo")); };
+    let store = crate::storage::get().ok_or_else(|| bad("Photo backgrounds aren't available"))?;
+    if !is_member(&st.db(), &g, &me)? { return Err(not_found("Group not found")); }
+    let key = crate::storage::key_for("b", &body, ext);
+    store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+    let old: Option<String> = {
+        let c = st.db();
+        let old = c.query_row("SELECT background FROM groups WHERE id=?", [&g], |r| r.get(0))?;
+        c.execute("UPDATE groups SET background=? WHERE id=?", params![key, g])?;
+        old
+    };
+    if let Some(o) = old.filter(|o| *o != key) { drop_media(&st, o).await; }
+    broadcast_group(&st, &g)?;
+    Ok(Json(group_view(&st.db(), &g, &me)?))
+}
+
+#[derive(Deserialize)]
+struct AddMember {
+    user_id: String,
+}
+
+async fn group_add(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Json(r): Json<AddMember>) -> R<Json<Value>> {
+    {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        if !are_friends(&c, &me, &r.user_id)? { return Err(not_friends()); }
+        if member_ids(&c, &g)?.len() >= 32 { return Err(bad("Groups are capped at 32 people")); }
+        c.execute("INSERT OR IGNORE INTO group_members(group_id, user_id, joined_at) VALUES (?,?,?)", params![g, r.user_id, now_ms()])?;
+    }
+    broadcast_group(&st, &g)?;
+    Ok(Json(group_view(&st.db(), &g, &me)?))
+}
+
+async fn group_remove(State(st): State<S>, Authed(me): Authed, Path((g, who)): Path<(String, String)>) -> R<Json<Value>> {
+    let (empty, bg, images) = {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        let owner: String = c.query_row("SELECT owner FROM groups WHERE id=?", [&g], |r| r.get(0))?;
+        if who != me && owner != me { return Err(err(StatusCode::FORBIDDEN, "Forbidden", "Only the group's creator can remove people")); }
+        c.execute("DELETE FROM group_members WHERE group_id=? AND user_id=?", params![g, who])?;
+        let left = member_ids(&c, &g)?;
+        if left.is_empty() {
+            let bg: Option<String> = c.query_row("SELECT background FROM groups WHERE id=?", [&g], |r| r.get(0))?;
+            let mut q = c.prepare("SELECT body FROM messages WHERE a=? AND b='#' AND kind='image'")?;
+            let imgs: Vec<String> = q.query_map([&g], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            c.execute("DELETE FROM messages WHERE a=? AND b='#'", [&g])?;
+            c.execute("DELETE FROM groups WHERE id=?", [&g])?;
+            (true, bg, imgs)
+        } else {
+            if who == owner { c.execute("UPDATE groups SET owner=? WHERE id=?", params![left[0], g])?; }
+            (false, None, Vec::new())
+        }
+    };
+    st.hub.send(&who, &json!({ "type": "group_left", "group_id": g }));
+    if empty {
+        for k in bg.into_iter().chain(images) { drop_media(&st, k).await; }
+    } else {
+        broadcast_group(&st, &g)?;
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
 // ---------- event stream ----------
 
 #[derive(Deserialize)]
@@ -1189,6 +1413,13 @@ pub fn router(st: S) -> Router {
         .route("/v1/call/accept", post(call_accept))
         .route("/v1/call/end", post(call_end))
         .route("/v1/chats", get(list_chats))
+        .route("/v1/groups", get(list_groups).post(create_group))
+        .route("/v1/groups/{id}", axum::routing::patch(group_patch))
+        .route("/v1/groups/{id}/messages", get(group_messages).post(group_send))
+        .route("/v1/groups/{id}/read", post(group_read))
+        .route("/v1/groups/{id}/background/photo", put(group_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
+        .route("/v1/groups/{id}/members", post(group_add))
+        .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
         .route("/v1/chats/{id}/read", post(mark_read))
         .route("/v1/chats/{id}/background", put(set_chat_background))

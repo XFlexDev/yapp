@@ -72,6 +72,20 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             background TEXT,
             PRIMARY KEY(a, b)
         );
+        CREATE TABLE IF NOT EXISTS groups(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            background TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS group_members(
+            group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            joined_at INTEGER NOT NULL,
+            read_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(group_id, user_id)
+        );
         CREATE TABLE IF NOT EXISTS chat_reads(
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             friend_id TEXT NOT NULL,
