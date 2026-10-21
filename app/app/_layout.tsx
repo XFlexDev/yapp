@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
-import { router, Stack } from 'expo-router';
+import { router, Stack, type ErrorBoundaryProps } from 'expo-router';
+import { Pressable, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -25,6 +26,19 @@ export function signOutLocal() {
   stopVoice();
   stopBackground();
   set({ status: 'out', me: null, friends: [], incoming: [], outgoing: [], selectedId: null, call: null });
+}
+
+/** Shows what broke instead of a blank screen. */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 }}>
+      <Text style={{ color: '#fff', fontSize: 22, fontWeight: '900' }}>something broke</Text>
+      <Text selectable style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center' }}>{String(error?.message ?? error).slice(0, 400)}</Text>
+      <Pressable onPress={retry} hitSlop={12} style={({ pressed }) => ({ marginTop: 10, opacity: pressed ? 0.5 : 1 })}>
+        <Text style={{ color: '#fff', fontSize: 17, fontWeight: '900' }}>try again</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 export default function Root() {
@@ -67,6 +81,7 @@ export default function Root() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: base }, animation: 'fade' }}>
         <Stack.Protected guard={status === 'out'}>
           <Stack.Screen name="sign-in" />
+          <Stack.Screen name="auth" />
         </Stack.Protected>
         <Stack.Protected guard={status === 'in' && !onboarded}>
           <Stack.Screen name="onboarding" />
