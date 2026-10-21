@@ -114,6 +114,13 @@ function onEvent(e) {
     case 'ptt_started': if (!replaying.has(e.from.id)) recording.set(e.from.id, []); outFor(e.from.id).catch(() => {}); break;
     case 'ptt_stopped': setTimeout(() => replay(e.from_id), 250); break; // let the last frames drain
     case 'poke': setTimeout(() => api('/v1/poke', 'POST', { friend_id: e.from.id, count: e.count || 1 }).catch(() => {}), 900); break;
+    case 'message':
+      if (e.message.from !== me.id && e.message.kind === 'text') {
+        const from = e.message.from;
+        api(`/v1/chats/${from}/read`, 'POST', { at: e.message.created_at }).catch(() => {});
+        setTimeout(() => api(`/v1/chats/${from}/messages`, 'POST', { body: e.message.body }).catch(() => {}), 700);
+      }
+      break;
     case 'call_ringing': setTimeout(() => api('/v1/call/accept', 'POST', { friend_id: e.from.id }).catch(() => {}), 1200); break;
   }
 }
