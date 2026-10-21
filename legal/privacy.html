@@ -23,7 +23,7 @@ nav{display:flex;gap:18px;margin-bottom:40px;font-weight:700}nav a{color:#8a8a8a
 </ul>
 <p>The age you enter during sign-up is only checked on your device and is not sent to us. We do not collect your contacts, location, advertising identifiers or analytics, and Yapp has no ads.</p>
 <h2>Voice</h2>
-<p>When you hold to talk, your microphone audio is streamed live through our media server to the friend you are talking to. We do not record or store your conversations. Audio is encrypted in transit (TLS and DTLS-SRTP) but it is not end-to-end encrypted, which means it passes through our server unencrypted in memory while it is relayed.</p>
+<p>When you hold to talk, your microphone audio is streamed live through our media server to the friend you are talking to. So they don't miss it when their app is closed or offline, each talk is also saved on our server as a short audio clip (up to 60 seconds). A clip is deleted as soon as your friend hears it live or plays it back, and automatically after 7 days if they never do. Deleting your account deletes every clip you sent or received. Audio is encrypted in transit (TLS and DTLS-SRTP) but it is not end-to-end encrypted, which means it passes through our server unencrypted in memory while it is relayed.</p>
 <p>The built-in <strong>@test</strong> account is an automated echo bot. If you talk to it, it holds your clip in memory for up to 30 seconds so it can play it back to you, then discards it.</p>
 <h2>Waves and notifications</h2>
 <p>Waves are delivered to your friend in real time and are not stored. Notifications are delivered through Expo's push service and Apple or Google push services, which receive your push token and the notification text.</p>

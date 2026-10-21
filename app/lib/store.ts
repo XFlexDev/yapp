@@ -1,3 +1,4 @@
+import type { Clip } from './api';
 import { create } from 'zustand';
 import type { Friend, FriendRequest, Me, User } from './api';
 
@@ -26,12 +27,14 @@ type State = {
   openChat: string | null;
   groups: Record<string, Group>;
   notif: { prefs: NotifPrefs; muted: string[] } | null;
+  clips: Record<string, Clip[]>;
   cams: { local: CamRef | null; front: boolean; remote: Record<string, CamRef>; swap: boolean; fit: boolean; bare: boolean };
 };
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
   selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
+  clips: {},
   cams: { local: null, front: true, remote: {}, swap: false, fit: false, bare: false },
 }));
 

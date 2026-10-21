@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { ApiError, nameOf, req, type FriendRequest } from '../lib/api';
@@ -30,7 +31,8 @@ function Pill({ title, onPress, strong }: { title: string; onPress: () => void; 
 
 export default function Add() {
   const { incoming, outgoing, me } = useStore();
-  const [username, setUsername] = useState('');
+  const { u } = useLocalSearchParams<{ u?: string }>();
+  const [username, setUsername] = useState(typeof u === 'string' ? u.toLowerCase().replace(/[^a-z0-9_.]/g, '') : '');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -62,8 +64,8 @@ export default function Add() {
       <ErrorText>{error}</ErrorText>
       {msg ? <Text style={{ color: C.online, fontFamily: F.bold, fontSize: 15 }}>{msg}</Text> : null}
       <Button title="Send request" onPress={send} loading={busy} disabled={username.length < 3} />
-      <Pressable onPress={() => Share.share({ message: `add me on yapp: @${me?.username}` })} style={{ paddingVertical: 8 }}>
-        <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 15, textAlign: 'center' }}>You're @{me?.username}. Share it</Text>
+      <Pressable onPress={() => Share.share({ message: `add me on yapp https://yap.kreatix.dev/@${me?.username}` })} style={{ paddingVertical: 8 }}>
+        <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 15, textAlign: 'center' }}>You're @{me?.username}. Share your link</Text>
       </Pressable>
       {incoming.length ? <Text style={{ color: C.dim, fontFamily: F.black, fontSize: 13, marginTop: 12, letterSpacing: 0.5 }}>WANTS TO BE FRIENDS</Text> : null}
       {incoming.map((r) => <Row key={r.id} r={r} actions={<View style={{ flexDirection: 'row', gap: 8 }}><Pill title="Accept" strong onPress={() => accept(r)} /><Pill title="✕" onPress={() => drop(r)} /></View>} />)}

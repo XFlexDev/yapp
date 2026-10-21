@@ -137,6 +137,14 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             status TEXT NOT NULL DEFAULT 'open',
             created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS clips(
+            id TEXT PRIMARY KEY,
+            from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            to_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            ms INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS clips_to ON clips(to_id, created_at);
         CREATE TABLE IF NOT EXISTS chat_reads(
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             friend_id TEXT NOT NULL,

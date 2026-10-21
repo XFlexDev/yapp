@@ -4,8 +4,8 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         DefaultBodyLimit, FromRequestParts, Path, Query, State,
     },
-    http::{request::Parts, StatusCode},
-    response::{IntoResponse, Response},
+    http::{header, request::Parts, HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -589,7 +589,13 @@ fn delete_account(st: &S, uid: &str) -> R<()> {
         c.execute("DELETE FROM messages WHERE a=?1 OR b=?1", [uid])?;
         c.execute("DELETE FROM chat_meta WHERE a=?1 OR b=?1", [uid])?;
         c.execute("DELETE FROM chat_reads WHERE friend_id=?", [uid])?;
+        let mut s = c.prepare("SELECT id FROM clips WHERE from_id=?1 OR to_id=?1")?;
+        let clips: Vec<String> = s.query_map([uid], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        drop(s);
         c.execute("DELETE FROM users WHERE id=?", [uid])?;
+        if !clips.is_empty() {
+            recorder(st, "/delete", json!({ "ids": clips }));
+        }
         f
     };
     for f in friends {
@@ -1275,6 +1281,7 @@ async fn ptt_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<Friend
     if let Some((current, last_talked_at)) = streak {
         broadcast_streak(&st, &me, &r.friend_id, current, last_talked_at);
     }
+    recorder(&st, "/start", json!({ "from": me, "to": r.friend_id }));
     let online = st.hub.online(&r.friend_id);
     st.hub.send(&r.friend_id, &json!({ "type": "ptt_started", "from": &u }));
     if !online {
@@ -1288,7 +1295,134 @@ async fn ptt_stop(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendR
         return Err(not_friends());
     }
     st.hub.send(&r.friend_id, &json!({ "type": "ptt_stopped", "from_id": me }));
+    recorder(&st, "/stop", json!({ "from": me, "to": r.friend_id }));
     Ok(Json(json!({ "ok": true })))
+}
+
+const CLIP_TTL_MS: i64 = 7 * 24 * 3600 * 1000;
+
+/// Fire-and-forget call to the local talk recorder (bot/recorder.js).
+fn recorder(st: &S, path: &'static str, body: Value) {
+    let Some(secret) = st.cfg.rec_secret.clone() else { return };
+    let st = st.clone();
+    tokio::spawn(async move {
+        let url = format!("{}{path}", st.cfg.rec_url);
+        if let Err(e) = st.http.post(url).header("x-recorder-secret", secret).json(&body).send().await {
+            tracing::warn!(error = %e, path, "recorder call failed");
+        }
+    });
+}
+
+#[derive(Deserialize)]
+struct ClipIn {
+    id: String,
+    from: String,
+    to: String,
+    ms: i64,
+}
+
+/// The recorder reports a finished talk; it stays until the receiver plays it, marks it heard, or it expires.
+async fn internal_clip(State(st): State<S>, headers: HeaderMap, Json(r): Json<ClipIn>) -> R<Json<Value>> {
+    let ok = st.cfg.rec_secret.as_deref().is_some_and(|s| headers.get("x-recorder-secret").and_then(|v| v.to_str().ok()) == Some(s));
+    if !ok {
+        return Err(err(StatusCode::UNAUTHORIZED, "Unauthorized", "Bad recorder secret"));
+    }
+    let at = now_ms();
+    {
+        let c = st.db();
+        if !are_friends(&c, &r.from, &r.to)? {
+            return Err(not_friends());
+        }
+        c.execute("DELETE FROM clips WHERE created_at < ?", [at - CLIP_TTL_MS])?;
+        c.execute("INSERT OR IGNORE INTO clips(id, from_id, to_id, ms, created_at) VALUES(?,?,?,?,?)", params![r.id, r.from, r.to, r.ms, at])?;
+    }
+    st.hub.send(&r.to, &json!({ "type": "talk_clip", "clip": { "id": r.id, "from": r.from, "ms": r.ms, "created_at": at } }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn list_clips(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let (rows, gone) = {
+        let c = st.db();
+        let mut s = c.prepare("SELECT id, from_id, ms, created_at FROM clips WHERE to_id=? ORDER BY created_at")?;
+        let all: Vec<(String, String, i64, i64)> = s.query_map([&me], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+        let cutoff = now_ms() - CLIP_TTL_MS;
+        let (mut keep, mut gone) = (vec![], vec![]);
+        for (id, from, ms, at) in all {
+            if at < cutoff || !are_friends(&c, &me, &from)? {
+                c.execute("DELETE FROM clips WHERE id=?", [&id])?;
+                gone.push(id);
+            } else {
+                keep.push(json!({ "id": id, "from": from, "ms": ms, "created_at": at }));
+            }
+        }
+        (keep, gone)
+    };
+    if !gone.is_empty() {
+        recorder(&st, "/delete", json!({ "ids": gone }));
+    }
+    Ok(Json(json!(rows)))
+}
+
+fn take_clip(st: &S, me: &str, id: &str) -> R<(String, PublicUser)> {
+    let c = st.db();
+    let from: Option<String> = c.query_row("SELECT from_id FROM clips WHERE id=? AND to_id=?", [id, me], |r| r.get(0)).optional()?;
+    let Some(from) = from else {
+        return Err(err(StatusCode::NOT_FOUND, "NotFound", "That talk is gone"));
+    };
+    c.execute("DELETE FROM clips WHERE id=?", [id])?;
+    let u = public_user(&c, &from)?;
+    Ok((from, u))
+}
+
+/// Replays a saved talk into my inbox room, then deletes it.
+async fn play_clip(State(st): State<S>, Authed(me): Authed, Path(id): Path<String>) -> R<Json<Value>> {
+    let (from, u) = take_clip(&st, &me, &id)?;
+    recorder(&st, "/play", json!({ "id": id, "from": from, "to": me, "name": label(&u) }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// I already heard it live; drop it.
+async fn seen_clip(State(st): State<S>, Authed(me): Authed, Path(id): Path<String>) -> R<Json<Value>> {
+    if take_clip(&st, &me, &id).is_ok() {
+        recorder(&st, "/delete", json!({ "ids": [id] }));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
+/// `yap.kreatix.dev/@username`: invite page that opens the app on "add friend".
+async fn invite_page(State(st): State<S>, Path(seg): Path<String>) -> Response {
+    let Some(name) = seg.strip_prefix('@').map(|s| s.to_lowercase()) else { return StatusCode::NOT_FOUND.into_response() };
+    let u = {
+        let c = st.db();
+        let id: Option<String> = c.query_row("SELECT id FROM users WHERE username=?", [&name], |r| r.get(0)).optional().ok().flatten();
+        id.and_then(|id| public_user(&c, &id).ok())
+    };
+    let Some(u) = u else { return StatusCode::NOT_FOUND.into_response() };
+    let shown = if u.display_name.is_empty() { name.clone() } else { u.display_name.clone() };
+    let pic = u.pfp.clone().or(u.avatar.clone()).map(|k| {
+        let cdn = k.len() > 2 && matches!(k.as_bytes()[0], b'p' | b'q' | b'b' | b'c') && k.as_bytes()[1] == b'-';
+        let url = if cdn { format!("https://cdn.kreatix.dev/{k}") } else { format!("/avatars/{k}") };
+        format!("<img src=\"{}\" alt=\"\">", esc(&url))
+    }).unwrap_or_else(|| {
+        let l: String = shown.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
+        format!("<span>{}</span>", esc(&l))
+    });
+    let (n, h) = (esc(&shown), esc(&name));
+    let page = format!(r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Add {n} on Yapp</title><meta property="og:title" content="Add {n} on Yapp"><meta property="og:description" content="@{h} wants to talk to you on Yapp">
+<meta name="theme-color" content="#000"><style>
+*{{margin:0;box-sizing:border-box}}html,body{{height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}}
+main{{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:32px;text-align:center}}
+.p{{width:132px;height:132px;border-radius:50%;overflow:hidden;background:#1c1c1e;display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:900;margin-bottom:6px}}
+.p img{{width:100%;height:100%;object-fit:cover}}h1{{font-size:34px;font-weight:900;letter-spacing:-.5px}}p{{color:rgba(255,255,255,.55);font-size:17px}}
+a{{margin-top:22px;display:block;width:100%;max-width:320px;height:56px;line-height:56px;border-radius:28px;background:#fff;color:#000;font-weight:900;font-size:18px;text-decoration:none;transition:transform .15s}}
+a:active{{transform:scale(.97)}}
+</style></head><body><main><div class="p">{pic}</div><h1>{n}</h1><p>@{h}</p><a href="yapp://add?u={h}">add on yapp</a></main></body></html>"##);
+    ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -1894,6 +2028,11 @@ pub fn router(st: S) -> Router {
         .route("/v1/rtc/focus", post(rtc_focus))
         .route("/v1/ptt/start", post(ptt_start))
         .route("/v1/ptt/stop", post(ptt_stop))
+        .route("/v1/clips", get(list_clips))
+        .route("/v1/clips/{id}/play", post(play_clip))
+        .route("/v1/clips/{id}/seen", post(seen_clip))
+        .route("/internal/clips", post(internal_clip))
+        .route("/{seg}", get(invite_page))
         .route("/v1/call/start", post(call_start))
         .route("/v1/call/accept", post(call_accept))
         .route("/v1/call/end", post(call_end))

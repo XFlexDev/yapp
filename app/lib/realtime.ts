@@ -7,6 +7,7 @@ import { remoteEnded } from './voice';
 import { haptic } from './haptic';
 import { loadChats, onBackground, onMessage, onRead } from './chat';
 import { loadNotifs } from './notifs';
+import { loadClips, onClip } from './clips';
 import { loadGroups, onGroupMessage, onGroupRead, onGroupUpdated, onLeft } from './groups';
 
 let ws: WebSocket | null = null;
@@ -66,6 +67,7 @@ function onEvent(e: any) {
       if (selected) haptic.poked();
       break;
     }
+    case 'talk_clip': onClip(e.clip); break;
     case 'message': onMessage(e.message); break;
     case 'group_updated': onGroupUpdated(e.group); break;
     case 'group_message': onGroupMessage(e.group_id, e.message); break;
@@ -91,7 +93,7 @@ function connect() {
   if (!t) return;
   const sock = new WebSocket(`${API.replace('https', 'wss')}/v1/stream?access_token=${encodeURIComponent(t)}`);
   ws = sock;
-  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); loadNotifs().catch(() => {}); };
+  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); loadNotifs().catch(() => {}); loadClips().catch(() => {}); };
   sock.onmessage = (m) => { try { onEvent(JSON.parse(String(m.data))); } catch {} };
   sock.onclose = () => {
     if (ws === sock) ws = null;
@@ -115,6 +117,6 @@ export function stopRealtime() {
 
 AppState.addEventListener('change', (s) => {
   if (s === 'active' && !stopped) {
-    if (!ws) { retry = 0; connect(); } else syncAll().catch(() => {});
+    if (!ws) { retry = 0; connect(); } else { syncAll().catch(() => {}); loadClips().catch(() => {}); }
   }
 });

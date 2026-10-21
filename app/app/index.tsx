@@ -19,6 +19,7 @@ import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { haptic } from '../lib/haptic';
+import { playClip } from '../lib/clips';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
 /** iOS renders a uniform `scale` transform pixelated (facebook/react-native#48673); separate X/Y scales stay sharp. */
@@ -337,7 +338,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups, pokedAt, pokedCount, pokeCount } = useStore();
+  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups, pokedAt, pokedCount, pokeCount, clips } = useStore();
   const cam = useStore((s) => !!s.cams.local);
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
@@ -551,10 +552,12 @@ export default function Home() {
   const incomingPokeText = incomingPoke?.friendId === friend.id ? `poked you${incomingPoke.count > 1 ? ` ×${incomingPoke.count}` : ''}` : null;
   const pendingPokeCount = pendingPokeCounts[friend.id] ?? 0;
   const friendActivity = [friend.streak > 0 ? `${friend.streak}` : '', friend.last_talked_at > 0 ? `talked ${relativeTalkedAt(friend.last_talked_at)}` : ''].filter(Boolean).join(' · ');
+  const myClips = clips[friend.id] ?? [];
+  const clipText = !talking && !call && myClips.length ? (myClips.length > 1 ? `play ${myClips.length} missed talks` : `play missed talk · ${Math.max(1, Math.round(myClips[0].ms / 1000))}s`) : null;
   const bubble = call?.state === 'incoming' ? `${nameOf(friend).toLowerCase()} is calling`
     : call?.state === 'outgoing' ? 'calling…'
     : call?.state === 'active' ? 'on call'
-    : talking && connecting ? (showConnecting ? 'connecting' : 'hold to talk') : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
+    : talking && connecting ? (showConnecting ? 'connecting' : 'hold to talk') : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? clipText ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -595,16 +598,16 @@ export default function Home() {
       {call?.state === 'active' ? <LocalVideo top={insets.top + 64} bottom={bottomH + 12} friendId={friend.id} /> : null}
       <View pointerEvents="none" style={{ flex: 1 }} />
       <View onLayout={(e) => setBottomH(e.nativeEvent.layout.height)}>
-      <View style={{ alignItems: 'center', paddingHorizontal: 24 }}>
+      <Pressable disabled={!clipText || !!talkingTo[friend.id]} onPress={() => playClip(friend.id)} style={{ alignItems: 'center', paddingHorizontal: 24 }}>
         <Bubble text={bubble} lock={talking && !connecting && !call} loading={talking && showConnecting && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
-      </View>
+      </Pressable>
         <GestureDetector gesture={swipe}>
         <View style={{ marginBottom: insets.bottom + 6, height: SEL + 34 }}>
         <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2, top: 10, flexDirection: 'row' }, track]}>
           {friends.map((f, i) => {
             const sel = f.id === friend.id;
             return (
-              <Slot key={f.id} i={i} x={sx} sel={sel} dir={Math.sign(i - selIdx)} cp={cp} ca={ca} dim={!sel && !(f.online || talkingTo[f.id])} badge={sel ? 0 : pokeCount[f.id] ?? 0}>
+              <Slot key={f.id} i={i} x={sx} sel={sel} dir={Math.sign(i - selIdx)} cp={cp} ca={ca} dim={!sel && !(f.online || talkingTo[f.id])} badge={sel ? 0 : (pokeCount[f.id] ?? 0) + (clips[f.id]?.length ?? 0)}>
                 {(focus) => (
                   <GestureDetector gesture={sel ? avatarGesture : Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) jump(i); })}>
                     <View collapsable={false}>

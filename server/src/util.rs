@@ -15,6 +15,8 @@ pub struct Config {
     pub mail_api_key: Option<String>,
     pub min_build: i64,
     pub avatar_dir: String,
+    pub rec_url: String,
+    pub rec_secret: Option<String>,
     review: Vec<(String, String)>,
 }
 
@@ -34,6 +36,8 @@ impl Config {
             mail_api_url: v("MAIL_API_URL").unwrap_or_else(|| "https://mail.kreatix.dev/send".into()),
             mail_api_key: v("MAIL_API_KEY"),
             avatar_dir: v("YAP_AVATAR_DIR").unwrap_or_else(|| "avatars".into()),
+            rec_url: v("YAP_RECORDER_URL").unwrap_or_else(|| "http://127.0.0.1:8499".into()),
+            rec_secret: v("YAP_RECORDER_SECRET"),
             min_build: v("YAP_MIN_BUILD").and_then(|s| s.parse().ok()).unwrap_or(1),
             review: v("YAP_REVIEW_CODES")
                 .map(|s| {

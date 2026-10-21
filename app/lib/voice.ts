@@ -6,6 +6,8 @@ import { setSelfTalking, startBackground } from './background';
 import { get, set } from './store';
 
 type Grant = { url: string; room: string; token: string };
+/** Last time each friend was actually heard live while the app was open. */
+export const heardAt: Record<string, number> = {};
 let inbox: Room | null = null;
 let talk: { friendId: string; room: Room; ready: Promise<void> } | null = null;
 let pressed = false;
@@ -55,13 +57,21 @@ async function joinInbox() {
   room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
     // Only ever turn "talking" on here; ptt_stopped turns it off. Speaker detection drops out on pauses.
     const on: Record<string, boolean> = {};
-    speakers.forEach((p) => { if (p.identity !== room.localParticipant.identity) on[p.identity] = true; });
+    speakers.forEach((p) => {
+      if (p.identity === room.localParticipant.identity) return;
+      const id = p.identity.replace(/^clip:/, '');
+      on[id] = true;
+      if (id === p.identity && AppState.currentState === 'active') heardAt[id] = Date.now();
+    });
     if (Object.keys(on).length) set((s) => ({ talkingTo: { ...s.talkingTo, ...on } }));
   });
   for (const ev of [RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted] as const) {
     room.on(ev, (...a: any[]) => syncRemote(a.find((x) => x?.identity && x?.getTrackPublication)));
   }
-  room.on(RoomEvent.ParticipantDisconnected, (p) => dropRemote(p.identity));
+  room.on(RoomEvent.ParticipantDisconnected, (p) => {
+    dropRemote(p.identity);
+    if (p.identity.startsWith('clip:')) { const id = p.identity.slice(5); set((s) => ({ talkingTo: { ...s.talkingTo, [id]: false } })); }
+  });
   room.on(RoomEvent.Disconnected, () => {
     if (inbox !== room) return;
     inbox = null;
