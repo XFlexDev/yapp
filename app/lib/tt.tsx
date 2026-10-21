@@ -176,15 +176,15 @@ export function Heading({ children }: { children: string }) {
 
 export const bigInput = { color: '#fff', fontFamily: F.black, fontSize: 30, textAlign: 'center' as const, minWidth: 60, paddingVertical: 4 };
 
-export function Logo({ size = 170 }: { size?: number }) {
+export function Logo({ size = 170, ch = 'y' }: { size?: number; ch?: string }) {
   const t = { fontFamily: F.black, fontSize: size, lineHeight: size * 1.15, includeFontPadding: false } as const;
   const w = size * 0.05;
   const rings = Array.from({ length: 16 }, (_, i) => [Math.cos((i / 16) * Math.PI * 2) * w, Math.sin((i / 16) * Math.PI * 2) * w]);
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-10deg' }] }}>
-      {rings.map(([x, y], i) => <Text key={i} style={[t, { color: '#000', position: 'absolute', transform: [{ translateX: x + w * 1.1 }, { translateY: y + w * 1.3 }] }]}>y</Text>)}
-      {rings.map(([x, y], i) => <Text key={'o' + i} style={[t, { color: '#000', position: 'absolute', transform: [{ translateX: x }, { translateY: y }] }]}>y</Text>)}
-      <Text style={[t, { color: '#fff' }]}>y</Text>
+      {rings.map(([x, y], i) => <Text key={i} style={[t, { color: '#000', position: 'absolute', transform: [{ translateX: x + w * 1.1 }, { translateY: y + w * 1.3 }] }]}>{ch}</Text>)}
+      {rings.map(([x, y], i) => <Text key={'o' + i} style={[t, { color: '#000', position: 'absolute', transform: [{ translateX: x }, { translateY: y }] }]}>{ch}</Text>)}
+      <Text style={[t, { color: '#fff' }]}>{ch}</Text>
     </View>
   );
 }
