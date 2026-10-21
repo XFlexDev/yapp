@@ -7,6 +7,8 @@ export type Chat = { messages: ChatMsg[]; loaded: boolean; more: boolean; backgr
 export type NotifPrefs = { messages: boolean; talk: boolean; calls: boolean; friends: boolean };
 export type Group = { id: string; name: string; owner: string; background: string | null; members: import('./api').User[]; reads: Record<string, number>; last: ChatMsg | null; unread: number; messages: ChatMsg[]; loaded: boolean; more: boolean };
 
+export type CamRef = import('@livekit/react-native').VideoTrackProps['trackRef'] & {};
+
 type State = {
   status: 'loading' | 'out' | 'in';
   me: Me | null;
@@ -23,11 +25,13 @@ type State = {
   openChat: string | null;
   groups: Record<string, Group>;
   notif: { prefs: NotifPrefs; muted: string[] } | null;
+  cams: { local: CamRef | null; front: boolean; remote: Record<string, CamRef> };
 };
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
   selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
+  cams: { local: null, front: true, remote: {} },
 }));
 
 export const set = useStore.setState;

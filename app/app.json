@@ -12,7 +12,7 @@
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Yapp uses your microphone while you hold to talk.",
         "NSPhotoLibraryUsageDescription": "Pick a profile photo your friends see.",
-        "NSCameraUsageDescription": "Take a profile photo your friends see.",
+        "NSCameraUsageDescription": "Yapp uses your camera for your profile photo and video calls.",
         "UIBackgroundModes": [
           "audio",
           "voip",

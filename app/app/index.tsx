@@ -14,7 +14,8 @@ import { removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
 import { Logo, SPRING, Squish, Swap } from '../lib/tt';
 import { Avatar, Button } from '../lib/ui';
-import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setMuted } from '../lib/voice';
+import { LocalVideo, RemoteVideo } from '../lib/callvideo';
+import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
 const ZZ = require('../assets/tt/zz.png');
 const { width: W, height: H } = Dimensions.get('window');
@@ -31,6 +32,8 @@ const MOVE = LinearTransition.duration(320).easing(out);
 
 const GLYPHS = {
   settings: ['gearshape.fill', 'cog'],
+  video: ['video.fill', 'video'],
+  videoOff: ['video.slash.fill', 'video-off'],
   plus: ['plus', 'plus'],
   sound: ['speaker.wave.2.fill', 'volume-high'],
   muted: ['speaker.slash.fill', 'volume-off'],
@@ -165,7 +168,7 @@ function Round({ g, bg, onPress, size = 64 }: { g: keyof typeof GLYPHS; bg: stri
   );
 }
 
-function CallBar({ incoming, muted, onMute, onEnd, onAccept }: { incoming: boolean; muted: boolean; onMute: () => void; onEnd: () => void; onAccept: () => void }) {
+function CallBar({ incoming, muted, cam, onMute, onCam, onEnd, onAccept }: { incoming: boolean; muted: boolean; cam: boolean; onMute: () => void; onCam: () => void; onEnd: () => void; onAccept: () => void }) {
   return (
     <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={FadeOut.duration(200)} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 28, height: SEL + 34 }}>
       {incoming ? (
@@ -177,7 +180,7 @@ function CallBar({ incoming, muted, onMute, onEnd, onAccept }: { incoming: boole
         <>
           <Round g={muted ? 'micOff' : 'mic'} bg={muted ? '#fff' : 'rgba(255,255,255,0.2)'} onPress={onMute} size={52} />
           <Round g="close" bg={C.red} onPress={onEnd} size={72} />
-          <View style={{ width: 52 }} />
+          <Round g={cam ? 'video' : 'videoOff'} bg={cam ? '#fff' : 'rgba(255,255,255,0.2)'} onPress={onCam} size={52} />
         </>
       )}
     </Animated.View>
@@ -222,6 +225,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 export default function Home() {
   const insets = useSafeAreaInsets();
   const { friends, selectedId, talkingTo, incoming, me, call, chats, groups } = useStore();
+  const cam = useStore((s) => !!s.cams.local);
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
   const [talking, setTalking] = useState(false);
@@ -274,6 +278,7 @@ export default function Home() {
 
   const accept = () => acceptCall().catch((e) => { setNote(String(e?.message ?? 'couldn’t connect').toLowerCase()); endCall(); });
   const toggleMute = () => { Haptics.selectionAsync(); const m = !muted; setMutedState(m); setMuted(m); };
+  const toggleCam = () => { Haptics.selectionAsync(); setCamera(!cam).catch((e) => setNote(String(e?.message ?? 'camera failed').toLowerCase())); };
 
   const toggleDnd = () => {
     Haptics.selectionAsync();
@@ -320,6 +325,7 @@ export default function Home() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop friend={friend} talking={live || !!call} />
+      {call?.state === 'active' ? <RemoteVideo id={friend.id} /> : null}
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }}>
         <TopButton g="settings" onPress={() => router.push('/settings')} />
         <View style={{ flexDirection: 'row' }}>
@@ -335,6 +341,7 @@ export default function Home() {
         </View>
       </View>
       {friend.dnd ? <View style={{ marginTop: 6 }}><DndPill /></View> : null}
+      {call?.state === 'active' ? <LocalVideo top={insets.top + 64} /> : null}
       <View style={{ flex: 1 }} />
       <View style={{ alignItems: 'center', gap: 12, paddingHorizontal: 24 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -347,7 +354,7 @@ export default function Home() {
       </View>
       {call && call.state !== 'outgoing' ? (
         <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10 }}>
-          <CallBar incoming={call.state === 'incoming'} muted={muted} onMute={toggleMute} onEnd={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} onAccept={accept} />
+          <CallBar incoming={call.state === 'incoming'} muted={muted} cam={cam} onCam={toggleCam} onMute={toggleMute} onEnd={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} onAccept={accept} />
         </View>
       ) : call ? (
         <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 28 }}>
