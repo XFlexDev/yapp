@@ -104,6 +104,11 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             created_at INTEGER NOT NULL,
             PRIMARY KEY(user_id, blocked_id)
         );
+        CREATE TABLE IF NOT EXISTS banned_emails(
+            email TEXT PRIMARY KEY,
+            reason TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS reports(
             id TEXT PRIMARY KEY,
             reporter_id TEXT NOT NULL,

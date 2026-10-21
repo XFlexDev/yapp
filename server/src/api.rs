@@ -324,6 +324,9 @@ struct StartReq {
 
 async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Value>> {
     let email = normalize_email(&r.email).ok_or_else(|| bad("Enter a valid email"))?;
+    if is_banned(&st.db(), &email)? {
+        return Err(err(StatusCode::FORBIDDEN, "Banned", "This email was banned from Yapp"));
+    }
     if st.cfg.review_code(&email).is_some() {
         return Ok(Json(json!({ "ok": true })));
     }
@@ -423,6 +426,9 @@ fn issue_tokens(st: &AppState, c: &Connection, uid: &str) -> R<TokenResp> {
 
 async fn auth_confirm(State(st): State<S>, Json(r): Json<ConfirmReq>) -> R<Json<TokenResp>> {
     let email = normalize_email(&r.email).ok_or_else(|| bad("Enter a valid email"))?;
+    if is_banned(&st.db(), &email)? {
+        return Err(err(StatusCode::FORBIDDEN, "Banned", "This email was banned from Yapp"));
+    }
     let code = r.code.trim();
     let c = st.db();
     if let Some(rc) = st.cfg.review_code(&email) {
@@ -552,23 +558,28 @@ async fn patch_me(State(st): State<S>, Authed(uid): Authed, Json(p): Json<PatchM
 }
 
 async fn delete_me(State(st): State<S>, Authed(uid): Authed) -> R<Json<Value>> {
+    delete_account(&st, &uid)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+fn delete_account(st: &S, uid: &str) -> R<()> {
     let friends = {
         let c = st.db();
-        let f = friend_ids(&c, &uid)?;
-        let (av, pf): (Option<String>, Option<String>) = c.query_row("SELECT avatar, pfp FROM users WHERE id=?", [&uid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let f = friend_ids(&c, uid)?;
+        let (av, pf): (Option<String>, Option<String>) = c.query_row("SELECT avatar, pfp FROM users WHERE id=?", [uid], |r| Ok((r.get(0)?, r.get(1)?)))?;
         for a in [av, pf].into_iter().flatten() {
             let _ = std::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(a));
         }
-        c.execute("DELETE FROM messages WHERE a=?1 OR b=?1", [&uid])?;
-        c.execute("DELETE FROM chat_meta WHERE a=?1 OR b=?1", [&uid])?;
-        c.execute("DELETE FROM chat_reads WHERE friend_id=?", [&uid])?;
-        c.execute("DELETE FROM users WHERE id=?", [&uid])?;
+        c.execute("DELETE FROM messages WHERE a=?1 OR b=?1", [uid])?;
+        c.execute("DELETE FROM chat_meta WHERE a=?1 OR b=?1", [uid])?;
+        c.execute("DELETE FROM chat_reads WHERE friend_id=?", [uid])?;
+        c.execute("DELETE FROM users WHERE id=?", [uid])?;
         f
     };
     for f in friends {
         st.hub.send(&f, &json!({ "type": "friendship_deleted", "user_id": uid }));
     }
-    Ok(Json(json!({ "ok": true })))
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -934,7 +945,7 @@ async fn report_user(State(st): State<S>, Authed(me): Authed, Json(r): Json<Repo
         .ok_or_else(|| not_found("No one like that"))?;
     let snapshot: Option<String> = match &r.message_id {
         Some(m) => c
-            .query_row("SELECT body FROM messages WHERE id=? AND from_id=?", [m, &r.user_id], |r| r.get(0))
+            .query_row("SELECT body FROM messages WHERE id=? AND sender=?", [m, &r.user_id], |r| r.get(0))
             .optional()
             .unwrap_or(None),
         None => None,
@@ -945,6 +956,160 @@ async fn report_user(State(st): State<S>, Authed(me): Authed, Json(r): Json<Repo
     )?;
     tracing::warn!(target: "reports", "new report against {}", r.user_id);
     Ok(Json(json!({ "ok": true })))
+}
+
+// ---------- admin ----------
+
+fn is_banned(c: &Connection, email: &str) -> rusqlite::Result<bool> {
+    Ok(c.query_row("SELECT 1 FROM banned_emails WHERE email=?", [email], |_| Ok(())).optional()?.is_some())
+}
+
+struct Admin;
+
+impl FromRequestParts<S> for Admin {
+    type Rejection = ApiError;
+    async fn from_request_parts(parts: &mut Parts, st: &S) -> R<Self> {
+        let Authed(uid) = Authed::from_request_parts(parts, st).await?;
+        let email: String = st.db().query_row("SELECT email FROM users WHERE id=?", [&uid], |r| r.get(0))?;
+        let admins = std::env::var("YAP_ADMINS").unwrap_or_else(|_| "info@kreatix.dev".into());
+        if admins.split(',').any(|a| a.trim().eq_ignore_ascii_case(&email)) {
+            Ok(Admin)
+        } else {
+            Err(err(StatusCode::FORBIDDEN, "Forbidden", "Not an admin"))
+        }
+    }
+}
+
+async fn admin_overview(State(st): State<S>, _: Admin) -> R<Json<Value>> {
+    let c = st.db();
+    let n = |q: &str, p: i64| -> rusqlite::Result<i64> { c.query_row(q, [p], |r| r.get(0)) };
+    let mut q = c.prepare("SELECT id FROM users")?;
+    let online = q.query_map([], |r| r.get::<_, String>(0))?.filter_map(Result::ok).filter(|id| st.hub.online(id)).count();
+    Ok(Json(json!({
+        "users": c.query_row("SELECT COUNT(*) FROM users", [], |r| r.get::<_, i64>(0))?,
+        "online": online,
+        "new_24h": n("SELECT COUNT(*) FROM users WHERE created_at>?", now() - 86_400)?,
+        "messages_24h": n("SELECT COUNT(*) FROM messages WHERE created_at>?", now_ms() - 86_400_000)?,
+        "groups": c.query_row("SELECT COUNT(*) FROM groups", [], |r| r.get::<_, i64>(0))?,
+        "open_reports": c.query_row("SELECT COUNT(*) FROM reports WHERE status='open'", [], |r| r.get::<_, i64>(0))?,
+        "blocks": c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get::<_, i64>(0))?,
+        "banned": c.query_row("SELECT COUNT(*) FROM banned_emails", [], |r| r.get::<_, i64>(0))?,
+    })))
+}
+
+#[derive(Deserialize)]
+struct ReportsQuery {
+    status: Option<String>,
+}
+
+fn user_json(r: &Row, o: usize) -> rusqlite::Result<Value> {
+    let id: Option<String> = r.get(o)?;
+    Ok(match id {
+        None => Value::Null,
+        Some(id) => json!({ "id": id, "username": r.get::<_, Option<String>>(o + 1)?, "display_name": r.get::<_, String>(o + 2)?, "pfp": r.get::<_, Option<String>>(o + 3)?, "avatar": r.get::<_, Option<String>>(o + 4)?, "email": r.get::<_, String>(o + 5)? }),
+    })
+}
+
+async fn admin_reports(State(st): State<S>, _: Admin, Query(q): Query<ReportsQuery>) -> R<Json<Vec<Value>>> {
+    let status = q.status.unwrap_or_else(|| "open".into());
+    let c = st.db();
+    let mut s = c.prepare(
+        "SELECT r.id, r.reason, r.snapshot, r.message_id, r.group_id, r.status, r.created_at, r.target_id,
+                (SELECT COUNT(*) FROM reports x WHERE x.target_id=r.target_id),
+                t.id, t.username, t.display_name, t.pfp, t.avatar, t.email,
+                p.id, p.username, p.display_name, p.pfp, p.avatar, p.email
+         FROM reports r LEFT JOIN users t ON t.id=r.target_id LEFT JOIN users p ON p.id=r.reporter_id
+         WHERE r.status=? ORDER BY r.created_at DESC LIMIT 200",
+    )?;
+    let v = s
+        .query_map([&status], |r| {
+            Ok(json!({
+                "id": r.get::<_, String>(0)?, "reason": r.get::<_, String>(1)?, "snapshot": r.get::<_, Option<String>>(2)?,
+                "message_id": r.get::<_, Option<String>>(3)?, "group_id": r.get::<_, Option<String>>(4)?,
+                "status": r.get::<_, String>(5)?, "created_at": r.get::<_, i64>(6)?, "target_id": r.get::<_, String>(7)?,
+                "target_reports": r.get::<_, i64>(8)?, "target": user_json(r, 9)?, "reporter": user_json(r, 15)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(v))
+}
+
+#[derive(Deserialize)]
+struct ReportStatus {
+    status: String,
+}
+
+async fn admin_report_status(State(st): State<S>, _: Admin, Path(id): Path<String>, Json(r): Json<ReportStatus>) -> R<Json<Value>> {
+    if !matches!(r.status.as_str(), "open" | "dismissed" | "actioned") {
+        return Err(bad("Unknown status"));
+    }
+    st.db().execute("UPDATE reports SET status=? WHERE id=?", [&r.status, &id])?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct BanReq {
+    reason: Option<String>,
+}
+
+async fn admin_ban(State(st): State<S>, _: Admin, Path(uid): Path<String>, Json(r): Json<BanReq>) -> R<Json<Value>> {
+    let email: String = st
+        .db()
+        .query_row("SELECT email FROM users WHERE id=?", [&uid], |r| r.get(0))
+        .optional()?
+        .ok_or_else(|| not_found("No such user"))?;
+    {
+        let c = st.db();
+        c.execute(
+            "INSERT OR REPLACE INTO banned_emails(email, reason, created_at) VALUES(?, ?, ?)",
+            params![email, r.reason.unwrap_or_default().chars().take(300).collect::<String>(), now()],
+        )?;
+        c.execute("UPDATE reports SET status='actioned' WHERE target_id=? AND status='open'", [&uid])?;
+    }
+    delete_account(&st, &uid)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn admin_bans(State(st): State<S>, _: Admin) -> R<Json<Vec<Value>>> {
+    let c = st.db();
+    let mut s = c.prepare("SELECT email, reason, created_at FROM banned_emails ORDER BY created_at DESC LIMIT 500")?;
+    let v = s
+        .query_map([], |r| Ok(json!({ "email": r.get::<_, String>(0)?, "reason": r.get::<_, String>(1)?, "created_at": r.get::<_, i64>(2)? })))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(v))
+}
+
+async fn admin_unban(State(st): State<S>, _: Admin, Path(email): Path<String>) -> R<Json<Value>> {
+    st.db().execute("DELETE FROM banned_emails WHERE email=?", [email.to_lowercase()])?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct UserSearch {
+    q: Option<String>,
+}
+
+async fn admin_users(State(st): State<S>, _: Admin, Query(q): Query<UserSearch>) -> R<Json<Vec<Value>>> {
+    let term = format!("%{}%", q.q.unwrap_or_default().trim().trim_start_matches('@').to_lowercase());
+    let c = st.db();
+    let mut s = c.prepare(
+        "SELECT u.id, u.username, u.display_name, u.pfp, u.avatar, u.email, u.created_at,
+                (SELECT COUNT(*) FROM reports r WHERE r.target_id=u.id),
+                (SELECT COUNT(*) FROM friendships f WHERE f.a=u.id OR f.b=u.id)
+         FROM users u WHERE lower(coalesce(u.username,'')) LIKE ?1 OR lower(u.email) LIKE ?1 OR lower(u.display_name) LIKE ?1
+         ORDER BY u.created_at DESC LIMIT 100",
+    )?;
+    let v = s
+        .query_map([&term], |r| {
+            let mut u = user_json(r, 0)?;
+            u["created_at"] = json!(r.get::<_, i64>(6)?);
+            u["reports"] = json!(r.get::<_, i64>(7)?);
+            u["friends"] = json!(r.get::<_, i64>(8)?);
+            u["online"] = json!(st.hub.online(&r.get::<_, String>(0)?));
+            Ok(u)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(v))
 }
 
 // ---------- devices ----------
@@ -1580,6 +1745,13 @@ pub fn router(st: S) -> Router {
         .route("/v1/blocks", get(list_blocks).post(block_user))
         .route("/v1/blocks/{id}", axum::routing::delete(unblock_user))
         .route("/v1/reports", post(report_user))
+        .route("/v1/admin/overview", get(admin_overview))
+        .route("/v1/admin/reports", get(admin_reports))
+        .route("/v1/admin/reports/{id}", post(admin_report_status))
+        .route("/v1/admin/users", get(admin_users))
+        .route("/v1/admin/users/{id}/ban", post(admin_ban))
+        .route("/v1/admin/bans", get(admin_bans))
+        .route("/v1/admin/bans/{email}", axum::routing::delete(admin_unban))
         .route("/v1/devices", post(add_device).delete(remove_device))
         .route("/v1/notifications", get(get_notifs).put(put_notifs))
         .route("/v1/notifications/mute", put(put_mute))
