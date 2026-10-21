@@ -7,16 +7,21 @@ import { F } from './theme';
 const W = Dimensions.get('window').width;
 const BG = '#FF1F1F';
 const WORD = ['y', 'a', 'p', 'p'];
-const STEP = 85;
-const DROP = { damping: 15, stiffness: 190, mass: 0.9 };
+const STEP = 110;
+const SLIDE = { duration: 460, easing: Easing.out(Easing.cubic) };
+const DROP = { damping: 16, stiffness: 210, mass: 1 };
 let played = false;
 
 function Letter({ ch, i }: { ch: string; i: number }) {
-  const t = useSharedValue(0);
-  useEffect(() => { t.value = withDelay(i * STEP, withSpring(1, DROP)); }, []);
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  useEffect(() => {
+    x.value = withDelay(i * STEP, withTiming(1, SLIDE));
+    y.value = withDelay(i * STEP + 60, withSpring(1, DROP));
+  }, []);
   const st = useAnimatedStyle(() => ({
-    opacity: Math.min(1, t.value * 3),
-    transform: [{ translateX: (1 - t.value) * W * 0.7 }, { translateY: (1 - t.value) * -28 }],
+    opacity: Math.min(1, x.value * 4),
+    transform: [{ translateX: (1 - x.value) * W * 0.6 }, { translateY: (1 - y.value) * -64 }],
   }));
   return <Animated.Text style={[s.letter, st]}>{ch}</Animated.Text>;
 }
@@ -29,12 +34,12 @@ export function Intro() {
     if (!on) return;
     played = true;
     const done = () => setOn(false);
-    out.value = withDelay(WORD.length * STEP + 650, withTiming(1, { duration: 280, easing: Easing.out(Easing.quad) }, (finished) => {
+    out.value = withDelay(WORD.length * STEP + 820, withTiming(1, { duration: 240, easing: Easing.out(Easing.quad) }, (finished) => {
       if (finished) scheduleOnRN(done);
     }));
   }, []);
   const fade = useAnimatedStyle(() => ({ opacity: 1 - out.value }));
-  const word = useAnimatedStyle(() => ({ transform: [{ scale: 1 + out.value * 0.08 }] }));
+  const word = useAnimatedStyle(() => ({ transform: [{ scale: 1 + out.value * 0.06 }] }));
   if (!on) return null;
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.wrap, fade]}>
@@ -48,5 +53,5 @@ export function Intro() {
 const s = StyleSheet.create({
   wrap: { backgroundColor: BG, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row' },
-  letter: { color: '#fff', fontFamily: F.black, fontSize: 92, letterSpacing: -2, includeFontPadding: false },
+  letter: { color: '#fff', fontFamily: F.black, fontSize: 83, letterSpacing: -3, includeFontPadding: false },
 });

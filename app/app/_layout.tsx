@@ -17,6 +17,7 @@ import { startUpdates } from '../lib/updates';
 import { startListening, stopVoice } from '../lib/voice';
 
 SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({ fade: true, duration: 200 });
 startUpdates();
 
 export function signOutLocal() {
