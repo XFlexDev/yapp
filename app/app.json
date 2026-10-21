@@ -45,7 +45,8 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE"
       ],
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -80,7 +81,8 @@
           "color": "#FF1F1F"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "./plugins/with-pinning"
     ],
     "scheme": "yapp",
     "owner": "kreatix",

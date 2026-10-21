@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "973310368097",
+    "project_id": "yapp-kreatix",
+    "storage_bucket": "yapp-kreatix.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:973310368097:android:fe5b5a8bc02b652e28cd20",
+        "android_client_info": {
+          "package_name": "dev.kreatix.yapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBIiWcoTSMheLi0cj4zkM5jpK-tN3i0DUQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
