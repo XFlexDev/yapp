@@ -80,27 +80,30 @@ function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
   );
 }
 
-const DARK = 'rgba(16,16,16,0.82)';
+const DARK = '#1a1a1a';
+const MORPH = { damping: 28, stiffness: 300, mass: 1 };
 
-/** One pill that morphs: white "hold to talk" bubble -> dark "slide up to lock" -> red as you slide. */
+/** One liquid pill: white "hold to talk" -> dark "slide up to lock" -> red as you slide. The tail is part of the same body and melts into it. */
 function Bubble({ text, lock, lift }: { text: string; lock: boolean; lift: { value: number } }) {
   const m = useSharedValue(lock ? 1 : 0);
-  useEffect(() => { m.value = withTiming(lock ? 1 : 0, { duration: 240, easing: out }); }, [lock]);
-  const pill = useAnimatedStyle(() => ({
-    backgroundColor: lift.value > 0.001 && m.value > 0.5 ? interpolateColor(lift.value, [0, 1], [DARK, C.red]) : interpolateColor(m.value, [0, 1], ['#ffffff', DARK]),
-    transform: [{ translateY: -lift.value * m.value * 16 }, { scale: 1 + lift.value * m.value * 0.06 }],
-  }));
+  useEffect(() => { m.value = withSpring(lock ? 1 : 0, MORPH); }, [lock]);
+  const fill = () => {
+    'worklet';
+    return interpolateColor(lift.value * m.value, [0, 1], [interpolateColor(m.value, [0, 1], ['#ffffff', DARK]), C.red]);
+  };
+  const body = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value * m.value * 16 }, { scale: 1 + lift.value * m.value * 0.06 }] }));
+  const pill = useAnimatedStyle(() => ({ backgroundColor: fill() }));
+  const tail = useAnimatedStyle(() => ({ backgroundColor: fill(), transform: [{ translateY: -m.value * 10 }, { rotate: '45deg' }, { scale: 1 - m.value * 0.5 }] }));
   const ink = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']) }));
-  const icon = useAnimatedStyle(() => ({ width: m.value * 21, opacity: m.value }));
-  const tail = useAnimatedStyle(() => ({ opacity: 1 - m.value }));
+  const icon = useAnimatedStyle(() => ({ width: Math.max(0, m.value) * 21, opacity: Math.min(1, Math.max(0, m.value)) }));
   return (
-    <View style={{ alignItems: 'center' }}>
-      <Animated.View layout={LinearTransition.duration(260).easing(out)} style={[{ height: 34, paddingHorizontal: 16, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, pill]}>
+    <Animated.View style={[{ alignItems: 'center' }, body]}>
+      <Animated.View layout={LinearTransition.springify().damping(MORPH.damping).stiffness(MORPH.stiffness)} style={[{ zIndex: 2, height: 34, paddingHorizontal: 16, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, pill]}>
         <Animated.View style={[{ overflow: 'hidden', alignItems: 'flex-start' }, icon]}><Glyph g="lock" size={14} /></Animated.View>
         <Swap text={text} style={[{ fontFamily: F.black, fontSize: 15 }, ink]} />
       </Animated.View>
-      <Animated.View style={[{ width: 12, height: 12, backgroundColor: '#fff', borderRadius: 2, marginTop: -8, transform: [{ rotate: '45deg' }] }, tail]} />
-    </View>
+      <Animated.View style={[{ zIndex: 1, width: 13, height: 13, borderRadius: 3, marginTop: -9 }, tail]} />
+    </Animated.View>
   );
 }
 
