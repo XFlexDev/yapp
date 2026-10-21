@@ -82,6 +82,7 @@ struct PublicUser {
     display_name: String,
     color: i64,
     avatar: Option<String>,
+    pfp: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +93,7 @@ struct Me {
     display_name: String,
     color: i64,
     avatar: Option<String>,
+    pfp: Option<String>,
     dnd: bool,
 }
 
@@ -104,10 +106,10 @@ struct Friend {
     since: i64,
 }
 
-const USER_COLS: &str = "u.id, u.username, u.display_name, u.color, u.avatar";
+const USER_COLS: &str = "u.id, u.username, u.display_name, u.color, u.avatar, u.pfp";
 
 fn row_user(r: &Row, o: usize) -> rusqlite::Result<PublicUser> {
-    Ok(PublicUser { id: r.get(o)?, username: r.get(o + 1)?, display_name: r.get(o + 2)?, color: r.get(o + 3)?, avatar: r.get(o + 4)? })
+    Ok(PublicUser { id: r.get(o)?, username: r.get(o + 1)?, display_name: r.get(o + 2)?, color: r.get(o + 3)?, avatar: r.get(o + 4)?, pfp: r.get(o + 5)? })
 }
 
 fn public_user(c: &Connection, id: &str) -> R<PublicUser> {
@@ -118,7 +120,7 @@ fn public_user(c: &Connection, id: &str) -> R<PublicUser> {
 
 fn me_of(c: &Connection, id: &str) -> R<Me> {
     c.query_row(
-        "SELECT id, email, username, display_name, color, dnd, avatar FROM users WHERE id=?",
+        "SELECT id, email, username, display_name, color, dnd, avatar, pfp FROM users WHERE id=?",
         [id],
         |r| {
             Ok(Me {
@@ -129,6 +131,7 @@ fn me_of(c: &Connection, id: &str) -> R<Me> {
                 color: r.get(4)?,
                 dnd: r.get::<_, i64>(5)? != 0,
                 avatar: r.get(6)?,
+                pfp: r.get(7)?,
             })
         },
     )
@@ -158,8 +161,8 @@ fn friend_view(st: &AppState, c: &Connection, viewer: &str, other: &str) -> R<Fr
             Ok(Friend {
                 user: row_user(r, 0)?,
                 online: st.hub.online(other),
-                dnd: r.get::<_, i64>(5)? != 0,
-                since: r.get(6)?,
+                dnd: r.get::<_, i64>(6)? != 0,
+                since: r.get(7)?,
             })
         },
     )
@@ -463,7 +466,7 @@ async fn patch_me(State(st): State<S>, Authed(uid): Authed, Json(p): Json<PatchM
     };
     let ev = json!({
         "type": "friend_profile_updated",
-        "user": PublicUser { id: me.id.clone(), username: me.username.clone(), display_name: me.display_name.clone(), color: me.color, avatar: me.avatar.clone() },
+        "user": PublicUser { id: me.id.clone(), username: me.username.clone(), display_name: me.display_name.clone(), color: me.color, avatar: me.avatar.clone(), pfp: me.pfp.clone() },
     });
     for f in friends {
         st.hub.send(&f, &ev);
@@ -475,8 +478,8 @@ async fn delete_me(State(st): State<S>, Authed(uid): Authed) -> R<Json<Value>> {
     let friends = {
         let c = st.db();
         let f = friend_ids(&c, &uid)?;
-        let av: Option<String> = c.query_row("SELECT avatar FROM users WHERE id=?", [&uid], |r| r.get(0))?;
-        if let Some(a) = av {
+        let (av, pf): (Option<String>, Option<String>) = c.query_row("SELECT avatar, pfp FROM users WHERE id=?", [&uid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        for a in [av, pf].into_iter().flatten() {
             let _ = std::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(a));
         }
         c.execute("DELETE FROM users WHERE id=?", [&uid])?;
@@ -509,25 +512,40 @@ fn valid_avatar_name(f: &str) -> bool {
 }
 
 async fn put_avatar(State(st): State<S>, Authed(uid): Authed, body: axum::body::Bytes) -> R<Json<Me>> {
+    save_photo(&st, &uid, &body, false).await
+}
+
+async fn put_pfp(State(st): State<S>, Authed(uid): Authed, body: axum::body::Bytes) -> R<Json<Me>> {
+    save_photo(&st, &uid, &body, true).await
+}
+
+/// The full 9:16 photo lives in `avatar`, the square crop in `pfp`. A new full photo clears the old crop.
+async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>> {
     if body.len() < 100 || !body.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return Err(bad("Upload a JPEG photo"));
     }
     let name = format!("{uid}-{}.jpg", &random_token()[..12]);
     let dir = std::path::PathBuf::from(&st.cfg.avatar_dir);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| { tracing::error!(error = %e, "avatar dir"); bad("Couldn't save photo") })?;
-    tokio::fs::write(dir.join(&name), &body).await.map_err(|e| { tracing::error!(error = %e, "avatar write"); bad("Couldn't save photo") })?;
+    tokio::fs::write(dir.join(&name), body).await.map_err(|e| { tracing::error!(error = %e, "avatar write"); bad("Couldn't save photo") })?;
     let (old, me, friends) = {
         let c = st.db();
-        let old: Option<String> = c.query_row("SELECT avatar FROM users WHERE id=?", [&uid], |r| r.get(0))?;
-        c.execute("UPDATE users SET avatar=? WHERE id=?", [&name, &uid])?;
-        (old, me_of(&c, &uid)?, friend_ids(&c, &uid)?)
+        let (av, pf): (Option<String>, Option<String>) = c.query_row("SELECT avatar, pfp FROM users WHERE id=?", [uid], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let old: Vec<String> = if square {
+            c.execute("UPDATE users SET pfp=? WHERE id=?", [&name, uid])?;
+            pf.into_iter().collect()
+        } else {
+            c.execute("UPDATE users SET avatar=?, pfp=NULL WHERE id=?", [&name, uid])?;
+            [av, pf].into_iter().flatten().collect()
+        };
+        (old, me_of(&c, uid)?, friend_ids(&c, uid)?)
     };
-    if let Some(o) = old {
+    for o in old {
         let _ = tokio::fs::remove_file(dir.join(o)).await;
     }
     let ev = json!({
         "type": "friend_profile_updated",
-        "user": PublicUser { id: me.id.clone(), username: me.username.clone(), display_name: me.display_name.clone(), color: me.color, avatar: me.avatar.clone() },
+        "user": PublicUser { id: me.id.clone(), username: me.username.clone(), display_name: me.display_name.clone(), color: me.color, avatar: me.avatar.clone(), pfp: me.pfp.clone() },
     });
     for f in friends {
         st.hub.send(&f, &ev);
@@ -570,7 +588,7 @@ async fn list_friends(State(st): State<S>, Authed(uid): Authed) -> R<Json<Vec<Fr
     let v = s
         .query_map([&uid], |r| {
             let user = row_user(r, 0)?;
-            Ok(Friend { online: st.hub.online(&user.id), user, dnd: r.get::<_, i64>(5)? != 0, since: r.get(6)? })
+            Ok(Friend { online: st.hub.online(&user.id), user, dnd: r.get::<_, i64>(6)? != 0, since: r.get(7)? })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Json(v))
@@ -923,6 +941,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/auth/logout", post(auth_logout))
         .route("/v1/me", get(get_me).patch(patch_me).delete(delete_me))
         .route("/v1/me/avatar", put(put_avatar).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
+        .route("/v1/me/pfp", put(put_pfp).layer(DefaultBodyLimit::max(1024 * 1024)))
         .route("/avatars/{file}", get(get_avatar))
         .route("/v1/status", put(set_status))
         .route("/v1/users/{username}", get(lookup_user))
