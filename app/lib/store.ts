@@ -18,6 +18,7 @@ type State = {
   selectedId: string | null;
   talkingTo: Record<string, boolean>; // friend id -> they are talking to me
   pokedAt: Record<string, number>;
+  pokedCount: Record<string, number>;
   pokeCount: Record<string, number>;
   call: { friendId: string; state: 'outgoing' | 'incoming' | 'active'; since: number } | null;
   connected: boolean;
@@ -30,7 +31,7 @@ type State = {
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
   cams: { local: null, front: true, remote: {} },
 }));
 
@@ -44,6 +45,14 @@ export function patchFriend(id: string, p: Partial<Friend>) {
   set((s) => ({ friends: s.friends.map((f) => (f.id === id ? { ...f, ...p } : f)) }));
 }
 export function patchUser(u: User) { patchFriend(u.id, u); }
+export function clearPokeCount(id: string) {
+  set((s) => {
+    if (!(id in s.pokeCount)) return {};
+    const pokeCount = { ...s.pokeCount };
+    delete pokeCount[id];
+    return { pokeCount };
+  });
+}
 export function removeFriend(id: string) {
   set((s) => {
     const friends = s.friends.filter((f) => f.id !== id);

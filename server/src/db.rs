@@ -36,6 +36,17 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             created_at INTEGER NOT NULL,
             PRIMARY KEY(a, b)
         );
+        CREATE TABLE IF NOT EXISTS streaks(
+            a TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            b TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            a_day INTEGER NOT NULL DEFAULT 0,
+            b_day INTEGER NOT NULL DEFAULT 0,
+            day INTEGER NOT NULL DEFAULT 0,
+            current INTEGER NOT NULL DEFAULT 0,
+            longest INTEGER NOT NULL DEFAULT 0,
+            last_talked INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(a, b)
+        );
         CREATE TABLE IF NOT EXISTS friend_requests(
             id TEXT PRIMARY KEY,
             from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

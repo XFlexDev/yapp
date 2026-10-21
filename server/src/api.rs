@@ -104,6 +104,8 @@ struct Friend {
     online: bool,
     dnd: bool,
     since: i64,
+    streak: i64,
+    last_talked_at: i64,
 }
 
 const USER_COLS: &str = "u.id, u.username, u.display_name, u.color, u.avatar, u.pfp";
@@ -162,17 +164,25 @@ fn blocked_either(c: &Connection, x: &str, y: &str) -> rusqlite::Result<bool> {
 
 fn friend_view(st: &AppState, c: &Connection, viewer: &str, other: &str) -> R<Friend> {
     let (a, b) = db::pair(viewer, other);
+    let today = now_ms() / 86_400_000;
     c.query_row(
         &format!(
-            "SELECT {USER_COLS}, u.dnd, f.created_at FROM friendships f JOIN users u ON u.id=?3 WHERE f.a=?1 AND f.b=?2"
+            "SELECT {USER_COLS}, u.dnd, f.created_at,
+             CASE WHEN COALESCE(s.day, 0)>=?4 THEN COALESCE(s.current, 0) ELSE 0 END,
+             COALESCE(s.last_talked, 0)
+             FROM friendships f JOIN users u ON u.id=?3
+             LEFT JOIN streaks s ON s.a=f.a AND s.b=f.b
+             WHERE f.a=?1 AND f.b=?2"
         ),
-        [a, b, other],
+        params![a, b, other, today - 1],
         |r| {
             Ok(Friend {
                 user: row_user(r, 0)?,
                 online: st.hub.online(other),
                 dnd: r.get::<_, i64>(6)? != 0,
                 since: r.get(7)?,
+                streak: r.get(8)?,
+                last_talked_at: r.get(9)?,
             })
         },
     )
@@ -182,6 +192,11 @@ fn friend_view(st: &AppState, c: &Connection, viewer: &str, other: &str) -> R<Fr
 
 fn status_event(st: &AppState, uid: &str, dnd: bool) -> Value {
     json!({ "type": "friend_status_updated", "user_id": uid, "online": st.hub.online(uid), "dnd": dnd })
+}
+
+fn broadcast_streak(st: &S, me: &str, other: &str, streak: i64, last_talked_at: i64) {
+    st.hub.send(me, &json!({ "type": "streak_updated", "user_id": other, "streak": streak, "last_talked_at": last_talked_at }));
+    st.hub.send(other, &json!({ "type": "streak_updated", "user_id": me, "streak": streak, "last_talked_at": last_talked_at }));
 }
 
 fn broadcast_status(st: &S, uid: &str) {
@@ -707,15 +722,27 @@ async fn lookup_user(State(st): State<S>, Authed(me): Authed, Path(username): Pa
 
 async fn list_friends(State(st): State<S>, Authed(uid): Authed) -> R<Json<Vec<Friend>>> {
     let c = st.db();
+    let today = now_ms() / 86_400_000;
     let mut s = c.prepare(&format!(
-        "SELECT {USER_COLS}, u.dnd, f.created_at FROM friendships f
+        "SELECT {USER_COLS}, u.dnd, f.created_at,
+         CASE WHEN COALESCE(s.day, 0)>=?2 THEN COALESCE(s.current, 0) ELSE 0 END,
+         COALESCE(s.last_talked, 0)
+         FROM friendships f
          JOIN users u ON u.id = CASE WHEN f.a=?1 THEN f.b ELSE f.a END
+         LEFT JOIN streaks s ON s.a=f.a AND s.b=f.b
          WHERE f.a=?1 OR f.b=?1 ORDER BY f.created_at DESC"
     ))?;
     let v = s
-        .query_map([&uid], |r| {
+        .query_map(params![uid, today - 1], |r| {
             let user = row_user(r, 0)?;
-            Ok(Friend { online: st.hub.online(&user.id), user, dnd: r.get::<_, i64>(6)? != 0, since: r.get(7)? })
+            Ok(Friend {
+                online: st.hub.online(&user.id),
+                user,
+                dnd: r.get::<_, i64>(6)? != 0,
+                since: r.get(7)?,
+                streak: r.get(8)?,
+                last_talked_at: r.get(9)?,
+            })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Json(v))
@@ -1177,16 +1204,21 @@ async fn rtc_focus(State(st): State<S>, Authed(me): Authed, Json(r): Json<Friend
 }
 
 async fn ptt_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
-    let (u, dnd) = {
+    let (u, dnd, streak) = {
         let c = st.db();
         if !are_friends(&c, &me, &r.friend_id)? {
             return Err(not_friends());
         }
         let dnd: i64 = c.query_row("SELECT dnd FROM users WHERE id=?", [&r.friend_id], |r| r.get(0))?;
-        (public_user(&c, &me)?, dnd != 0)
+        let u = public_user(&c, &me)?;
+        let streak = if dnd == 0 { Some(touch_streak(&c, &me, &r.friend_id)?) } else { None };
+        (u, dnd != 0, streak)
     };
     if dnd {
         return Err(err(StatusCode::CONFLICT, "FriendUnavailable", "They're on do not disturb"));
+    }
+    if let Some((current, last_talked_at)) = streak {
+        broadcast_streak(&st, &me, &r.friend_id, current, last_talked_at);
     }
     let online = st.hub.online(&r.friend_id);
     st.hub.send(&r.friend_id, &json!({ "type": "ptt_started", "from": &u }));
@@ -1266,7 +1298,16 @@ async fn call_signal(st: &S, me: &str, friend: &str, kind: &str) -> R<Json<Value
 }
 
 async fn call_accept(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
-    call_signal(&st, &me, &r.friend_id, "call_accepted").await
+    let (streak, last_talked_at) = {
+        let c = st.db();
+        if !are_friends(&c, &me, &r.friend_id)? {
+            return Err(not_friends());
+        }
+        touch_streak(&c, &me, &r.friend_id)?
+    };
+    st.hub.send(&r.friend_id, &json!({ "type": "call_accepted", "from_id": me }));
+    broadcast_streak(&st, &me, &r.friend_id, streak, last_talked_at);
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn call_end(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
@@ -1293,6 +1334,35 @@ fn row_msg(r: &Row) -> rusqlite::Result<ChatMsg> {
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+fn touch_streak(c: &Connection, me: &str, other: &str) -> R<(i64, i64)> {
+    touch_streak_at(c, me, other, now_ms())
+}
+
+fn touch_streak_at(c: &Connection, me: &str, other: &str, now: i64) -> R<(i64, i64)> {
+    const DAY_MS: i64 = 86_400_000;
+    let today = now / DAY_MS;
+    let (a, b) = db::pair(me, other);
+    let tx = c.unchecked_transaction()?;
+    tx.execute("INSERT OR IGNORE INTO streaks(a, b) VALUES (?1, ?2)", params![a, b])?;
+    let side = if me == a { "a_day" } else { "b_day" };
+    tx.execute(
+        &format!("UPDATE streaks SET {side}=?3, last_talked=?4 WHERE a=?1 AND b=?2"),
+        params![a, b, today, now],
+    )?;
+    let (a_day, b_day, mut day, mut current, mut longest): (i64, i64, i64, i64, i64) =
+        tx.query_row("SELECT a_day, b_day, day, current, longest FROM streaks WHERE a=?1 AND b=?2", params![a, b], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?;
+    if a_day == today && b_day == today && day != today {
+        current = if day == today - 1 { current + 1 } else { 1 };
+        day = today;
+        longest = longest.max(current);
+    }
+    tx.execute("UPDATE streaks SET day=?3, current=?4, longest=?5 WHERE a=?1 AND b=?2", params![a, b, day, current, longest])?;
+    tx.commit()?;
+    Ok((if day >= today - 1 { current } else { 0 }, now))
 }
 
 fn read_at(c: &Connection, user: &str, friend: &str) -> rusqlite::Result<i64> {
@@ -1787,4 +1857,33 @@ pub fn router(st: S) -> Router {
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(st)
+}
+
+#[cfg(test)]
+mod streak_tests {
+    use super::*;
+
+    #[test]
+    fn streaks_require_both_sides_each_day_and_keep_the_longest() {
+        const DAY_MS: i64 = 86_400_000;
+        let c = db::open(":memory:").unwrap();
+        c.execute("INSERT INTO users(id, email, created_at) VALUES (?1, ?2, 0)", params!["a", "a@example.com"]).unwrap();
+        c.execute("INSERT INTO users(id, email, created_at) VALUES (?1, ?2, 0)", params!["b", "b@example.com"]).unwrap();
+        let day = 20_000;
+        let first = day * DAY_MS + 1234;
+
+        assert_eq!(touch_streak_at(&c, "a", "b", first).unwrap_or_else(|_| panic!("streak update failed")), (0, first));
+        assert_eq!(touch_streak_at(&c, "b", "a", first + 1).unwrap_or_else(|_| panic!("streak update failed")).0, 1);
+
+        let next_day = first + DAY_MS;
+        assert_eq!(touch_streak_at(&c, "a", "b", next_day).unwrap_or_else(|_| panic!("streak update failed")).0, 1);
+        assert_eq!(touch_streak_at(&c, "b", "a", next_day + 1).unwrap_or_else(|_| panic!("streak update failed")).0, 2);
+
+        let after_skip = next_day + 2 * DAY_MS;
+        assert_eq!(touch_streak_at(&c, "a", "b", after_skip).unwrap_or_else(|_| panic!("streak update failed")).0, 0);
+        assert_eq!(touch_streak_at(&c, "b", "a", after_skip + 1).unwrap_or_else(|_| panic!("streak update failed")).0, 1);
+        let (a, b) = db::pair("a", "b");
+        let longest: i64 = c.query_row("SELECT longest FROM streaks WHERE a=?1 AND b=?2", params![a, b], |r| r.get(0)).unwrap();
+        assert_eq!(longest, 2);
+    }
 }

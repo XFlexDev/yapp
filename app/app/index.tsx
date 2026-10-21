@@ -7,10 +7,10 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, avatarUrl, nameOf, req, type Friend, type Me } from '../lib/api';
-import { removeFriend, set, useStore } from '../lib/store';
+import { clearPokeCount, removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
 import { Logo, SPRING, Squish, Swap } from '../lib/tt';
 import { Avatar, Button } from '../lib/ui';
@@ -31,6 +31,17 @@ const out = Easing.bezier(0.23, 1, 0.32, 1);
 const DND = '#FF9F0A';
 const MOON = '#5E5CE6';
 const MOVE = LinearTransition.duration(320).easing(out);
+
+function relativeTalkedAt(at: number) {
+  const minutes = Math.floor(Math.max(0, Date.now() - at) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return `${Math.floor(days / 7)}w ago`;
+}
 
 const GLYPHS = {
   settings: ['gearshape.fill', 'cog'],
@@ -104,15 +115,19 @@ function Zzz() {
   );
 }
 
-function TalkAvatar({ friend, talking, hearing }: { friend: Friend; talking: boolean; hearing: boolean }) {
+function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number> }) {
   const press = useSharedValue(0);
   const ripple = useSharedValue(0);
+  const wobble = useSharedValue(0);
   useEffect(() => { press.value = withSpring(talking ? 1 : 0, SPRING); }, [talking]);
+  useEffect(() => {
+    if (pokeAt) wobble.value = withSequence(withSpring(6, SPRING), withSpring(-6, SPRING), withSpring(0, SPRING));
+  }, [pokeAt]);
   useEffect(() => {
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
-  const body = useAnimatedStyle(() => ({ transform: [{ scale: (1 + press.value * 0.1) / GROW }] }));
+  const body = useAnimatedStyle(() => ({ transform: [{ rotate: `${wobble.value}deg` }, { scale: ((1 + press.value * 0.1) / GROW) * pokeSquish.value }] }));
   const ring = useAnimatedStyle(() => ({ borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
   const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
   const size = Math.round((SEL + 14) * GROW);
@@ -126,6 +141,15 @@ function TalkAvatar({ friend, talking, hearing }: { friend: Friend; talking: boo
       {friend.dnd ? <Zzz /> : <Dot friend={friend} size={20} />}
     </Animated.View>
     </View>
+  );
+}
+
+function PokeBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} pointerEvents="none" style={{ position: 'absolute', top: -5, right: -8, minWidth: 22, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: '#000', fontFamily: F.black, fontSize: 11 }}>×{count}</Text>
+    </Animated.View>
   );
 }
 
@@ -229,7 +253,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups } = useStore();
+  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups, pokedAt, pokedCount, pokeCount } = useStore();
   const cam = useStore((s) => !!s.cams.local);
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
@@ -237,14 +261,26 @@ export default function Home() {
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const [muted, setMutedState] = useState(false);
+  const [incomingPoke, setIncomingPoke] = useState<{ friendId: string; count: number; at: number } | null>(null);
+  const [pendingPokeCounts, setPendingPokeCounts] = useState<Record<string, number>>({});
+  const pendingPokes = useRef<Record<string, { count: number; timer: ReturnType<typeof setTimeout> }>>({});
   const scroll = useRef<any>(null);
   const locked = useRef(false);
   const lift = useSharedValue(0);
+  const pokeSquish = useSharedValue(1);
   useEffect(() => { if (friend) focusFriend(friend.id); }, [friend?.id]);
   useEffect(() => {
     const id = Object.keys(talkingTo).find((k) => talkingTo[k]);
-    if (id && !talking && !call) set({ selectedId: id });
+    if (id && !talking && !call) { set({ selectedId: id }); clearPokeCount(id); }
   }, [talkingTo]);
+  useEffect(() => {
+    if (!friend) { setIncomingPoke(null); return; }
+    const at = pokedAt[friend.id] ?? 0;
+    if (!at || at + 2500 <= Date.now()) { setIncomingPoke(null); return; }
+    setIncomingPoke({ friendId: friend.id, count: pokedCount[friend.id] || 1, at });
+    const timer = setTimeout(() => setIncomingPoke((current) => current?.at === at ? null : current), at + 2500 - Date.now());
+    return () => clearTimeout(timer);
+  }, [friend?.id, pokedAt[friend?.id ?? ''], pokedCount[friend?.id ?? '']]);
   useEffect(() => { if (note) { const t = setTimeout(() => setNote(null), 2200); return () => clearTimeout(t); } }, [note]);
   useEffect(() => {
     if (call) return;
@@ -276,10 +312,34 @@ export default function Home() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     releaseTalk(friend.id);
   };
-  const hold = Gesture.Pan().activateAfterLongPress(80).runOnJS(true)
+  const hold = Gesture.Pan().activateAfterLongPress(200).runOnJS(true)
     .onStart(start)
     .onUpdate((e) => { if (locked.current) return; const v = Math.min(1, Math.max(0, -e.translationY / LOCK_AT)); lift.value = v; if (v >= 1) lock(); })
     .onFinalize(stop);
+  const flushPokes = (friendId: string) => {
+    const batch = pendingPokes.current[friendId];
+    if (!batch) return;
+    clearTimeout(batch.timer);
+    delete pendingPokes.current[friendId];
+    setPendingPokeCounts((counts) => { const next = { ...counts }; delete next[friendId]; return next; });
+    req('/v1/poke', { method: 'POST', body: { friend_id: friendId, count: batch.count } }).catch((e) => {
+      setNote((e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t send poke').toLowerCase());
+    });
+  };
+  const poke = () => {
+    if (!friend || call) return;
+    if (friend.dnd) { setNote('do not disturb'); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    pokeSquish.value = withSequence(withTiming(0.94, { duration: 70 }), withSpring(1, SPRING));
+    const previous = pendingPokes.current[friend.id];
+    if (previous) clearTimeout(previous.timer);
+    const count = (previous?.count ?? 0) + 1;
+    const timer = setTimeout(() => flushPokes(friend.id), 900);
+    pendingPokes.current[friend.id] = { count, timer };
+    setPendingPokeCounts((counts) => ({ ...counts, [friend.id]: count }));
+  };
+  const tap = Gesture.Tap().maxDuration(190).runOnJS(true).onEnd((_event, success) => { if (success) poke(); });
+  const avatarGesture = Gesture.Race(hold, tap);
 
   const accept = () => acceptCall().catch((e) => { setNote(String(e?.message ?? 'couldn’t connect').toLowerCase()); endCall(); });
   const toggleMute = () => { Haptics.selectionAsync(); const m = !muted; setMutedState(m); setMuted(m); };
@@ -321,10 +381,13 @@ export default function Home() {
   const hearing = !!talkingTo[friend.id];
   const live = talking || call?.state === 'active';
   const others = friends.filter((f) => f.id !== friend.id);
+  const incomingPokeText = incomingPoke?.friendId === friend.id ? `poked you${incomingPoke.count > 1 ? ` ×${incomingPoke.count}` : ''}` : null;
+  const pendingPokeCount = pendingPokeCounts[friend.id] ?? 0;
+  const friendActivity = [friend.streak > 0 ? `🔥 ${friend.streak}` : '', friend.last_talked_at > 0 ? `talked ${relativeTalkedAt(friend.last_talked_at)}` : ''].filter(Boolean).join(' · ');
   const bubble = call?.state === 'incoming' ? `${nameOf(friend).toLowerCase()} is calling`
     : call?.state === 'outgoing' ? 'calling…'
     : call?.state === 'active' ? 'on call'
-    : talking ? 'slide up to lock' : note ?? ( hearing ? `${nameOf(friend).toLowerCase()} is talking` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
+    : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
   const lead = W / 2 - (SEL + 14) / 2 - GAP - PLUS;
 
   return (
@@ -355,6 +418,7 @@ export default function Home() {
             <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
           </Pressable>
         </View>
+        {friendActivity ? <Swap text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} /> : null}
         <Bubble text={bubble} lock={talking && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </View>
       {call && call.state !== 'outgoing' ? (
@@ -364,22 +428,23 @@ export default function Home() {
       ) : call ? (
         <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 28 }}>
           <View style={{ width: 52 }} />
-          <TalkAvatar friend={friend} talking hearing={hearing} />
+          <TalkAvatar friend={friend} talking hearing={hearing} pokeAt={pokedAt[friend.id] ?? 0} pokeSquish={pokeSquish} />
           <Round g="close" bg={C.red} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} size={52} />
         </View>
       ) : (
         <ScrollView ref={scroll} horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: insets.bottom + 6 }} contentContainerStyle={{ paddingLeft: lead, paddingRight: 24, paddingVertical: 10, alignItems: 'center', gap: GAP }}>
           <Animated.View layout={MOVE}>{plus}</Animated.View>
           <Animated.View key={friend.id} layout={MOVE}>
-            <GestureDetector gesture={hold}>
-              <View collapsable={false}><TalkAvatar friend={friend} talking={talking} hearing={hearing} /></View>
+            <GestureDetector gesture={avatarGesture}>
+              <View collapsable={false}><TalkAvatar friend={friend} talking={talking} hearing={hearing} pokeAt={pokedAt[friend.id] ?? 0} pokeSquish={pokeSquish} /></View>
             </GestureDetector>
           </Animated.View>
           {others.map((f) => (
             <Animated.View key={f.id} layout={MOVE}>
-              <Squish onPress={() => { Haptics.selectionAsync(); set({ selectedId: f.id }); scroll.current?.scrollTo({ x: 0, animated: true }); }} style={{ opacity: f.online || talkingTo[f.id] ? 1 : 0.75 }}>
+              <Squish onPress={() => { Haptics.selectionAsync(); set({ selectedId: f.id }); clearPokeCount(f.id); scroll.current?.scrollTo({ x: 0, animated: true }); }} style={{ opacity: f.online || talkingTo[f.id] ? 1 : 0.75 }}>
                 <Avatar user={f} size={AV} ring={!!talkingTo[f.id]} />
                 <Dot friend={f} />
+                <PokeBadge count={pokeCount[f.id] ?? 0} />
               </Squish>
             </Animated.View>
           ))}

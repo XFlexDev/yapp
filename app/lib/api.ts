@@ -3,7 +3,7 @@ import { API } from './theme';
 
 export type User = { id: string; username: string | null; display_name: string; color: number; avatar: string | null; pfp?: string | null };
 export type Me = User & { email: string; dnd: boolean };
-export type Friend = User & { online: boolean; dnd: boolean; since: number };
+export type Friend = User & { online: boolean; dnd: boolean; since: number; streak: number; last_talked_at: number };
 export type FriendRequest = { id: string; user: User; created_at: number };
 type Tokens = { access_token: string; refresh_token: string; expires_in: number; user: Me };
 

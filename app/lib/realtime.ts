@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { AppState } from 'react-native';
 import { accessToken, avatarUrl, req, type Friend, type FriendRequest, type Me } from './api';
-import { get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './store';
+import { clearPokeCount, get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './store';
 import { API } from './theme';
 import { remoteEnded } from './voice';
 import { loadChats, onBackground, onMessage, onRead } from './chat';
@@ -31,6 +31,7 @@ function onEvent(e: any) {
   switch (e.type) {
     case 'friend_status_updated': patchFriend(e.user_id, { online: e.online, dnd: e.dnd }); break;
     case 'friend_profile_updated': patchUser(e.user); break;
+    case 'streak_updated': patchFriend(e.user_id, { streak: e.streak, last_talked_at: e.last_talked_at }); break;
     case 'friendship_created':
       upsertFriend(e.friend);
       set((s) => ({ incoming: s.incoming.filter((r) => r.user.id !== e.friend.id), outgoing: s.outgoing.filter((r) => r.user.id !== e.friend.id) }));
@@ -50,10 +51,21 @@ function onEvent(e: any) {
     case 'ptt_stopped':
       set((s) => ({ talkingTo: { ...s.talkingTo, [e.from_id]: false } }));
       break;
-    case 'poke':
-      set((s) => ({ pokedAt: { ...s.pokedAt, [e.from.id]: Date.now() }, pokeCount: { ...s.pokeCount, [e.from.id]: e.count || 1 } }));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    case 'poke': {
+      const selected = (get().call?.friendId ?? get().selectedId) === e.from.id;
+      set((s) => {
+        const pokeCount = { ...s.pokeCount };
+        if (selected) delete pokeCount[e.from.id];
+        else pokeCount[e.from.id] = (pokeCount[e.from.id] ?? 0) + (e.count || 1);
+        return {
+          pokedAt: selected ? { ...s.pokedAt, [e.from.id]: Math.max(Date.now(), (s.pokedAt[e.from.id] ?? 0) + 1) } : s.pokedAt,
+          pokedCount: { ...s.pokedCount, [e.from.id]: e.count || 1 },
+          pokeCount,
+        };
+      });
+      if (selected) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       break;
+    }
     case 'message': onMessage(e.message); break;
     case 'group_updated': onGroupUpdated(e.group); break;
     case 'group_message': onGroupMessage(e.group_id, e.message); break;
@@ -62,7 +74,7 @@ function onEvent(e: any) {
     case 'chat_read': onRead(e.user_id, e.at); break;
     case 'chat_background': onBackground(e.user_id === get().me?.id ? e.friend_id : e.user_id, e.background); break;
     case 'call_ringing':
-      if (!get().call) { set({ call: { friendId: e.from.id, state: 'incoming', since: Date.now() }, selectedId: e.from.id }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
+      if (!get().call) { set({ call: { friendId: e.from.id, state: 'incoming', since: Date.now() }, selectedId: e.from.id }); clearPokeCount(e.from.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
       break;
     case 'call_accepted':
       if (get().call?.friendId === e.from_id) { set({ call: { friendId: e.from_id, state: 'active', since: Date.now() } }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }

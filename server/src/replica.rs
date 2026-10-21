@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 use std::{sync::Arc, time::Duration};
 
-const TABLES: &[&str] = &["users", "friendships", "friend_requests", "devices", "messages", "chat_meta", "chat_reads", "groups", "group_members",
+const TABLES: &[&str] = &["users", "friendships", "streaks", "friend_requests", "devices", "messages", "chat_meta", "chat_reads", "groups", "group_members",
     "notif_prefs",
     "mutes", "blocks", "reports", "banned_emails"];
 
