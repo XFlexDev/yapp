@@ -143,7 +143,7 @@ impl crate::AppState {
                 "canPublish": publish,
                 "canSubscribe": !publish,
                 "canPublishData": false,
-                "canPublishSources": if publish { json!(["microphone"]) } else { json!([]) },
+                "canPublishSources": if publish { json!(["microphone", "camera"]) } else { json!([]) },
             }
         });
         encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(self.cfg.lk_secret.as_bytes()))
