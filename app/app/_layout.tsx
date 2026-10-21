@@ -12,6 +12,7 @@ import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
 import { C } from '../lib/theme';
 import { RED } from '../lib/tt';
+import { Intro } from '../lib/intro';
 import { startUpdates } from '../lib/updates';
 import { startListening, stopVoice } from '../lib/voice';
 
@@ -82,6 +83,7 @@ export default function Root() {
           <Stack.Screen name="crop" options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: '#000' } }} />
         </Stack.Protected>
       </Stack>
+      <Intro />
     </GestureHandlerRootView>
   );
 }
