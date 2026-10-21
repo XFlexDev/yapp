@@ -116,16 +116,16 @@ function Zzz() {
 function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number> }) {
   const press = useSharedValue(0);
   const ripple = useSharedValue(0);
-  const wobble = useSharedValue(0);
+  const bump = useSharedValue(0);
   useEffect(() => { press.value = withSpring(talking ? 1 : 0, SPRING); }, [talking]);
   useEffect(() => {
-    if (pokeAt) wobble.value = withSequence(withSpring(6, SPRING), withSpring(-6, SPRING), withSpring(0, SPRING));
+    if (pokeAt) bump.value = withSequence(withTiming(1, { duration: 110, easing: Easing.out(Easing.quad) }), withSpring(0, SPRING));
   }, [pokeAt]);
   useEffect(() => {
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
-  const body = useAnimatedStyle(() => ({ transform: [{ rotate: `${wobble.value}deg` }, { scale: ((1 + press.value * 0.1) / GROW) * pokeSquish.value }] }));
+  const body = useAnimatedStyle(() => ({ transform: [{ scale: ((1 + press.value * 0.1 + bump.value * 0.07) / GROW) * pokeSquish.value }] }));
   const ring = useAnimatedStyle(() => ({ borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
   const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
   const size = Math.round((SEL + 14) * GROW);
