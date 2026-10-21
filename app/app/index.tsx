@@ -27,7 +27,6 @@ const SEL = 76;
 const PLUS = 48;
 const GAP = 14;
 const LOCK_AT = 90;
-const GROW = 1.1;
 const SLOT = 80;
 const MIN = AV / SEL;
 const SNAP = { damping: 30, stiffness: 260, mass: 1 };
@@ -158,17 +157,17 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus, r = 1
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
-  const body = useAnimatedStyle(() => ({ transform: [{ scale: ((1 + press.value * 0.1 + bump.value * 0.07) / GROW) * pokeSquish.value }] }));
+  const body = useAnimatedStyle(() => ({ transform: [{ scale: (1 + press.value * 0.1 + bump.value * 0.07) * pokeSquish.value }] }));
   const ring = useAnimatedStyle(() => ({ opacity: focus ? focus.value : 1, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
   const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
-  const size = Math.round((SEL + 14) * GROW * r);
+  const size = Math.round((SEL + 14) * r);
   const box = Math.round((SEL + 14) * r);
   return (
     <View style={{ width: box, height: box, alignItems: 'center', justifyContent: 'center' }}>
     <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, body]}>
       <Animated.View pointerEvents="none" style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: '#fff' }, wave]} />
       <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: Math.max(2, Math.round(4 * r)) }, ring]} />
-      <Avatar user={friend} size={Math.round(SEL * GROW * r)} />
+      <Avatar user={friend} size={Math.round(SEL * r)} />
       {friend.dnd ? <Zzz /> : <Dot friend={friend} size={Math.round(20 * Math.max(r, 0.8))} />}
     </Animated.View>
     </View>
@@ -572,7 +571,7 @@ export default function Home() {
                 {(focus) => (
                   <GestureDetector gesture={sel ? avatarGesture : Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) jump(i); })}>
                     <View collapsable={false}>
-                      <TalkAvatar friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} r={sel ? 1 : MIN} />
+                      <TalkAvatar key={sel ? 'sel' : 'rest'} friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} r={sel ? 1 : MIN} />
                     </View>
                   </GestureDetector>
                 )}
