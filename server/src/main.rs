@@ -2,6 +2,7 @@ mod api;
 mod db;
 mod hub;
 mod replica;
+mod storage;
 mod util;
 
 use dashmap::DashMap;

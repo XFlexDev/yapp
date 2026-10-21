@@ -511,7 +511,8 @@ async fn set_status(State(st): State<S>, Authed(uid): Authed, Json(r): Json<Stat
 
 fn valid_avatar_name(f: &str) -> bool {
     f.len() <= 64
-        && f.strip_suffix(".jpg").is_some_and(|b| !b.is_empty() && b.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        && (f.strip_suffix(".jpg").or_else(|| f.strip_suffix(".webp")))
+            .is_some_and(|b| !b.is_empty() && b.chars().all(|c| c.is_ascii_hexdigit() || c == '-' || c == 'p' || c == 'q'))
 }
 
 async fn put_avatar(State(st): State<S>, Authed(uid): Authed, body: axum::body::Bytes) -> R<Json<Me>> {
@@ -524,13 +525,20 @@ async fn put_pfp(State(st): State<S>, Authed(uid): Authed, body: axum::body::Byt
 
 /// The full 9:16 photo lives in `avatar`, the square crop in `pfp`. A new full photo clears the old crop.
 async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>> {
-    if body.len() < 100 || !body.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return Err(bad("Upload a JPEG photo"));
-    }
-    let name = format!("{uid}-{}.jpg", &random_token()[..12]);
+    let Some((ext, ctype)) = crate::storage::image_kind(body).filter(|_| body.len() >= 100) else {
+        return Err(bad("Upload a JPEG or WebP photo"));
+    };
     let dir = std::path::PathBuf::from(&st.cfg.avatar_dir);
-    tokio::fs::create_dir_all(&dir).await.map_err(|e| { tracing::error!(error = %e, "avatar dir"); bad("Couldn't save photo") })?;
-    tokio::fs::write(dir.join(&name), body).await.map_err(|e| { tracing::error!(error = %e, "avatar write"); bad("Couldn't save photo") })?;
+    let name = if let Some(store) = crate::storage::get() {
+        let key = crate::storage::key_for(if square { "q" } else { "p" }, body, ext);
+        store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+        key
+    } else {
+        let name = format!("{uid}-{}.{ext}", &random_token()[..12]);
+        tokio::fs::create_dir_all(&dir).await.map_err(|e| { tracing::error!(error = %e, "avatar dir"); bad("Couldn't save photo") })?;
+        tokio::fs::write(dir.join(&name), body).await.map_err(|e| { tracing::error!(error = %e, "avatar write"); bad("Couldn't save photo") })?;
+        name
+    };
     let (old, me, friends) = {
         let c = st.db();
         let (av, pf): (Option<String>, Option<String>) = c.query_row("SELECT avatar, pfp FROM users WHERE id=?", [uid], |r| Ok((r.get(0)?, r.get(1)?)))?;
@@ -543,8 +551,8 @@ async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>>
         };
         (old, me_of(&c, uid)?, friend_ids(&c, uid)?)
     };
-    for o in old {
-        let _ = tokio::fs::remove_file(dir.join(o)).await;
+    for o in old.into_iter().filter(|o| *o != name) {
+        drop_media(st, o).await;
     }
     let ev = json!({
         "type": "friend_profile_updated",
@@ -556,9 +564,36 @@ async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>>
     Ok(Json(me))
 }
 
+/// Delete a photo/background/chat image once nothing references it any more.
+async fn drop_media(st: &S, key: String) {
+    let used: i64 = st
+        .db()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM users WHERE avatar=?1 OR pfp=?1) + (SELECT COUNT(*) FROM chat_meta WHERE background=?1) + (SELECT COUNT(*) FROM messages WHERE kind='image' AND body=?1)",
+            [&key],
+            |r| r.get(0),
+        )
+        .unwrap_or(1);
+    if used > 0 {
+        return;
+    }
+    if key.starts_with("p-") || key.starts_with("q-") || key.starts_with("b-") || key.starts_with("c-") {
+        if let Some(store) = crate::storage::get() {
+            store.delete(&key).await;
+        }
+    } else if valid_avatar_name(&key) {
+        let _ = tokio::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(key)).await;
+    }
+}
+
 async fn get_avatar(State(st): State<S>, Path(file): Path<String>) -> Response {
     if !valid_avatar_name(&file) {
         return StatusCode::NOT_FOUND.into_response();
+    }
+    if file.starts_with("p-") || file.starts_with("q-") {
+        if let Some(store) = crate::storage::get() {
+            return axum::response::Redirect::permanent(&store.url(&file)).into_response();
+        }
     }
     match tokio::fs::read(std::path::Path::new(&st.cfg.avatar_dir).join(&file)).await {
         Ok(b) => (
@@ -1031,6 +1066,39 @@ struct BgReq {
     background: Option<String>,
 }
 
+async fn put_chat_background_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, body: axum::body::Bytes) -> R<Json<Value>> {
+    let Some((ext, ctype)) = crate::storage::image_kind(&body).filter(|_| body.len() >= 100) else {
+        return Err(bad("Upload a JPEG or WebP photo"));
+    };
+    let store = crate::storage::get().ok_or_else(|| bad("Photo backgrounds aren't available"))?;
+    if !are_friends(&st.db(), &me, &other)? {
+        return Err(not_friends());
+    }
+    let key = crate::storage::key_for("b", &body, ext);
+    store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+    apply_background(&st, &me, &other, Some(key)).await
+}
+
+async fn apply_background(st: &S, me: &str, other: &str, bg: Option<String>) -> R<Json<Value>> {
+    let old = {
+        let c = st.db();
+        let (a, b) = db::pair(me, other);
+        let old = chat_background(&c, a, b)?;
+        c.execute(
+            "INSERT INTO chat_meta(a, b, background) VALUES (?1, ?2, ?3) ON CONFLICT(a, b) DO UPDATE SET background=excluded.background",
+            params![a, b, bg],
+        )?;
+        old
+    };
+    if let Some(o) = old.filter(|o| Some(o) != bg.as_ref()) {
+        drop_media(st, o).await;
+    }
+    let ev = json!({ "type": "chat_background", "user_id": me, "friend_id": other, "background": bg });
+    st.hub.send(other, &ev);
+    st.hub.send(me, &ev);
+    Ok(Json(json!({ "ok": true, "background": bg })))
+}
+
 async fn set_chat_background(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<BgReq>) -> R<Json<Value>> {
     let bg = r.background.filter(|b| !b.is_empty());
     if let Some(b) = &bg {
@@ -1038,21 +1106,13 @@ async fn set_chat_background(State(st): State<S>, Authed(me): Authed, Path(other
             return Err(bad("Unknown background"));
         }
     }
-    {
-        let c = st.db();
-        if !are_friends(&c, &me, &other)? {
-            return Err(not_friends());
-        }
-        let (a, b) = db::pair(&me, &other);
-        c.execute(
-            "INSERT INTO chat_meta(a, b, background) VALUES (?1, ?2, ?3) ON CONFLICT(a, b) DO UPDATE SET background=excluded.background",
-            params![a, b, bg],
-        )?;
+    if bg.as_deref().is_some_and(|b| b.starts_with("b-")) {
+        return Err(bad("Unknown background"));
     }
-    let ev = json!({ "type": "chat_background", "user_id": me, "friend_id": other, "background": bg });
-    st.hub.send(&other, &ev);
-    st.hub.send(&me, &ev);
-    Ok(Json(json!({ "ok": true, "background": bg })))
+    if !are_friends(&st.db(), &me, &other)? {
+        return Err(not_friends());
+    }
+    apply_background(&st, &me, &other, bg).await
 }
 
 // ---------- event stream ----------
@@ -1132,6 +1192,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
         .route("/v1/chats/{id}/read", post(mark_read))
         .route("/v1/chats/{id}/background", put(set_chat_background))
+        .route("/v1/chats/{id}/background/photo", put(put_chat_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
         .route("/v1/poke", post(poke))
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))

@@ -8,15 +8,15 @@ import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { avatarUrl, nameOf } from '../lib/api';
-import { BACKGROUNDS, chatOf, loadMessages, markRead, retry, sendMessage, setBackground } from '../lib/chat';
+import { avatarUrl, mediaUrl, nameOf } from '../lib/api';
+import { BACKGROUNDS, chatOf, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, setBackground } from '../lib/chat';
 import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
-const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'] } as const;
+const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], plus: ['photo.badge.plus', 'image-plus'] } as const;
 function Glyph({ g, size = 20, color = '#fff' }: { g: keyof typeof G; size?: number; color?: string }) {
   return <SymbolView name={G[g][0] as any} tintColor={color} size={size} weight="bold" fallback={<MaterialCommunityIcons name={G[g][1] as any} size={size + 4} color={color} />} />;
 }
@@ -25,7 +25,12 @@ function Backdrop({ bg, photo }: { bg: string | null; photo: string | null }) {
   const preset = BACKGROUNDS.find((b) => b.id === bg);
   return (
     <Animated.View key={bg ?? 'none'} entering={FadeIn.duration(260)} exiting={FadeOut.duration(260)} style={StyleSheet.absoluteFill}>
-      {bg === 'photo' && photo ? (
+      {bg?.startsWith('b-') ? (
+        <>
+          <Image source={mediaUrl(bg)} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} cachePolicy="memory-disk" />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+        </>
+      ) : bg === 'photo' && photo ? (
         <>
           <Image source={photo} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={40} />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
@@ -115,6 +120,12 @@ export default function ChatScreen() {
           <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 14 }}>
             <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18, textAlign: 'center' }}>chat background</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 12 }}>
+              <Squish onPress={() => { Haptics.selectionAsync(); pickBackgroundPhoto(id!).catch(() => {}); }} style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
+                <Glyph g="plus" size={20} />
+              </Squish>
+              {chat.background?.startsWith('b-') ? (
+                <View style={{ width: 58, height: 58, borderRadius: 29, overflow: 'hidden', borderWidth: 3, borderColor: '#fff' }}><Image source={mediaUrl(chat.background)} style={StyleSheet.absoluteFill} /></View>
+              ) : null}
               {[null, 'photo', ...BACKGROUNDS.map((b) => b.id)].map((b) => {
                 const p = BACKGROUNDS.find((x) => x.id === b);
                 const on = chat.background === b;

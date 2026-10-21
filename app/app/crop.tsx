@@ -103,7 +103,7 @@ export default function Crop() {
         setPhoto({ uri: out.uri, width: out.width, height: out.height });
         setStep('pfp');
       } else {
-        const out = await crop(photo!.uri, rect.current(), 600);
+        const out = await crop(photo!.uri, rect.current(), 256);
         const me = await uploadPhotos(photo!.uri, out.uri);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         done.current = true;

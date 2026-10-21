@@ -23,12 +23,12 @@ export async function pickAndUploadPhoto(): Promise<Me | null> {
 }
 
 export async function crop(uri: string, rect: { originX: number; originY: number; width: number; height: number }, width: number) {
-  return ImageManipulator.manipulateAsync(uri, [{ crop: rect }, { resize: { width: Math.min(width, rect.width) } }], { compress: 0.88, format: ImageManipulator.SaveFormat.JPEG });
+  return ImageManipulator.manipulateAsync(uri, [{ crop: rect }, { resize: { width: Math.min(width, rect.width) } }], { compress: 0.78, format: ImageManipulator.SaveFormat.WEBP });
 }
 
 async function put(path: string, uri: string) {
   const blob = await (await fetch(uri)).blob();
-  return req<Me>(path, { method: 'PUT', raw: blob, ctype: 'image/jpeg' });
+  return req<Me>(path, { method: 'PUT', raw: blob, ctype: 'image/webp' });
 }
 
 export async function uploadPhotos(photoUri: string, pfpUri: string) {

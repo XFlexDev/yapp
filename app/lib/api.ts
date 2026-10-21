@@ -18,9 +18,12 @@ let refreshing: Promise<boolean> | null = null;
 export let onSignedOut: () => void = () => {};
 export const setSignedOutHandler = (f: () => void) => { onSignedOut = f; };
 
-export const avatarUrl = (u: Pick<User, 'avatar'>) => (u.avatar ? `${API}/avatars/${u.avatar}` : null);
+export const CDN = 'https://cdn.kreatix.dev/file/Yapp-Data';
+/** B2-hosted keys (p-/q-/b-/c-) load straight from the Cloudflare CDN; older files still come from the API. */
+export const mediaUrl = (key: string) => (/^[pqbc]-/.test(key) ? `${CDN}/${key}` : `${API}/avatars/${key}`);
+export const avatarUrl = (u: Pick<User, 'avatar'>) => (u.avatar ? mediaUrl(u.avatar) : null);
 /** Square profile picture; falls back to the full photo for accounts that never cropped one. */
-export const pfpUrl = (u: Pick<User, 'avatar' | 'pfp'>) => (u.pfp ? `${API}/avatars/${u.pfp}` : avatarUrl(u));
+export const pfpUrl = (u: Pick<User, 'avatar' | 'pfp'>) => (u.pfp ? mediaUrl(u.pfp) : avatarUrl(u));
 export const nameOf = (u: User) => u.display_name || u.username || 'Someone';
 export const accessToken = () => access;
 
