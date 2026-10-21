@@ -2,7 +2,7 @@ import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent } from 'livekit-client';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { req } from './api';
-import { set } from './store';
+import { get, set } from './store';
 
 type Grant = { url: string; room: string; token: string };
 let inbox: Room | null = null;
@@ -84,4 +84,37 @@ export async function stopVoice() {
   talk?.room.disconnect();
   talk = null;
   await stopListening();
+}
+
+/** While holding to talk, lock it: keep the mic open and ring the friend so they can pick up. */
+export async function lockCall(friendId: string) {
+  set({ call: { friendId, state: 'outgoing', since: Date.now() } });
+  await req('/v1/call/start', { method: 'POST', body: { friend_id: friendId } }).catch((e) => { set({ call: null }); throw e; });
+}
+
+export async function acceptCall() {
+  const c = get().call;
+  if (!c || c.state !== 'incoming') return;
+  set({ call: { ...c, state: 'active', since: Date.now() } });
+  await req('/v1/call/accept', { method: 'POST', body: { friend_id: c.friendId } }).catch(() => {});
+  await pressTalk(c.friendId);
+}
+
+export function setMuted(muted: boolean) {
+  return talk?.room.localParticipant.setMicrophoneEnabled(!muted);
+}
+
+async function hangUp(friendId: string, notify: boolean) {
+  set({ call: null });
+  if (notify) req('/v1/call/end', { method: 'POST', body: { friend_id: friendId } }).catch(() => {});
+  await releaseTalk(friendId);
+}
+
+export function endCall() {
+  const c = get().call;
+  if (c) return hangUp(c.friendId, true);
+}
+
+export function remoteEnded(friendId: string) {
+  return hangUp(friendId, false);
 }

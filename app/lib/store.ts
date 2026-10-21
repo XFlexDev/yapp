@@ -10,12 +10,14 @@ type State = {
   selectedId: string | null;
   talkingTo: Record<string, boolean>; // friend id -> they are talking to me
   pokedAt: Record<string, number>;
+  pokeCount: Record<string, number>;
+  call: { friendId: string; state: 'outgoing' | 'incoming' | 'active'; since: number } | null;
   connected: boolean;
 };
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, connected: false,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false,
 }));
 
 export const set = useStore.setState;

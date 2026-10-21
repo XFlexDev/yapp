@@ -798,9 +798,16 @@ async fn ptt_stop(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendR
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn poke(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
+#[derive(Deserialize)]
+struct PokeReq {
+    friend_id: String,
+    #[serde(default)]
+    count: Option<u32>,
+}
+
+async fn poke(State(st): State<S>, Authed(me): Authed, Json(r): Json<PokeReq>) -> R<Json<Value>> {
     let key = (me.clone(), r.friend_id.clone());
-    if st.pokes.get(&key).is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
+    if st.pokes.get(&key).is_some_and(|t| t.elapsed() < Duration::from_millis(800)) {
         return Err(too_many("Easy"));
     }
     let u = {
@@ -815,11 +822,49 @@ async fn poke(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>)
         st.pokes.retain(|_, t| t.elapsed() < Duration::from_secs(10));
     }
     let online = st.hub.online(&r.friend_id);
-    st.hub.send(&r.friend_id, &json!({ "type": "poke", "from": &u }));
+    let count = r.count.unwrap_or(1).clamp(1, 9999);
+    st.hub.send(&r.friend_id, &json!({ "type": "poke", "from": &u, "count": count }));
     if !online {
-        push(&st, &r.friend_id, label(&u), "poked you".into(), json!({ "type": "poke", "from": u.id }));
+        let body = if count > 1 { format!("poked you {count} times") } else { "poked you".into() };
+        push(&st, &r.friend_id, label(&u), body, json!({ "type": "poke", "from": u.id }));
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn call_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
+    let (u, dnd) = {
+        let c = st.db();
+        if !are_friends(&c, &me, &r.friend_id)? {
+            return Err(not_friends());
+        }
+        let dnd: i64 = c.query_row("SELECT dnd FROM users WHERE id=?", [&r.friend_id], |r| r.get(0))?;
+        (public_user(&c, &me)?, dnd != 0)
+    };
+    if dnd {
+        return Err(err(StatusCode::CONFLICT, "FriendUnavailable", "They're on do not disturb"));
+    }
+    let online = st.hub.online(&r.friend_id);
+    st.hub.send(&r.friend_id, &json!({ "type": "call_ringing", "from": &u }));
+    if !online {
+        push(&st, &r.friend_id, label(&u), "is calling you".into(), json!({ "type": "call", "from": u.id }));
+    }
+    Ok(Json(json!({ "ok": true, "delivered_live": online })))
+}
+
+async fn call_signal(st: &S, me: &str, friend: &str, kind: &str) -> R<Json<Value>> {
+    if !are_friends(&st.db(), me, friend)? {
+        return Err(not_friends());
+    }
+    st.hub.send(friend, &json!({ "type": kind, "from_id": me }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn call_accept(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
+    call_signal(&st, &me, &r.friend_id, "call_accepted").await
+}
+
+async fn call_end(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
+    call_signal(&st, &me, &r.friend_id, "call_ended").await
 }
 
 // ---------- event stream ----------
@@ -891,6 +936,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/rtc/focus", post(rtc_focus))
         .route("/v1/ptt/start", post(ptt_start))
         .route("/v1/ptt/stop", post(ptt_stop))
+        .route("/v1/call/start", post(call_start))
+        .route("/v1/call/accept", post(call_accept))
+        .route("/v1/call/end", post(call_end))
         .route("/v1/poke", post(poke))
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))

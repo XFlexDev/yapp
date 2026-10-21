@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import { accessToken, avatarUrl, req, type Friend, type FriendRequest, type Me } from './api';
 import { get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './store';
 import { API } from './theme';
+import { remoteEnded } from './voice';
 
 let ws: WebSocket | null = null;
 let stopped = true;
@@ -47,8 +48,17 @@ function onEvent(e: any) {
       set((s) => ({ talkingTo: { ...s.talkingTo, [e.from_id]: false } }));
       break;
     case 'poke':
-      set((s) => ({ pokedAt: { ...s.pokedAt, [e.from.id]: Date.now() } }));
+      set((s) => ({ pokedAt: { ...s.pokedAt, [e.from.id]: Date.now() }, pokeCount: { ...s.pokeCount, [e.from.id]: e.count || 1 }, selectedId: s.call ? s.selectedId : e.from.id }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      break;
+    case 'call_ringing':
+      if (!get().call) { set({ call: { friendId: e.from.id, state: 'incoming', since: Date.now() }, selectedId: e.from.id }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
+      break;
+    case 'call_accepted':
+      if (get().call?.friendId === e.from_id) { set({ call: { friendId: e.from_id, state: 'active', since: Date.now() } }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
+      break;
+    case 'call_ended':
+      if (get().call?.friendId === e.from_id) { remoteEnded(e.from_id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }
       break;
   }
 }
