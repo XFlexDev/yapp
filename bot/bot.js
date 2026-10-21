@@ -62,31 +62,48 @@ async function joinInbox() {
 }
 
 const replaying = new Set();
+// Keep a published echo track per friend so replies start instantly instead of reconnecting each time.
+const outs = new Map();
+async function outFor(friendId) {
+  const o = outs.get(friendId);
+  if (o && o.room.isConnected) { clearTimeout(o.idle); return o; }
+  outs.delete(friendId);
+  const room = new Room();
+  const g = await api('/v1/rtc/focus', 'POST', { friend_id: friendId });
+  await room.connect(LK_URL, g.token, { autoSubscribe: false, dynacast: false });
+  const source = new AudioSource(RATE, 1);
+  const track = LocalAudioTrack.createAudioTrack('echo', source);
+  const opts = new TrackPublishOptions();
+  opts.source = TrackSource.SOURCE_MICROPHONE;
+  await room.localParticipant.publishTrack(track, opts);
+  const n = { room, source };
+  room.on(RoomEvent.Disconnected, () => { if (outs.get(friendId) === n) outs.delete(friendId); });
+  outs.set(friendId, n);
+  return n;
+}
+function release(friendId) {
+  const o = outs.get(friendId);
+  if (!o) return;
+  o.idle = setTimeout(() => { outs.delete(friendId); o.room.disconnect().catch(() => {}); }, 3 * 60 * 1000);
+}
+
 async function replay(friendId) {
   const frames = recording.get(friendId) ?? [];
   recording.delete(friendId);
   if (frames.length < 20 || replaying.has(friendId)) return;
   replaying.add(friendId);
-  const room = new Room();
   try {
-    await sleep(700);
-    const g = await api('/v1/rtc/focus', 'POST', { friend_id: friendId });
-    await room.connect(LK_URL, g.token, { autoSubscribe: false, dynacast: false });
-    const source = new AudioSource(RATE, 1);
-    const track = LocalAudioTrack.createAudioTrack('echo', source);
-    const opts = new TrackPublishOptions();
-    opts.source = TrackSource.SOURCE_MICROPHONE;
-    await room.localParticipant.publishTrack(track, opts);
+    const o = await outFor(friendId);
     await api('/v1/ptt/start', 'POST', { friend_id: friendId });
-    await sleep(400);
-    for (const f of frames) await source.captureFrame(f);
-    await source.waitForPlayout();
+    for (const f of frames) await o.source.captureFrame(f);
+    await o.source.waitForPlayout();
     log('echoed', friendId, `${(frames.length / 100).toFixed(1)}s`);
   } catch (e) {
     log('echo failed', friendId, e.message);
+    const o = outs.get(friendId); outs.delete(friendId); o?.room.disconnect().catch(() => {});
   } finally {
     await api('/v1/ptt/stop', 'POST', { friend_id: friendId }).catch(() => {});
-    await room.disconnect().catch(() => {});
+    release(friendId);
     replaying.delete(friendId);
   }
 }
@@ -94,8 +111,8 @@ async function replay(friendId) {
 function onEvent(e) {
   switch (e.type) {
     case 'friend_request_received': acceptAll().catch((x) => log('accept', x.message)); break;
-    case 'ptt_started': if (!replaying.has(e.from.id)) recording.set(e.from.id, []); break;
-    case 'ptt_stopped': setTimeout(() => replay(e.from_id), 300); break; // let the last frames drain
+    case 'ptt_started': if (!replaying.has(e.from.id)) recording.set(e.from.id, []); outFor(e.from.id).catch(() => {}); break;
+    case 'ptt_stopped': setTimeout(() => replay(e.from_id), 250); break; // let the last frames drain
     case 'poke': setTimeout(() => api('/v1/poke', 'POST', { friend_id: e.from.id, count: e.count || 1 }).catch(() => {}), 900); break;
     case 'call_ringing': setTimeout(() => api('/v1/call/accept', 'POST', { friend_id: e.from.id }).catch(() => {}), 1200); break;
   }

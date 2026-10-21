@@ -27,9 +27,10 @@ export async function startListening() {
   const g = await req<Grant>('/v1/rtc/listen', { method: 'POST' });
   const room = new Room({ adaptiveStream: false, dynacast: false });
   room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-    const talking: Record<string, boolean> = {};
-    speakers.forEach((p) => { if (p.identity !== room.localParticipant.identity) talking[p.identity] = true; });
-    set((s) => ({ talkingTo: { ...Object.fromEntries(Object.keys(s.talkingTo).map((k) => [k, false])), ...talking } }));
+    // Only ever turn "talking" on here; ptt_stopped turns it off. Speaker detection drops out on pauses.
+    const on: Record<string, boolean> = {};
+    speakers.forEach((p) => { if (p.identity !== room.localParticipant.identity) on[p.identity] = true; });
+    if (Object.keys(on).length) set((s) => ({ talkingTo: { ...s.talkingTo, ...on } }));
   });
   room.on(RoomEvent.Disconnected, () => { if (inbox === room) inbox = null; });
   inbox = room;
