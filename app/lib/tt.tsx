@@ -2,8 +2,8 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Keyboard, Linking, Platform, Pressable, Text, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import { ActivityIndicator, Dimensions, Keyboard, Linking, Platform, Pressable, Text, View } from 'react-native';
+import Animated, { Easing, LayoutAnimationConfig, FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { F } from './theme';
 
@@ -21,22 +21,19 @@ const PRESS = { damping: 30, stiffness: 600 };
 const RELEASE = { damping: 24, stiffness: 340 };
 const EASE = Easing.bezier(0.23, 1, 0.32, 1);
 
+// Full-width push like a native nav stack: both pages stay solid and move in lockstep on one spring.
 export function slide(dir: number) {
+  const w = Dimensions.get('window').width;
   return () => {
     'worklet';
-    return {
-      initialValues: { opacity: 0, transform: [{ translateX: dir * 56 }, { scale: 0.98 }] },
-      animations: { opacity: withTiming(1, { duration: 220, easing: EASE }), transform: [{ translateX: withSpring(0, SPRING) }, { scale: withSpring(1, SPRING) }] },
-    };
+    return { initialValues: { transform: [{ translateX: dir * w }] }, animations: { transform: [{ translateX: withSpring(0, SPRING) }] } };
   };
 }
 export function slideOut(dir: number) {
+  const w = Dimensions.get('window').width;
   return () => {
     'worklet';
-    return {
-      initialValues: { opacity: 1, transform: [{ translateX: 0 }, { scale: 1 }] },
-      animations: { opacity: withTiming(0, { duration: 160, easing: EASE }), transform: [{ translateX: withTiming(-dir * 40, { duration: 200, easing: EASE }) }, { scale: withTiming(0.98, { duration: 200, easing: EASE }) }] },
-    };
+    return { initialValues: { transform: [{ translateX: 0 }] }, animations: { transform: [{ translateX: withSpring(-dir * w, SPRING) }] } };
   };
 }
 export function pop(delay = 0) {
@@ -93,9 +90,11 @@ export function Pill({ title, onPress, disabled, loading, ghost }: { title: stri
   const fg = useAnimatedStyle(() => ({ color: interpolateColor(p.value, [0, 1], [interpolateColor(g.value, [0, 1], [GHOST, '#ffffff']), '#000000']) }));
   return (
     <Squish disabled={disabled || loading} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }} style={[{ height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, bg]}>
-      {loading ? <Animated.View entering={pop() as any} exiting={popOut() as any}><ActivityIndicator color={white ? '#000' : '#fff'} /></Animated.View> : (
-        <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}><Swap text={title} style={[{ fontFamily: F.black, fontSize: 17 }, fg]} /></Animated.View>
-      )}
+      <LayoutAnimationConfig skipEntering>
+        {loading ? <Animated.View entering={pop() as any} exiting={popOut() as any}><ActivityIndicator color={white ? '#000' : '#fff'} /></Animated.View> : (
+          <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}><Swap text={title} style={[{ fontFamily: F.black, fontSize: 17 }, fg]} /></Animated.View>
+        )}
+      </LayoutAnimationConfig>
     </Squish>
   );
 }
@@ -117,7 +116,7 @@ export function useShake() {
 function Fade({ show, children }: { show: boolean; children: ReactNode }) {
   const v = useSharedValue(show ? 1 : 0);
   useEffect(() => { v.value = withSpring(show ? 1 : 0, SPRING); }, [show]);
-  const a = useAnimatedStyle(() => ({ opacity: v.value, transform: [{ scale: 0.6 + 0.4 * v.value }] }));
+  const a = useAnimatedStyle(() => ({ opacity: v.value }));
   return <Animated.View pointerEvents={show ? 'auto' : 'none'} style={a}>{children}</Animated.View>;
 }
 

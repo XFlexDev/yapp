@@ -5,7 +5,7 @@ import { ApiError, req, type Me } from '../lib/api';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { set, useStore } from '../lib/store';
 import { F } from '../lib/theme';
-import { bigInput, Collapse, GHOST, Label, Pill, pop, RedScreen, rise, slide, slideOut, Squish, Swap, useShake } from '../lib/tt';
+import { bigInput, Collapse, GHOST, Label, Pill, RedScreen, slide, slideOut, Squish, Swap, useShake } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 
 type Step = 'name' | 'username' | 'photo';
@@ -42,20 +42,20 @@ export default function Onboarding() {
 
   return (
     <RedScreen onBack={step === 'name' ? undefined : () => go(step === 'photo' ? 'username' : 'name', -1)}>
-      <View style={{ flex: 1, paddingHorizontal: 16 }}>
-        <LayoutAnimationConfig skipEntering>
-        <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 28 }}>
+      <LayoutAnimationConfig skipEntering>
+        <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, paddingHorizontal: 16 }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 28 }}>
           {step === 'name' ? (
             <>
-              <Animated.View entering={rise(40)}><Label>first name</Label></Animated.View>
-              <Animated.View entering={rise(110)} style={{ alignSelf: 'stretch' }}>
+              <Label>first name</Label>
+              <Animated.View style={{ alignSelf: 'stretch' }}>
                 <TextInput value={name} onChangeText={setName} placeholder="rachel" placeholderTextColor={GHOST} autoCapitalize="words" autoCorrect={false} textContentType="givenName" maxLength={32} keyboardAppearance="dark" autoFocus selectionColor="#fff" returnKeyType="next" onSubmitEditing={() => !pill.disabled && pill.onPress()} style={bigInput} />
               </Animated.View>
             </>
           ) : step === 'username' ? (
             <>
-              <Animated.View entering={rise(40)}><Label>username</Label></Animated.View>
-              <Animated.View entering={rise(110)} style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, shakeStyle]}>
+              <Label>username</Label>
+              <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, shakeStyle]}>
                 <Text style={[bigInput, { minWidth: 0, color: username ? '#fff' : GHOST }]}>@</Text>
                 <TextInput value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="rachel" placeholderTextColor={GHOST} autoCapitalize="none" autoCorrect={false} maxLength={20} keyboardAppearance="dark" autoFocus selectionColor="#fff" returnKeyType="next" onSubmitEditing={() => !pill.disabled && saveUsername()} style={[bigInput, { textAlign: 'left' }]} />
               </Animated.View>
@@ -63,24 +63,24 @@ export default function Onboarding() {
             </>
           ) : (
             <>
-              <Animated.View entering={rise(40)}><Label>add a photo</Label></Animated.View>
-              <Animated.View entering={pop(90) as any}>
+              <Label>add a photo</Label>
+              <View>
                 <Squish onPress={pick} style={{ padding: 5, borderRadius: 100, borderWidth: 4, borderColor: '#fff' }}>
                   <Avatar user={{ ...me, display_name: name || '?' }} size={150} />
                 </Squish>
-              </Animated.View>
-              <Animated.View entering={rise(170)}><Swap text={error || 'your friends see it when you talk'} style={{ color: error ? '#fff' : 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center' }} /></Animated.View>
+              </View>
+              <Swap text={error || 'your friends see it when you talk'} style={{ color: error ? '#fff' : 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center' }} />
             </>
           )}
-        </Animated.View>
-        </LayoutAnimationConfig>
+        </View>
         <Pill {...pill} />
         <Collapse open={step === 'photo' && !me.avatar} height={56}>
           <Pressable onPress={finish} hitSlop={10} style={({ pressed }) => ({ height: 56, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
             <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>skip</Text>
           </Pressable>
         </Collapse>
-      </View>
+        </Animated.View>
+      </LayoutAnimationConfig>
     </RedScreen>
   );
 }

@@ -5,7 +5,7 @@ import Animated, { LayoutAnimationConfig, FadeIn, FadeOut, useAnimatedStyle, use
 import { ApiError, confirmLogin, startLogin } from '../lib/api';
 import { set } from '../lib/store';
 import { F } from '../lib/theme';
-import { bigInput, Collapse, FILL, GHOST, Heading, Label, Logo, Pill, pop, popOut, RedScreen, rise, slide, slideOut, SPRING, Squish, Swap, useShake } from '../lib/tt';
+import { bigInput, FILL, GHOST, Heading, Label, Logo, Pill, pop, popOut, RedScreen, slide, slideOut, SPRING, Squish, Swap, useShake } from '../lib/tt';
 
 type Step = 'welcome' | 'age' | 'email' | 'code';
 
@@ -34,9 +34,6 @@ export default function SignIn() {
   const [error, setError] = useState('');
   const codeRef = useRef<any>(null);
   const { style: shakeStyle, shake } = useShake();
-  const inset = useSharedValue(16);
-  useEffect(() => { inset.value = withSpring(step === 'welcome' ? 16 : 0, SPRING); }, [step]);
-  const insetStyle = useAnimatedStyle(() => ({ paddingLeft: inset.value, paddingRight: inset.value }));
 
   const go = (s: Step, d = 1) => { setDir(d); setError(''); setStep(s); };
   const back = () => go(step === 'code' ? 'email' : step === 'email' && creating ? 'age' : 'welcome', -1);
@@ -64,59 +61,57 @@ export default function SignIn() {
   return (
     <View style={{ flex: 1 }}>
       <RedScreen onBack={back} help={step === 'email' || step === 'code'} bar={step !== 'welcome'}>
-        <View style={{ flex: 1, paddingHorizontal: 16 }}>
-          <LayoutAnimationConfig skipEntering>
-          <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <LayoutAnimationConfig skipEntering>
+          <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, paddingHorizontal: 16 }}>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             {step === 'welcome' ? (
-              <Animated.View entering={pop() as any}>
-                <Squish onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}><Logo /></Squish>
-              </Animated.View>
+              <Squish onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}><Logo /></Squish>
             ) : step === 'age' ? (
               <View style={{ alignItems: 'center', gap: 28 }}>
-                <Animated.View entering={rise(40)}><Heading>how old are you?</Heading></Animated.View>
-                <Animated.View entering={rise(110)}>
+                <Heading>how old are you?</Heading>
+                <View>
                   <TextInput value={age} onChangeText={(t) => setAge(t.replace(/\D/g, '').slice(0, 3))} placeholder="13" placeholderTextColor={GHOST} keyboardType="number-pad" keyboardAppearance="dark" autoFocus selectionColor="#fff" style={bigInput} />
-                </Animated.View>
+                </View>
               </View>
             ) : step === 'email' ? (
               <View style={{ alignItems: 'center', gap: 28, alignSelf: 'stretch' }}>
-                <Animated.View entering={rise(40)}><Label>email</Label></Animated.View>
-                <Animated.View entering={rise(110)} style={[{ alignSelf: 'stretch' }, shakeStyle]}>
+                <Label>email</Label>
+                <Animated.View style={[{ alignSelf: 'stretch' }, shakeStyle]}>
                   <TextInput value={email} onChangeText={setEmail} placeholder="rachel@gmail.com" placeholderTextColor={GHOST} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" keyboardAppearance="dark" autoFocus selectionColor="#fff" returnKeyType="send" onSubmitEditing={() => !pill.disabled && send()} style={bigInput} />
                 </Animated.View>
                 <Swap text={error} style={{ color: '#fff', fontFamily: F.bold, fontSize: 15, height: 20 }} />
               </View>
             ) : (
               <View style={{ alignItems: 'center', gap: 22 }}>
-                <Animated.View entering={pop(60) as any} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
                   <View style={{ width: 16, height: 9, borderLeftWidth: 3, borderBottomWidth: 3, borderColor: '#fff', transform: [{ rotate: '-45deg' }, { translateY: -2 }] }} />
-                </Animated.View>
-                <Animated.View entering={rise(100)}><Heading>{'an email has\nbeen sent'}</Heading></Animated.View>
+                </View>
+                <Heading>{'an email has\nbeen sent'}</Heading>
                 <Animated.View style={shakeStyle}>
                   <Pressable onPress={() => codeRef.current?.focus()} style={{ flexDirection: 'row', gap: 8 }}>
                     {Array.from({ length: 6 }, (_, i) => (
-                      <Animated.View key={i} entering={rise(160 + i * 35)}>
+                      <View key={i}>
                         <Box ch={code[i]} active={i === Math.min(code.length, 5) && !busy} />
-                      </Animated.View>
+                      </View>
                     ))}
                   </Pressable>
                 </Animated.View>
                 <TextInput ref={codeRef} value={code} onChangeText={(t) => { const d = t.replace(/\D/g, '').slice(0, 6); if (d.length > code.length) Haptics.selectionAsync(); setCode(d); if (d.length === 6) confirm(d); }} keyboardType="number-pad" keyboardAppearance="dark" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} caretHidden style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
-                <Animated.View entering={rise(260)} style={{ alignItems: 'center', gap: 4 }}>
+                <Animated.View style={{ alignItems: 'center', gap: 4 }}>
                   <Swap text={error || `code sent to ${email.trim()}`} style={{ color: error ? '#fff' : 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15 }} />
                   <Pressable hitSlop={10} onPress={() => go('email', -1)}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>change</Text></Pressable>
                 </Animated.View>
               </View>
             )}
-          </Animated.View>
-          </LayoutAnimationConfig>
-          <Animated.View style={insetStyle}><Pill {...pill} /></Animated.View>
-          <Collapse open={step === 'welcome'} height={60}>
+          </View>
+          <View style={{ paddingHorizontal: step === 'welcome' ? 16 : 0 }}><Pill {...pill} /></View>
+          {step === 'welcome' ? (
             <Pressable onPress={() => { setCreating(false); go('email'); }} hitSlop={10} style={({ pressed }) => ({ height: 60, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
               <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>log in</Text>
             </Pressable>
-          </Collapse>
-        </View>
+          ) : null}
+          </Animated.View>
+        </LayoutAnimationConfig>
       </RedScreen>
       {tooYoung ? (
         <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(180)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
