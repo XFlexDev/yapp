@@ -3,13 +3,13 @@ import * as Haptics from 'expo-haptics';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing } from 'react-native-reanimated';
-import { avatarUrl, nameOf, type User } from './api';
+import { pfpUrl, nameOf, type User } from './api';
 import { C, F, SWATCH } from './theme';
 
 const ease = Easing.bezier(0.23, 1, 0.32, 1);
 
 export function Avatar({ user, size, ring }: { user: User; size: number; ring?: boolean }) {
-  const url = avatarUrl(user);
+  const url = pfpUrl(user);
   const inner = (
     <View style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: SWATCH[user.color] ?? C.red, alignItems: 'center', justifyContent: 'center' }}>
       {url ? (

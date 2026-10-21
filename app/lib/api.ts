@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { API } from './theme';
 
-export type User = { id: string; username: string | null; display_name: string; color: number; avatar: string | null };
+export type User = { id: string; username: string | null; display_name: string; color: number; avatar: string | null; pfp?: string | null };
 export type Me = User & { email: string; dnd: boolean };
 export type Friend = User & { online: boolean; dnd: boolean; since: number };
 export type FriendRequest = { id: string; user: User; created_at: number };
@@ -19,6 +19,8 @@ export let onSignedOut: () => void = () => {};
 export const setSignedOutHandler = (f: () => void) => { onSignedOut = f; };
 
 export const avatarUrl = (u: Pick<User, 'avatar'>) => (u.avatar ? `${API}/avatars/${u.avatar}` : null);
+/** Square profile picture; falls back to the full photo for accounts that never cropped one. */
+export const pfpUrl = (u: Pick<User, 'avatar' | 'pfp'>) => (u.pfp ? `${API}/avatars/${u.pfp}` : avatarUrl(u));
 export const nameOf = (u: User) => u.display_name || u.username || 'Someone';
 export const accessToken = () => access;
 
