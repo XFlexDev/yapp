@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
 import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,11 +15,25 @@ import { set, useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, Glyph, MuteRow } from './chat';
+import { Backdrop, Bubble, Glyph, MuteRow, SectionLabel } from './chat';
+import { req } from '../lib/api';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 
 const SPRING = { damping: 18, stiffness: 320, mass: 0.7 };
+
+/** Collapsible settings section: tap the row, content springs open below it. */
+function Expand({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <Animated.View layout={LinearTransition.springify().damping(26).stiffness(260)} style={{ marginHorizontal: 10, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+      <Pressable onPress={() => { Haptics.selectionAsync(); onToggle(); }} style={({ pressed }) => ({ height: 50, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
+        <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{title}</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 18 }}>{open ? '–' : '+'}</Text>
+      </Pressable>
+      {open ? <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)} style={{ paddingBottom: 8 }}>{children}</Animated.View> : null}
+    </Animated.View>
+  );
+}
 
 /** Hold to talk to the whole group. */
 function TalkButton({ onState }: { onState: (s: 'idle' | 'connecting' | 'live' | 'hint') => void }) {
@@ -61,6 +75,7 @@ export default function GroupScreen() {
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
   const [sure, setSure] = useState(false);
+  const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>('people');
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
   const talker = useStore((s) => s.groupTalk[id!] ?? null);
   const opened = useRef(Date.now());
@@ -83,7 +98,9 @@ export default function GroupScreen() {
   const seenBy = lastMine ? g.members.filter((u) => u.id !== me?.id && (g.reads[u.id] ?? 0) >= lastMine.created_at).map((u) => nameOf(u).toLowerCase()) : [];
   const others = friends.filter((f) => !g.members.some((u) => u.id === f.id));
   const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b); };
-  const close = () => { setSheet(null); setSure(false); };
+  const close = () => { setSheet(null); setSure(false); setOpen(null); };
+  const renameGroup = (name: string) => { const n = name.trim(); if (!n || n === g.name) return; req(`/v1/groups/${id}`, { method: 'PATCH', body: { name: n } }).catch(() => {}); };
+  const removeMember = (uid: string) => { Haptics.selectionAsync(); req(`/v1/groups/${id}/members/${uid}`, { method: 'DELETE' }).catch(() => {}); };
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -94,8 +111,7 @@ export default function GroupScreen() {
           <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{g.name}</Text>
           <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 13 }}>{talk === 'live' ? 'everyone can hear you' : talk === 'connecting' ? 'connecting…' : talk === 'hint' ? 'hold to talk to everyone' : talker ? `${nameOf(who(talker) ?? ({ display_name: 'someone' } as any)).toLowerCase()} is talking` : `${g.members.length} people`}</Text>
         </Pressable>
-        <Squish onPress={() => setSheet('people')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="people" /></Squish>
-        <Squish onPress={() => setSheet('bg')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="palette" /></Squish>
+        <Squish onPress={() => { Haptics.selectionAsync(); setSheet('people'); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="gear" /></Squish>
       </View>
       <Animated.View style={[{ flex: 1 }, lift]}>
         <FlatList inverted data={msgs} keyExtractor={(m) => m.id}
@@ -117,11 +133,35 @@ export default function GroupScreen() {
       {sheet ? (
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
-          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, maxHeight: '75%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 12 }}>
-            {sheet === 'bg' ? (
-              <>
-                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18, textAlign: 'center' }}>group background</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 12 }}>
+          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, maxHeight: '82%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 12 }}>
+            <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>group settings</Text>
+              <SectionLabel>name</SectionLabel>
+              <TextInput defaultValue={g.name} onEndEditing={(e) => renameGroup(e.nativeEvent.text)} maxLength={40} keyboardAppearance="dark" selectionColor={C.red} returnKeyType="done"
+                style={{ marginHorizontal: 18, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: F.black, fontSize: 16, paddingHorizontal: 18 }} />
+              <Expand title={`people · ${g.members.length}`} open={open === 'people'} onToggle={() => setOpen(open === 'people' ? null : 'people')}>
+                {g.members.map((u) => (
+                  <View key={u.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7 }}>
+                    <Avatar user={u} size={40} />
+                    <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{u.id === me?.id ? 'you' : nameOf(u)}</Text>
+                    {u.id === g.owner ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>creator</Text>
+                      : g.owner === me?.id ? <Squish onPress={() => removeMember(u.id)} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="minus" size={18} color="rgba(255,255,255,0.6)" /></Squish> : null}
+                  </View>
+                ))}
+              </Expand>
+              {others.length ? (
+                <Expand title={`add people · ${others.length}`} open={open === 'add'} onToggle={() => setOpen(open === 'add' ? null : 'add')}>
+                  {others.map((f) => (
+                    <Squish key={f.id} onPress={() => { Haptics.selectionAsync(); addMember(id!, f.id).catch(() => {}); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7 }}>
+                      <Avatar user={f} size={40} />
+                      <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{nameOf(f)}</Text>
+                      <Glyph g="add" size={16} />
+                    </Squish>
+                  ))}
+                </Expand>
+              ) : null}
+              <Expand title="background" open={open === 'bg'} onToggle={() => setOpen(open === 'bg' ? null : 'bg')}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 12, paddingVertical: 4 }}>
                   <Squish onPress={() => pickBackgroundPhoto(id!, `/v1/groups/${id}/background/photo`).then((r) => r && onGroupUpdated(r as any)).catch(() => {})} style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="plus" /></Squish>
                   {g.background?.startsWith('b-') ? <View style={{ width: 58, height: 58, borderRadius: 29, overflow: 'hidden', borderWidth: 3, borderColor: '#fff' }}><Image source={mediaUrl(g.background)} style={StyleSheet.absoluteFill} /></View> : null}
                   {[null, ...BACKGROUNDS.map((b) => b.id)].map((b) => { const p = BACKGROUNDS.find((x) => x.id === b); const on = g.background === b; return (
@@ -130,29 +170,13 @@ export default function GroupScreen() {
                     </Squish>
                   ); })}
                 </ScrollView>
-              </>
-            ) : (
-              <ScrollView>
-                {g.members.map((u) => (
-                  <View key={u.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7 }}>
-                    <Avatar user={u} size={40} />
-                    <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{u.id === me?.id ? 'you' : nameOf(u)}</Text>
-                    {u.id === g.owner ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>creator</Text> : null}
-                  </View>
-                ))}
-                {others.map((f) => (
-                  <Squish key={f.id} onPress={() => { Haptics.selectionAsync(); addMember(id!, f.id).catch(() => {}); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7, opacity: 0.75 }}>
-                    <Avatar user={f} size={40} />
-                    <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{nameOf(f)}</Text>
-                    <Glyph g="add" size={16} />
-                  </Squish>
-                ))}
-                <View style={{ marginTop: 12 }}><MuteRow chat={`g:${id}`} /></View>
-                <Squish onPress={() => { if (!sure) { Haptics.selectionAsync(); setSure(true); return; } leaveGroup(id!).catch(() => {}); }} style={{ marginHorizontal: 18, marginTop: 12, height: 50, borderRadius: 25, backgroundColor: sure ? C.danger : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{sure ? 'tap again to leave' : 'leave group'}</Text>
-                </Squish>
-              </ScrollView>
-            )}
+              </Expand>
+              <SectionLabel>notifications</SectionLabel>
+              <MuteRow chat={`g:${id}`} />
+              <Squish onPress={() => { if (!sure) { Haptics.selectionAsync(); setSure(true); return; } leaveGroup(id!).catch(() => {}); }} style={{ marginHorizontal: 18, marginTop: 4, height: 50, borderRadius: 25, backgroundColor: sure ? C.danger : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{sure ? 'tap again to leave' : 'leave group'}</Text>
+              </Squish>
+            </ScrollView>
           </Animated.View>
         </View>
       ) : null}
