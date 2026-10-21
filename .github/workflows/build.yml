@@ -7,7 +7,7 @@ on:
         description: What to build
         type: choice
         default: android
-        options: [android, apk, aab, ipa]
+        options: [android, aab, ipa]
   push:
     branches: [main]
 
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   android:
-    if: (github.event_name == 'workflow_dispatch' && inputs.target != 'ipa') || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[build android]')))
+    if: (github.event_name == 'workflow_dispatch' && inputs.target != 'ipa') || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[build android]') || contains(github.event.head_commit.message, '[build aab]')))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -26,19 +26,32 @@ jobs:
         include:
           - kind: apk
             profile: apk
+            abis: arm64-v8a
           - kind: aab
             profile: production
+            abis: armeabi-v7a,arm64-v8a,x86,x86_64
     defaults:
       run:
         working-directory: app
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: ${{ matrix.abis }}
+      MSG: ${{ github.event.head_commit.message }}
     steps:
       - name: Skip unrequested format
         id: want
         working-directory: .
-        run: echo "go=${{ github.event_name == 'push' || inputs.target == 'android' || inputs.target == matrix.kind }}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then
+            case "${{ matrix.kind }}:$MSG" in
+              apk:*"[build]"*|apk:*"[build android]"*|aab:*"[build aab]"*) go=true ;;
+              *) go=false ;;
+            esac
+          else
+            go=${{ inputs.target == 'android' && matrix.kind == 'apk' || inputs.target == matrix.kind }}
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         if: steps.want.outputs.go == 'true'
       - uses: actions/setup-node@v4
