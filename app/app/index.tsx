@@ -301,6 +301,7 @@ export default function Home() {
   selRef.current = friend?.id;
   const selIdx = friend ? Math.max(0, friends.findIndex((f) => f.id === friend.id)) : 0;
   const pick = (i: number) => {
+    lastIdx.value = i;
     if (target.current !== null) { if (i === target.current) target.current = null; return; }
     const f = list.current[i];
     if (!f || f.id === selRef.current) return;
@@ -313,8 +314,6 @@ export default function Home() {
   const onScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
       sx.value = e.contentOffset.x;
-      const i = Math.max(0, Math.min(Math.round(e.contentOffset.x / SLOT), count - 1));
-      if (i !== lastIdx.value) { lastIdx.value = i; scheduleOnRN(pick, i); }
     },
     onBeginDrag: () => { scheduleOnRN(dropTarget); },
   }, [count]);
@@ -534,6 +533,7 @@ export default function Home() {
           <Round g="close" bg={C.red} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} size={52} />
         </View>
       ) : (
+        <View style={{ marginBottom: insets.bottom + 6 }}>
         <Animated.ScrollView
           ref={scroll}
           horizontal
@@ -543,12 +543,16 @@ export default function Home() {
           decelerationRate="fast"
           onScroll={onScroll}
           scrollEventThrottle={16}
+          onScrollEndDrag={(e) => {
+            const t = e.nativeEvent.targetContentOffset?.x;
+            if (t != null) pick(Math.max(0, Math.min(Math.round(t / SLOT), count - 1)));
+          }}
+          onMomentumScrollEnd={(e) => pick(Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.x / SLOT), count - 1)))}
           contentOffset={{ x: selIdx * SLOT, y: 0 }}
           onLayout={() => scroll.current?.scrollTo({ x: selIdx * SLOT, animated: false })}
-          style={{ flexGrow: 0, marginBottom: insets.bottom + 6 }}
+          style={{ flexGrow: 0 }}
           contentContainerStyle={{ paddingLeft: W / 2 - SLOT / 2 - PLUS - GAP, paddingRight: W / 2 - SLOT / 2, paddingVertical: 10, alignItems: 'center' }}
         >
-          <View style={{ marginRight: GAP }}>{plus}</View>
           {friends.map((f, i) => {
             const sel = f.id === friend.id;
             return (
@@ -564,6 +568,11 @@ export default function Home() {
             );
           })}
         </Animated.ScrollView>
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { flexDirection: 'row' }]}>
+          <LinearGradient colors={['#000', 'rgba(0,0,0,0)']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ width: PLUS + GAP + 34 }} />
+        </View>
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, top: 0, bottom: 0, justifyContent: 'center' }}>{plus}</View>
+        </View>
       )}
       </View>
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}
