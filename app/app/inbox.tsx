@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { nameOf } from '../lib/api';
+import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { acceptInvite, createGroup, declineInvite } from '../lib/groups';
 import { deleteChat } from '../lib/chat';
 import { useStore, type ChatMsg } from '../lib/store';
@@ -20,7 +21,7 @@ function Row({ title, sub, unread, left, onPress, onLongPress, armed, onDelete }
   const ref = useRef<React.ComponentRef<typeof View>>(null);
   const press = () => (ref.current ? ref.current.measureInWindow((x, y, w) => onPress({ x, y, s: w })) : onPress());
   return (
-    <Squish onPress={armed ? () => onLongPress?.() : press} onLongPress={onLongPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+    <Squish onPress={armed ? () => onLongPress?.() : press} onLongPress={onLongPress} style={{ backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
       <View ref={ref}>{left}</View>
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>{title}</Text>
@@ -83,9 +84,15 @@ export default function Inbox() {
       <Row key={`g:${g.id}`} title={g.name} sub={preview(g.last, me?.id)} unread={g.unread} left={<Stack3 users={g.members.filter((u) => u.id !== me?.id)} />} onPress={() => router.push({ pathname: '/group', params: { id: g.id } })} />
     ) })),
     ...friends.map((f) => { const c = chats[f.id]; const last = c?.messages.find((m) => !m.pending); return { key: f.id, at: last?.created_at ?? 0, node: (
-      <Row key={f.id} title={nameOf(f)} sub={preview(last, me?.id)} unread={c?.unread ?? 0} left={<Avatar user={f} size={48} />}
+      <Swipeable key={f.id} friction={1.6} rightThreshold={44} overshootRight={false} renderRightActions={(_p, _t, sw) => (
+        <Pressable onPress={() => { sw.close(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); deleteChat(f.id).catch(() => {}); }} style={({ pressed }) => ({ width: 96, backgroundColor: C.danger, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
+          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>delete</Text>
+        </Pressable>
+      )}>
+      <Row title={nameOf(f)} sub={preview(last, me?.id)} unread={c?.unread ?? 0} left={<Avatar user={f} size={48} />}
         armed={armed === f.id} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setArmed(armed === f.id ? null : f.id); }} onDelete={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setArmed(null); deleteChat(f.id).catch(() => {}); }}
-        onPress={(r) => router.push({ pathname: '/chat', params: { id: f.id, ...(r ? { ax: String(r.x), ay: String(r.y), as: String(r.s) } : {}) } })} />
+        onPress={(r) => router.push({ pathname: '/chat', params: { id: f.id, ...(r ? { ax: String(r.x), ay: String(r.y), as: String(r.s) } : {}) } })} />      </Swipeable>
+
     ) }; }),
   ].sort((a, b) => b.at - a.at);
   const create = async () => {
