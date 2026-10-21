@@ -73,22 +73,19 @@ function TopButton({ g, onPress }: { g: keyof typeof GLYPHS; onPress: () => void
   );
 }
 
-function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
+function Backdrop({ friend }: { friend: Friend }) {
   const url = avatarUrl(friend);
   const hue = SWATCH[friend.color] ?? C.red;
-  const back = useSharedValue(0);
-  useEffect(() => { back.value = withSpring(talking ? 1 : 0, SPRING); }, [talking]);
-  const card = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [{ scale: 1 - back.value * 0.08 }] }));
   return (
     <Animated.View key={friend.id} entering={FadeIn.duration(220)} exiting={FadeOut.duration(220)} style={StyleSheet.absoluteFill}>
-     <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden', backgroundColor: url ? '#000' : hue }, card]}>
+     <View style={[StyleSheet.absoluteFill, { backgroundColor: url ? '#000' : hue }]}>
       {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={160} cachePolicy="memory-disk" priority="high" /> : (
         <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingBottom: '30%' }]}>
           <Logo ch={nameOf(friend).slice(0, 1).toLowerCase()} size={190} />
         </View>
       )}
       <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
-     </Animated.View>
+     </View>
     </Animated.View>
   );
 }
@@ -262,6 +259,11 @@ export default function Home() {
   const [connecting, setConnecting] = useState(false);
   const [showConnecting, setShowConnecting] = useState(false);
   const pressSeq = useRef(0);
+  const connectingRef = useRef(false);
+  const connectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [bottomH, setBottomH] = useState(0);
+  const back = useSharedValue(0);
+  const stage = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [{ scale: 1 - back.value * 0.08 }] }));
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const [muted, setMutedState] = useState(false);
@@ -285,6 +287,7 @@ export default function Home() {
     const timer = setTimeout(() => setIncomingPoke((current) => current?.at === at ? null : current), at + 2500 - Date.now());
     return () => clearTimeout(timer);
   }, [friend?.id, pokedAt[friend?.id ?? ''], pokedCount[friend?.id ?? '']]);
+  useEffect(() => { back.value = withSpring(talking || call ? 1 : 0, SPRING); }, [talking, !!call]);
   useEffect(() => { if (note) { const t = setTimeout(() => setNote(null), 2200); return () => clearTimeout(t); } }, [note]);
   useEffect(() => {
     if (call) return;
@@ -293,6 +296,12 @@ export default function Home() {
     lift.value = withTiming(0, { duration: 160 });
   }, [call]);
 
+  const setConnectingState = (v: boolean) => {
+    connectingRef.current = v;
+    if (!v && connectTimer.current) { clearTimeout(connectTimer.current); connectTimer.current = null; }
+    setConnecting(v);
+    setShowConnecting(false);
+  };
   const start = () => {
     if (!friend || call) return;
     if (friend.dnd) { setNote('do not disturb'); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
@@ -300,19 +309,17 @@ export default function Home() {
     lift.value = 0;
     const seq = ++pressSeq.current;
     setTalking(true);
-    setConnecting(true);
-    setShowConnecting(false);
-    setTimeout(() => { if (pressSeq.current === seq) setShowConnecting(true); }, 150);
+    setConnectingState(true);
+    connectTimer.current = setTimeout(() => { if (pressSeq.current === seq && connectingRef.current) setShowConnecting(true); }, 150);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     pressTalk(friend.id).then(() => {
       if (pressSeq.current !== seq) return;
-      setConnecting(false);
-      setShowConnecting(false);
+      setConnectingState(false);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    }).catch((e) => { if (pressSeq.current === seq) { setConnecting(false); setShowConnecting(false); } setTalking(false); if (locked.current) endCall(); setNote((e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t connect').toLowerCase()); });
+    }).catch((e) => { if (pressSeq.current === seq) setConnectingState(false); setTalking(false); if (locked.current) endCall(); setNote((e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t connect').toLowerCase()); });
   };
   const lock = () => {
-    if (!friend || locked.current || !talking || connecting) return;
+    if (!friend || locked.current || !talking || connectingRef.current) return;
     locked.current = true;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     lift.value = withSpring(1, SPRING);
@@ -321,8 +328,7 @@ export default function Home() {
   const stop = () => {
     if (!friend || !talking || locked.current) return;
     pressSeq.current++;
-    setConnecting(false);
-    setShowConnecting(false);
+    setConnectingState(false);
     setTalking(false);
     lift.value = withTiming(0, { duration: 160 });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -408,7 +414,8 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <Backdrop friend={friend} talking={live || !!call} />
+      <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, stage]}>
+      <Backdrop friend={friend} />
       {call?.state === 'active' ? <RemoteVideo id={friend.id} /> : null}
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }}>
         <TopButton g="settings" onPress={() => router.push('/settings')} />
@@ -427,7 +434,7 @@ export default function Home() {
       {friend.dnd ? <View style={{ marginTop: 6 }}><DndPill /></View> : null}
       {call?.state === 'active' ? <LocalVideo top={insets.top + 64} /> : null}
       <View style={{ flex: 1 }} />
-      <View style={{ alignItems: 'center', gap: 12, paddingHorizontal: 24 }}>
+      <View style={{ alignItems: 'center', gap: 12, paddingHorizontal: 24, marginBottom: bottomH + 12, opacity: bottomH ? 1 : 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Pressable onPress={() => { Haptics.selectionAsync(); setSheet(true); }} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, opacity: pressed ? 0.6 : 1 })}>
             <Swap text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
@@ -440,6 +447,11 @@ export default function Home() {
             <Swap text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} />
           </View>
         ) : null}
+      </View>
+      </Animated.View>
+      <View pointerEvents="none" style={{ flex: 1 }} />
+      <View onLayout={(e) => setBottomH(e.nativeEvent.layout.height)}>
+      <View style={{ alignItems: 'center', paddingHorizontal: 24 }}>
         <Bubble text={bubble} lock={talking && !connecting && !call} loading={talking && showConnecting && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </View>
       {call && call.state !== 'outgoing' ? (
@@ -471,6 +483,7 @@ export default function Home() {
           ))}
         </ScrollView>
       )}
+      </View>
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}
     </View>
   );
