@@ -26,13 +26,13 @@ type State = {
   openChat: string | null;
   groups: Record<string, Group>;
   notif: { prefs: NotifPrefs; muted: string[] } | null;
-  cams: { local: CamRef | null; front: boolean; remote: Record<string, CamRef> };
+  cams: { local: CamRef | null; front: boolean; remote: Record<string, CamRef>; swap: boolean; fit: boolean; bare: boolean };
 };
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
   selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
-  cams: { local: null, front: true, remote: {} },
+  cams: { local: null, front: true, remote: {}, swap: false, fit: false, bare: false },
 }));
 
 export const set = useStore.setState;

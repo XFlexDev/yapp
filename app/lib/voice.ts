@@ -187,7 +187,7 @@ export function setMuted(muted: boolean) {
 async function hangUp(friendId: string, notify: boolean) {
   set({ call: null });
   if (get().cams.local) await setCamera(false).catch(() => {});
-  set((s) => ({ cams: { ...s.cams, front: true } }));
+  set((s) => ({ cams: { ...s.cams, front: true, swap: false, fit: false, bare: false } }));
   if (notify) req('/v1/call/end', { method: 'POST', body: { friend_id: friendId } }).catch(() => {});
   await releaseTalk(friendId);
 }

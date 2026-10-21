@@ -353,6 +353,12 @@ export default function Home() {
   const ca = useSharedValue(call && call.state !== 'outgoing' ? 1 : 0);
   const lastCall = useRef(call);
   if (call) lastCall.current = call;
+  const bareStore = useStore((s) => s.cams.bare);
+  const hasVid = useStore((s) => !!friend && !!s.cams.remote[friend.id]);
+  const bare = bareStore && hasVid && call?.state === 'active';
+  const bareV = useSharedValue(0);
+  useEffect(() => { bareV.value = withTiming(bare ? 1 : 0, { duration: 220 }); }, [bare]);
+  const chrome = useAnimatedStyle(() => ({ opacity: 1 - bareV.value }));
   const stage = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [...sxy(1 - back.value * 0.08)] }));
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
@@ -555,7 +561,7 @@ export default function Home() {
       <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, stage]}>
       <Backdrop friend={friend} />
       {call?.state === 'active' ? <RemoteVideo id={friend.id} /> : null}
-      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }}>
+      <Animated.View pointerEvents={bare ? 'none' : 'box-none'} style={[{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }, chrome]}>
         <TopButton g="settings" onPress={() => router.push('/settings')} />
         <View style={{ flexDirection: 'row' }}>
           <View>
@@ -568,11 +574,10 @@ export default function Home() {
           </View>
           <TopButton g={me?.dnd ? 'muted' : 'sound'} onPress={toggleDnd} />
         </View>
-      </View>
+      </Animated.View>
       {friend.dnd ? <View style={{ marginTop: 6 }}><DndPill /></View> : null}
-      {call?.state === 'active' ? <LocalVideo top={insets.top + 64} /> : null}
-      <View style={{ flex: 1 }} />
-      <View style={{ alignItems: 'center', gap: 12, paddingHorizontal: 24, marginBottom: bottomH + 12, opacity: bottomH ? 1 : 0 }}>
+      <View pointerEvents="none" style={{ flex: 1 }} />
+      <Animated.View pointerEvents={bare ? 'none' : 'box-none'} style={[{ alignItems: 'center', gap: 12, paddingHorizontal: 24, marginBottom: bottomH + 12, opacity: bottomH ? 1 : 0 }, chrome]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Pressable onPress={() => { Haptics.selectionAsync(); setSheet(true); }} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, opacity: pressed ? 0.6 : 1 })}>
             <Fresh text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
@@ -585,8 +590,9 @@ export default function Home() {
             <Fresh text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} />
           </View>
         ) : null}
-      </View>
       </Animated.View>
+      </Animated.View>
+      {call?.state === 'active' ? <LocalVideo top={insets.top + 64} bottom={bottomH + 12} friendId={friend.id} /> : null}
       <View pointerEvents="none" style={{ flex: 1 }} />
       <View onLayout={(e) => setBottomH(e.nativeEvent.layout.height)}>
       <View style={{ alignItems: 'center', paddingHorizontal: 24 }}>
