@@ -49,16 +49,17 @@ function TopButton({ g, onPress, badge }: { g: keyof typeof GLYPHS; onPress: () 
 
 function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
   const url = avatarUrl(friend);
+  const hue = SWATCH[friend.color] ?? C.red;
   const tint = useSharedValue(0);
   useEffect(() => { tint.value = withTiming(talking ? 1 : 0, { duration: talking ? 180 : 320, easing: out }); }, [talking]);
   const red = useAnimatedStyle(() => ({ opacity: tint.value * 0.42 }));
   return (
-    <Animated.View key={friend.id} entering={FadeIn.duration(260)} style={[StyleSheet.absoluteFill, { backgroundColor: SWATCH[friend.color] ?? C.red }]}>
+    <Animated.View key={friend.id} entering={FadeIn.duration(260)} style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}>
       {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={220} /> : (
-        <LinearGradient colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0)']} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={[hue, hue + 'B3', hue + '33', '#000']} locations={[0, 0.38, 0.68, 0.9]} style={StyleSheet.absoluteFill} />
       )}
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, red]} />
-      <LinearGradient colors={['rgba(0,0,0,0.42)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', '#000']} locations={[0, 0.2, 0.42, 0.72, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={url ? ['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.6)', '#000'] : ['rgba(0,0,0,0.18)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', '#000']} locations={[0, 0.16, 0.45, 0.74, 1]} style={StyleSheet.absoluteFill} />
     </Animated.View>
   );
 }
@@ -86,7 +87,7 @@ function TalkAvatar({ friend, talking, hearing }: { friend: Friend; talking: boo
   }, [hearing]);
   const body = useAnimatedStyle(() => ({ transform: [{ scale: 1 + press.value * 0.08 }] }));
   const ring = useAnimatedStyle(() => ({ borderColor: interpolateColor(press.value, [0, 1], ['rgba(255,255,255,0.95)', C.red]), borderWidth: 2.5 + press.value * 1.5 }));
-  const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.55, transform: [{ scale: 1 + ripple.value * 0.32 }] }));
+  const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.55, transform: [{ scale: 1 + ripple.value * 0.2 }] }));
   const size = SEL + 14;
   return (
     <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, body]}>
@@ -194,7 +195,7 @@ export default function Home() {
           <Glyph g="wave" size={24} />
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginTop: 22, marginBottom: insets.bottom + 14 }} contentContainerStyle={{ paddingHorizontal: 17, alignItems: 'center', gap: 12 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginTop: 8, marginBottom: insets.bottom }} contentContainerStyle={{ paddingHorizontal: 17, paddingVertical: 14, alignItems: 'center', gap: 12 }}>
         <GestureDetector gesture={hold}>
           <View collapsable={false}><TalkAvatar friend={friend} talking={talking} hearing={hearing} /></View>
         </GestureDetector>
