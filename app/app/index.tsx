@@ -173,12 +173,16 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { f
   );
 }
 
-function Slot({ i, x, dim, badge, children }: { i: number; x: SharedValue<number>; dim: boolean; badge: number; children: (focus: SharedValue<number>) => React.ReactNode }) {
+function Slot({ i, x, dim, badge, sel, dir, cp, ca, children }: { i: number; x: SharedValue<number>; dim: boolean; badge: number; sel: boolean; dir: number; cp: SharedValue<number>; ca: SharedValue<number>; children: (focus: SharedValue<number>) => React.ReactNode }) {
   const focus = useDerivedValue(() => 1 - Math.min(1, Math.abs(x.value - i * SLOT) / SLOT));
-  const st = useAnimatedStyle(() => ({ transform: [{ scale: MIN + (1 - MIN) * focus.value }] }));
+  const st = useAnimatedStyle(() => {
+    const k = sel ? 1 - 0.4 * ca.value : 1 - 0.3 * cp.value;
+    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, { scale: (MIN + (1 - MIN) * focus.value) * k }] };
+  });
   const edge = useAnimatedStyle(() => {
     const cx = W / 2 + i * SLOT - x.value;
-    return { opacity: Math.max(0, Math.min(1, (cx - FADE_AT) / 34)) * (dim ? 0.75 : 1) };
+    const gone = sel ? ca.value : cp.value;
+    return { opacity: Math.max(0, Math.min(1, (cx - FADE_AT) / 34)) * (dim ? 0.75 : 1) * Math.max(0, 1 - gone * 1.4) };
   });
   const r = Math.round(((SEL + 14) * MIN) / 2);
   return (
@@ -216,22 +220,26 @@ function Round({ g, bg, onPress, size = 64 }: { g: keyof typeof GLYPHS; bg: stri
   );
 }
 
-function CallBar({ incoming, muted, cam, onMute, onCam, onEnd, onAccept }: { incoming: boolean; muted: boolean; cam: boolean; onMute: () => void; onCam: () => void; onEnd: () => void; onAccept: () => void }) {
+const MORPH = { damping: 24, stiffness: 260, mass: 0.9 };
+const BTN = 72;
+
+function CallControls({ cp, ca, on, incoming, muted, cam, onMute, onCam, onEnd, onAccept }: { cp: SharedValue<number>; ca: SharedValue<number>; on: boolean; incoming: boolean; muted: boolean; cam: boolean; onMute: () => void; onCam: () => void; onEnd: () => void; onAccept: () => void }) {
+  const inc = incoming ? 1 : 0;
+  const end = useAnimatedStyle(() => ({
+    opacity: Math.min(1, cp.value * 1.5),
+    transform: [{ translateX: interpolate(ca.value, [0, 1], [SLOT, inc ? -50 : 0]) }, { scale: Math.max(0, cp.value) * interpolate(ca.value, [0, 1], [52 / BTN, 1]) }]
+  }));
+  const left = useAnimatedStyle(() => ({ opacity: Math.max(0, ca.value), transform: [{ translateX: -SLOT * ca.value }, { scale: 0.4 + 0.6 * ca.value }] }));
+  const right = useAnimatedStyle(() => ({ opacity: Math.max(0, ca.value), transform: [{ translateX: (inc ? 50 : SLOT) * ca.value }, { scale: 0.4 + 0.6 * ca.value }] }));
+  const at = { position: 'absolute' as const, left: W / 2 - BTN / 2, top: (SEL + 34) / 2 - BTN / 2, width: BTN, height: BTN, alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
-    <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={FadeOut.duration(200)} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 28, height: SEL + 34 }}>
-      {incoming ? (
-        <>
-          <Round g="close" bg={C.red} onPress={onEnd} size={72} />
-          <Round g="phone" bg={C.online} onPress={onAccept} size={72} />
-        </>
-      ) : (
-        <>
-          <Round g={muted ? 'micOff' : 'mic'} bg={muted ? '#fff' : 'rgba(255,255,255,0.2)'} onPress={onMute} size={52} />
-          <Round g="close" bg={C.red} onPress={onEnd} size={72} />
-          <Round g={cam ? 'video' : 'videoOff'} bg={cam ? '#fff' : 'rgba(255,255,255,0.2)'} onPress={onCam} size={52} />
-        </>
-      )}
-    </Animated.View>
+    <View pointerEvents={on ? 'box-none' : 'none'} style={StyleSheet.absoluteFill}>
+      {incoming ? null : <Animated.View style={[at, left]}><Round g={muted ? 'micOff' : 'mic'} bg={muted ? '#fff' : 'rgba(255,255,255,0.2)'} onPress={onMute} size={52} /></Animated.View>}
+      <Animated.View style={[at, right]}>
+        {incoming ? <Round g="phone" bg={C.online} onPress={onAccept} size={BTN} /> : <Round g={cam ? 'video' : 'videoOff'} bg={cam ? '#fff' : 'rgba(255,255,255,0.2)'} onPress={onCam} size={52} />}
+      </Animated.View>
+      <Animated.View style={[at, end]}><Round g="close" bg={C.red} onPress={onEnd} size={BTN} /></Animated.View>
+    </View>
   );
 }
 
@@ -312,6 +320,10 @@ export default function Home() {
   const connectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [bottomH, setBottomH] = useState(0);
   const back = useSharedValue(0);
+  const cp = useSharedValue(call ? 1 : 0);
+  const ca = useSharedValue(call && call.state !== 'outgoing' ? 1 : 0);
+  const lastCall = useRef(call);
+  if (call) lastCall.current = call;
   const stage = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [{ scale: 1 - back.value * 0.08 }] }));
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
@@ -344,7 +356,7 @@ export default function Home() {
     if (prev !== null && i !== prev && fling.value && i >= 0 && i < count) scheduleOnRN(buzz);
   }, [count]);
   const maxX = Math.max(0, (count - 1) * SLOT);
-  const swipe = Gesture.Pan().enabled(!talking && count > 1).activeOffsetX([-8, 8]).failOffsetY([-14, 14])
+  const swipe = Gesture.Pan().enabled(!talking && !call && count > 1).activeOffsetX([-8, 8]).failOffsetY([-14, 14])
     .onStart(() => { cancelAnimation(sx); fling.value = true; from.value = sx.value; })
     .onUpdate((e) => { const v = from.value - e.translationX; sx.value = v < 0 ? v * 0.3 : v > maxX ? maxX + (v - maxX) * 0.3 : v; })
     .onEnd((e) => {
@@ -353,7 +365,7 @@ export default function Home() {
       sx.value = withSpring(i * SLOT, { ...SNAP, velocity: -e.velocityX }, () => { fling.value = false; });
     });
   const jump = (i: number) => {
-    if (talking) return;
+    if (talking || call) return;
     Haptics.selectionAsync();
     choose(i);
   };
@@ -379,6 +391,10 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [friend?.id, pokedAt[friend?.id ?? ''], pokedCount[friend?.id ?? '']]);
   useEffect(() => { back.value = withSpring(talking || call ? 1 : 0, SPRING); }, [talking, !!call]);
+  useEffect(() => {
+    cp.value = withSpring(call ? 1 : 0, MORPH);
+    ca.value = withSpring(call && call.state !== 'outgoing' ? 1 : 0, MORPH);
+  }, [call?.state]);
   useEffect(() => { if (note) { const t = setTimeout(() => setNote(null), 2200); return () => clearTimeout(t); } }, [note]);
   useEffect(() => {
     if (call) return;
@@ -465,6 +481,7 @@ export default function Home() {
     req<Me>('/v1/status', { method: 'PUT', body: { dnd: next } }).then((m) => set({ me: m })).catch(() => set((s) => ({ me: s.me ? { ...s.me, dnd: !next } : s.me })));
   };
 
+  const plusSt = useAnimatedStyle(() => ({ opacity: Math.max(0, 1 - cp.value * 1.4), transform: [{ scale: 1 - 0.3 * cp.value }] }));
   const plus = (
     <Squish onPress={() => router.push('/add')} style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
       <Glyph g="plus" size={22} />
@@ -543,28 +560,17 @@ export default function Home() {
       <View style={{ alignItems: 'center', paddingHorizontal: 24 }}>
         <Bubble text={bubble} lock={talking && !connecting && !call} loading={talking && showConnecting && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </View>
-      {call && call.state !== 'outgoing' ? (
-        <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10 }}>
-          <CallBar incoming={call.state === 'incoming'} muted={muted} cam={cam} onCam={toggleCam} onMute={toggleMute} onEnd={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} onAccept={accept} />
-        </View>
-      ) : call ? (
-        <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 28 }}>
-          <View style={{ width: 52 }} />
-          <TalkAvatar friend={friend} talking hearing={hearing} pokeAt={pokedAt[friend.id] ?? 0} pokeSquish={pokeSquish} />
-          <Round g="close" bg={C.red} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} size={52} />
-        </View>
-      ) : (
         <GestureDetector gesture={swipe}>
         <View style={{ marginBottom: insets.bottom + 6, height: SEL + 34 }}>
         <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2, top: 10, flexDirection: 'row' }, track]}>
           {friends.map((f, i) => {
             const sel = f.id === friend.id;
             return (
-              <Slot key={f.id} i={i} x={sx} dim={!sel && !(f.online || talkingTo[f.id])} badge={sel ? 0 : pokeCount[f.id] ?? 0}>
+              <Slot key={f.id} i={i} x={sx} sel={sel} dir={Math.sign(i - selIdx)} cp={cp} ca={ca} dim={!sel && !(f.online || talkingTo[f.id])} badge={sel ? 0 : pokeCount[f.id] ?? 0}>
                 {(focus) => (
                   <GestureDetector gesture={sel ? avatarGesture : Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) jump(i); })}>
                     <View collapsable={false}>
-                      <TalkAvatar friend={f} talking={sel && talking} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} />
+                      <TalkAvatar friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} />
                     </View>
                   </GestureDetector>
                 )}
@@ -572,10 +578,10 @@ export default function Home() {
             );
           })}
         </Animated.View>
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: PLUS_X, top: 0, bottom: 0, justifyContent: 'center' }}>{plus}</View>
+        <Animated.View pointerEvents={call ? 'none' : 'box-none'} style={[{ position: 'absolute', left: PLUS_X, top: 0, bottom: 0, justifyContent: 'center' }, plusSt]}>{plus}</Animated.View>
+        <CallControls cp={cp} ca={ca} on={!!call} incoming={(call ?? lastCall.current)?.state === 'incoming'} muted={muted} cam={cam} onCam={toggleCam} onMute={toggleMute} onEnd={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} onAccept={accept} />
         </View>
         </GestureDetector>
-      )}
       </View>
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}
     </View>
