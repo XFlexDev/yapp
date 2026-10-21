@@ -4,7 +4,7 @@ set -e
 N=${1:-500}; SECS=${2:-90}; D=/tmp/yapload
 rm -rf $D; mkdir -p $D/av
 SECRET=$(openssl rand -hex 32)
-env -i PATH=$PATH RUST_LOG=warn YAP_JWT_SECRET=$SECRET LIVEKIT_API_KEY=lt LIVEKIT_API_SECRET=$(openssl rand -hex 32) LIVEKIT_URL=wss://lt.invalid \
+env -i PATH=$PATH RUST_LOG=warn MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-8} YAP_JWT_SECRET=$SECRET LIVEKIT_API_KEY=lt LIVEKIT_API_SECRET=$(openssl rand -hex 32) LIVEKIT_URL=wss://lt.invalid \
   YAP_BIND=127.0.0.1:8599 YAP_DB=$D/db.sqlite3 YAP_AVATAR_DIR=$D/av BIN=${BIN:-/opt/yap/yap-server} bash -c 'ulimit -n 16384; exec ${BIN:-/opt/yap/yap-server}' > $D/server.log 2>&1 &
 PID=$!
 trap "kill $PID 2>/dev/null; rm -rf $D" EXIT
