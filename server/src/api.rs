@@ -440,6 +440,128 @@ fn issue_tokens(st: &AppState, c: &Connection, uid: &str) -> R<TokenResp> {
     Ok(TokenResp { access_token: st.access_token(uid), refresh_token: refresh, expires_in: ACCESS_TTL, user: me_of(c, uid)? })
 }
 
+// ---------- Google sign-in (Firebase Auth popup on our own page, then a one-time code back into the app) ----------
+
+static GOOGLE_CODES: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<String, (String, Instant)>>> =
+    std::sync::LazyLock::new(Default::default);
+static FIREBASE_KEYS: std::sync::LazyLock<parking_lot::Mutex<(Vec<(String, String, String)>, Option<Instant>)>> =
+    std::sync::LazyLock::new(Default::default);
+
+async fn firebase_key(st: &S, kid: &str) -> Option<(String, String)> {
+    let fresh = |k: &(Vec<(String, String, String)>, Option<Instant>)| k.1.is_some_and(|t| t.elapsed() < Duration::from_secs(3600));
+    {
+        let k = FIREBASE_KEYS.lock();
+        if fresh(&k) {
+            if let Some(x) = k.0.iter().find(|x| x.0 == kid) { return Some((x.1.clone(), x.2.clone())); }
+        }
+    }
+    let url = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
+    let v: Value = st.http.get(url).send().await.ok()?.json().await.ok()?;
+    let keys: Vec<(String, String, String)> = v["keys"].as_array()?.iter().filter_map(|k| Some((k["kid"].as_str()?.into(), k["n"].as_str()?.into(), k["e"].as_str()?.into()))).collect();
+    let hit = keys.iter().find(|x| x.0 == kid).map(|x| (x.1.clone(), x.2.clone()));
+    *FIREBASE_KEYS.lock() = (keys, Some(Instant::now()));
+    hit
+}
+
+fn google_page(st: &S) -> String {
+    let cfg = match (&st.cfg.fb_api_key, &st.cfg.fb_app_id) {
+        (Some(k), Some(a)) => json!({ "apiKey": k, "appId": a, "projectId": st.cfg.fb_project, "authDomain": format!("{}.firebaseapp.com", st.cfg.fb_project) }).to_string(),
+        _ => "null".into(),
+    };
+    format!(r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sign in to Yapp</title><meta name="theme-color" content="#000"><meta name="robots" content="noindex"><style>
+*{{margin:0;box-sizing:border-box}}html,body{{height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}}
+main{{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:32px;text-align:center}}
+h1{{font-size:44px;font-weight:900;letter-spacing:-1px}}p{{color:rgba(255,255,255,.55);font-size:17px;min-height:22px}}
+button,a.b{{margin-top:18px;display:block;width:100%;max-width:320px;height:56px;line-height:56px;border:0;border-radius:28px;background:#fff;color:#000;font:900 18px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;cursor:pointer;transition:transform .15s,opacity .2s}}
+button:active{{transform:scale(.97)}}button:disabled{{opacity:.5}}
+</style></head><body><main><h1>yapp</h1><p id="m">sign in with your google account</p><button id="go">continue with google</button></main>
+<script type="module">
+const cfg = {cfg};
+const m = document.getElementById('m'), go = document.getElementById('go');
+if (!cfg) {{ m.textContent = 'google sign in is not set up yet'; go.remove(); }}
+else {{
+  const {{ initializeApp }} = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js');
+  const {{ getAuth, GoogleAuthProvider, signInWithPopup }} = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+  const auth = getAuth(initializeApp(cfg));
+  go.onclick = async () => {{
+    go.disabled = true; m.textContent = 'signing in…';
+    try {{
+      const r = await signInWithPopup(auth, new GoogleAuthProvider());
+      const res = await fetch('/v1/auth/google', {{ method: 'POST', headers: {{ 'content-type': 'application/json' }}, body: JSON.stringify({{ id_token: await r.user.getIdToken() }}) }});
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || 'sign in failed');
+      m.textContent = 'opening yapp…';
+      const url = 'yapp://auth?code=' + encodeURIComponent(j.code);
+      location.href = url;
+      go.textContent = 'open yapp'; go.disabled = false; go.onclick = () => {{ location.href = url; }};
+    }} catch (e) {{
+      go.disabled = false;
+      m.textContent = e && e.code === 'auth/popup-closed-by-user' ? 'sign in with your google account' : String((e && e.message) || 'sign in failed').toLowerCase();
+    }}
+  }};
+}}
+</script></body></html>"##)
+}
+
+async fn google_signin_page(State(st): State<S>) -> Response {
+    ([(header::CACHE_CONTROL, "no-store")], Html(google_page(&st))).into_response()
+}
+
+#[derive(Deserialize)]
+struct GoogleReq {
+    id_token: String,
+}
+
+/// Verifies a Firebase ID token and hands back a 2-minute one-time code for the app.
+async fn auth_google(State(st): State<S>, Json(r): Json<GoogleReq>) -> R<Json<Value>> {
+    let bad_token = || err(StatusCode::UNAUTHORIZED, "BadToken", "Google sign in failed, try again");
+    let head = jsonwebtoken::decode_header(&r.id_token).map_err(|_| bad_token())?;
+    let kid = head.kid.ok_or_else(bad_token)?;
+    let (n, e) = firebase_key(&st, &kid).await.ok_or_else(bad_token)?;
+    let key = jsonwebtoken::DecodingKey::from_rsa_components(&n, &e).map_err(|_| bad_token())?;
+    let mut val = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+    val.set_audience(&[&st.cfg.fb_project]);
+    val.set_issuer(&[format!("https://securetoken.google.com/{}", st.cfg.fb_project)]);
+    let claims = jsonwebtoken::decode::<Value>(&r.id_token, &key, &val).map_err(|_| bad_token())?.claims;
+    if claims["email_verified"] != json!(true) {
+        return Err(bad("That Google account has no verified email"));
+    }
+    let email = claims["email"].as_str().and_then(normalize_email).ok_or_else(|| bad("That Google account has no email"))?;
+    let name: String = claims["name"].as_str().unwrap_or("").chars().take(30).collect();
+    let uid = {
+        let c = st.db();
+        if is_banned(&c, &email)? {
+            return Err(err(StatusCode::FORBIDDEN, "Banned", "This email was banned from Yapp"));
+        }
+        match c.query_row("SELECT id FROM users WHERE email=?", [&email], |r| r.get::<_, String>(0)).optional()? {
+            Some(id) => id,
+            None => {
+                let id = uuid::Uuid::new_v4().to_string();
+                c.execute("INSERT INTO users(id, email, display_name, color, created_at) VALUES(?, ?, ?, ?, ?)", params![id, email, name, random_color(), now()])?;
+                id
+            }
+        }
+    };
+    let code = random_token();
+    let mut codes = GOOGLE_CODES.lock();
+    codes.retain(|_, v| v.1.elapsed() < Duration::from_secs(120));
+    codes.insert(code.clone(), (uid, Instant::now()));
+    Ok(Json(json!({ "code": code })))
+}
+
+#[derive(Deserialize)]
+struct ExchangeReq {
+    code: String,
+}
+
+async fn auth_exchange(State(st): State<S>, Json(r): Json<ExchangeReq>) -> R<Json<TokenResp>> {
+    let hit = GOOGLE_CODES.lock().remove(&r.code).filter(|v| v.1.elapsed() < Duration::from_secs(120));
+    let Some((uid, _)) = hit else { return Err(bad("That sign in expired, try again")) };
+    let c = st.db();
+    Ok(Json(issue_tokens(&st, &c, &uid)?))
+}
+
 async fn auth_confirm(State(st): State<S>, Json(r): Json<ConfirmReq>) -> R<Json<TokenResp>> {
     let email = normalize_email(&r.email).ok_or_else(|| bad("Enter a valid email"))?;
     if is_banned(&st.db(), &email)? {
@@ -2096,6 +2218,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/version", get(version))
         .route("/v1/auth/start", post(auth_start))
         .route("/v1/auth/confirm", post(auth_confirm))
+        .route("/v1/auth/google", post(auth_google))
+        .route("/v1/auth/exchange", post(auth_exchange))
+        .route("/auth/google", get(google_signin_page))
         .route("/v1/auth/refresh", post(auth_refresh))
         .route("/v1/auth/logout", post(auth_logout))
         .route("/v1/me", get(get_me).patch(patch_me).delete(delete_me))

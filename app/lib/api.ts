@@ -88,6 +88,11 @@ export async function confirmLogin(email: string, code: string): Promise<Me> {
   await save(t);
   return t.user;
 }
+export async function exchangeGoogle(code: string): Promise<Me> {
+  const t = await req<Tokens>('/v1/auth/exchange', { method: 'POST', body: { code } });
+  await save(t);
+  return t.user;
+}
 export async function logout() {
   if (refresh) await req('/v1/auth/logout', { method: 'POST', body: { refresh_token: refresh } }).catch(() => {});
   await clear().catch(() => {});

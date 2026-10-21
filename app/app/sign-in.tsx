@@ -1,10 +1,10 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, LayoutAnimationConfig, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { ApiError, confirmLogin, startLogin } from '../lib/api';
 import { set } from '../lib/store';
-import { F } from '../lib/theme';
+import { API, F } from '../lib/theme';
 import { bigInput, FILL, GHOST, Heading, Label, Logo, Pill, pop, popOut, RedScreen, slide, slideOut, SPRING, Squish, Swap, useShake } from '../lib/tt';
 
 type Step = 'welcome' | 'age' | 'email' | 'code';
@@ -33,6 +33,7 @@ export default function SignIn() {
   const [step, setStep] = useState<Step>('welcome');
   const [dir, setDir] = useState(1);
   const [creating, setCreating] = useState(false);
+  const [google, setGoogle] = useState(false);
   const [age, setAge] = useState('');
   const [tooYoung, setTooYoung] = useState(false);
   const [email, setEmail] = useState('');
@@ -43,7 +44,7 @@ export default function SignIn() {
   const { style: shakeStyle, shake } = useShake();
 
   const go = (s: Step, d = 1) => { setDir(d); setError(''); setStep(s); };
-  const back = () => go(step === 'code' ? 'email' : step === 'email' && creating ? 'age' : 'welcome', -1);
+  const back = () => { if (step === 'age') setGoogle(false); go(step === 'code' ? 'email' : step === 'email' && creating ? 'age' : 'welcome', -1); };
   const fail = (e: unknown) => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); shake(); setError(e instanceof ApiError ? e.message.toLowerCase() : 'something went wrong'); };
 
   const send = async () => {
@@ -61,7 +62,7 @@ export default function SignIn() {
   useEffect(() => { if (step === 'code') setTimeout(() => codeRef.current?.focus(), 350); }, [step]);
 
   const pill = step === 'welcome' ? { title: 'create account', onPress: () => { setCreating(true); go('age'); } }
-    : step === 'age' ? { title: 'continue', disabled: !age, onPress: () => (Number(age) < 13 ? (Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning), setTooYoung(true)) : go('email')) }
+    : step === 'age' ? { title: 'continue', disabled: !age, onPress: () => (Number(age) < 13 ? (Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning), setTooYoung(true)) : google ? Linking.openURL(`${API}/auth/google`) : go('email')) }
     : step === 'email' ? { title: 'send code', disabled: !/^\S+@\S+\.\S+$/.test(email.trim()), loading: busy, onPress: send }
     : { title: 'can’t find the mail?', ghost: true, loading: busy, onPress: send };
 
@@ -112,6 +113,9 @@ export default function SignIn() {
             )}
           </View>
           <View style={{ paddingHorizontal: step === 'welcome' ? 16 : 0 }}><Pill {...pill} /></View>
+          {step === 'welcome' ? (
+            <View style={{ paddingHorizontal: 16, marginTop: 10 }}><Pill ghost title="continue with google" onPress={() => { setCreating(true); setGoogle(true); go('age'); }} /></View>
+          ) : null}
           {step === 'welcome' ? (
             <Pressable onPress={() => { setCreating(false); go('email'); }} hitSlop={10} style={({ pressed }) => ({ height: 60, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
               <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>log in</Text>
