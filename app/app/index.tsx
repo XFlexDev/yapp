@@ -76,18 +76,19 @@ function TopButton({ g, onPress }: { g: keyof typeof GLYPHS; onPress: () => void
 function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
   const url = avatarUrl(friend);
   const hue = SWATCH[friend.color] ?? C.red;
-  const tint = useSharedValue(0);
-  useEffect(() => { tint.value = withTiming(talking ? 1 : 0, { duration: talking ? 180 : 320, easing: out }); }, [talking]);
-  const red = useAnimatedStyle(() => ({ opacity: tint.value * 0.5 }));
+  const back = useSharedValue(0);
+  useEffect(() => { back.value = withSpring(talking ? 1 : 0, SPRING); }, [talking]);
+  const card = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [{ scale: 1 - back.value * 0.08 }] }));
   return (
-    <Animated.View key={friend.id} entering={FadeIn.duration(220)} exiting={FadeOut.duration(220)} style={[StyleSheet.absoluteFill, { backgroundColor: url ? '#000' : hue }]}>
+    <Animated.View key={friend.id} entering={FadeIn.duration(220)} exiting={FadeOut.duration(220)} style={StyleSheet.absoluteFill}>
+     <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden', backgroundColor: url ? '#000' : hue }, card]}>
       {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={160} cachePolicy="memory-disk" priority="high" /> : (
         <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingBottom: '30%' }]}>
           <Logo ch={nameOf(friend).slice(0, 1).toLowerCase()} size={190} />
         </View>
       )}
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, red]} />
       <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
+     </Animated.View>
     </Animated.View>
   );
 }
@@ -258,6 +259,9 @@ export default function Home() {
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
   const [talking, setTalking] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [showConnecting, setShowConnecting] = useState(false);
+  const pressSeq = useRef(0);
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const [muted, setMutedState] = useState(false);
@@ -294,12 +298,21 @@ export default function Home() {
     if (friend.dnd) { setNote('do not disturb'); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
     locked.current = false;
     lift.value = 0;
+    const seq = ++pressSeq.current;
     setTalking(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    pressTalk(friend.id).catch((e) => { setTalking(false); if (locked.current) endCall(); setNote((e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t connect').toLowerCase()); });
+    setConnecting(true);
+    setShowConnecting(false);
+    setTimeout(() => { if (pressSeq.current === seq) setShowConnecting(true); }, 150);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    pressTalk(friend.id).then(() => {
+      if (pressSeq.current !== seq) return;
+      setConnecting(false);
+      setShowConnecting(false);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }).catch((e) => { if (pressSeq.current === seq) { setConnecting(false); setShowConnecting(false); } setTalking(false); if (locked.current) endCall(); setNote((e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t connect').toLowerCase()); });
   };
   const lock = () => {
-    if (!friend || locked.current || !talking) return;
+    if (!friend || locked.current || !talking || connecting) return;
     locked.current = true;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     lift.value = withSpring(1, SPRING);
@@ -307,6 +320,9 @@ export default function Home() {
   };
   const stop = () => {
     if (!friend || !talking || locked.current) return;
+    pressSeq.current++;
+    setConnecting(false);
+    setShowConnecting(false);
     setTalking(false);
     lift.value = withTiming(0, { duration: 160 });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -387,7 +403,7 @@ export default function Home() {
   const bubble = call?.state === 'incoming' ? `${nameOf(friend).toLowerCase()} is calling`
     : call?.state === 'outgoing' ? 'calling…'
     : call?.state === 'active' ? 'on call'
-    : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
+    : talking && connecting ? (showConnecting ? 'connecting' : 'hold to talk') : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
   const lead = W / 2 - (SEL + 14) / 2 - GAP - PLUS;
 
   return (
@@ -424,7 +440,7 @@ export default function Home() {
             <Swap text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} />
           </View>
         ) : null}
-        <Bubble text={bubble} lock={talking && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
+        <Bubble text={bubble} lock={talking && !connecting && !call} loading={talking && showConnecting && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </View>
       {call && call.state !== 'outgoing' ? (
         <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10 }}>
