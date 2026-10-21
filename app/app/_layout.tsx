@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
 import { router, Stack, type ErrorBoundaryProps } from 'expo-router';
+import { requireOptionalNativeModule } from 'expo';
 import { Pressable, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +21,8 @@ import { startListening, stopVoice } from '../lib/voice';
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ fade: true, duration: 200 });
 startUpdates();
+// Black window behind screens (needs a build with expo-system-ui; older builds skip it).
+if (requireOptionalNativeModule('ExpoSystemUI')) import('expo-system-ui').then((m) => m.setBackgroundColorAsync('#000')).catch(() => {});
 
 export function signOutLocal() {
   stopRealtime();

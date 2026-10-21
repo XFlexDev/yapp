@@ -6,7 +6,8 @@ export type ChatMsg = { id: string; from: string; to: string; kind: string; body
 export type Chat = { messages: ChatMsg[]; loaded: boolean; more: boolean; background: string | null; theirReadAt: number; unread: number };
 
 export type NotifPrefs = { messages: boolean; talk: boolean; calls: boolean; friends: boolean };
-export type Group = { id: string; name: string; owner: string; background: string | null; members: import('./api').User[]; reads: Record<string, number>; last: ChatMsg | null; unread: number; messages: ChatMsg[]; loaded: boolean; more: boolean };
+export type GroupInvite = { group_id: string; name: string; from: import('./api').User; members: number; created_at: number };
+export type Group = { id: string; name: string; owner: string; background: string | null; members: import('./api').User[]; invited?: string[]; reads: Record<string, number>; last: ChatMsg | null; unread: number; messages: ChatMsg[]; loaded: boolean; more: boolean };
 
 export type CamRef = import('@livekit/react-native').VideoTrackProps['trackRef'] & {};
 
@@ -26,6 +27,7 @@ type State = {
   chats: Record<string, Chat>;
   openChat: string | null;
   groups: Record<string, Group>;
+  groupInvites: GroupInvite[];
   notif: { prefs: NotifPrefs; muted: string[] } | null;
   clips: Record<string, Clip[]>;
   groupTalk: Record<string, string | null>;
@@ -35,7 +37,7 @@ type State = {
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, groupInvites: [], notif: null,
   clips: {},
   groupTalk: {},
   trophy: null,

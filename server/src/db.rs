@@ -100,6 +100,14 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             background TEXT,
             created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS group_invites(
+            group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY(group_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS group_invites_user ON group_invites(user_id);
         CREATE TABLE IF NOT EXISTS group_members(
             group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

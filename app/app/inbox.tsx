@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { nameOf } from '../lib/api';
-import { createGroup } from '../lib/groups';
+import { acceptInvite, createGroup, declineInvite } from '../lib/groups';
 import { useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
@@ -33,6 +33,31 @@ function Stack3({ users }: { users: any[] }) {
     <View style={{ width: 48, height: 48 }}>
       {users.slice(0, 2).map((u, i) => (
         <View key={u.id} style={{ position: 'absolute', left: i * 14, top: i * 14, borderRadius: 18, borderWidth: 2, borderColor: '#000' }}><Avatar user={u} size={32} /></View>
+      ))}
+    </View>
+  );
+}
+
+function Requests() {
+  const invites = useStore((s) => s.groupInvites);
+  if (!invites.length) return null;
+  return (
+    <View style={{ paddingTop: 4, paddingBottom: 8 }}>
+      <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 13, paddingHorizontal: 16, paddingBottom: 4 }}>group requests</Text>
+      {invites.map((i) => (
+        <Animated.View key={i.group_id} entering={FadeIn.duration(200)} exiting={FadeOut.duration(160)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+          <Avatar user={i.from} size={48} />
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>{i.name}</Text>
+            <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 }}>{nameOf(i.from).toLowerCase()} invited you · {i.members} in it</Text>
+          </View>
+          <Squish onPress={() => { Haptics.selectionAsync(); declineInvite(i.group_id).catch(() => {}); }} style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 14 }}>no</Text>
+          </Squish>
+          <Squish onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); acceptInvite(i.group_id).catch(() => {}); }} style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 14 }}>join</Text>
+          </Squish>
+        </Animated.View>
       ))}
     </View>
   );
@@ -71,7 +96,7 @@ export default function Inbox() {
           <Glyph g="people" size={15} /><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 14 }}>new group</Text>
         </Squish>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>{items.map((i) => i.node)}</ScrollView>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}><Requests />{items.map((i) => i.node)}</ScrollView>
       {make ? (
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]}><Pressable style={{ flex: 1 }} onPress={() => setMake(false)} /></Animated.View>

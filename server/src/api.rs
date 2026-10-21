@@ -2010,7 +2010,56 @@ fn group_view(c: &Connection, g: &str, viewer: &str) -> R<Value> {
     }
     let last = c.query_row(&format!("SELECT {MSG_COLS} FROM messages WHERE a=? AND b='#' ORDER BY created_at DESC LIMIT 1"), [g], row_msg).optional()?;
     let unread: i64 = c.query_row("SELECT COUNT(*) FROM messages WHERE a=?1 AND b='#' AND sender<>?2 AND created_at>?3", params![g, viewer, mine], |r| r.get(0))?;
-    Ok(json!({ "id": g, "name": name, "owner": owner, "background": background, "members": members, "reads": reads, "last": last, "unread": unread }))
+    let mut q = c.prepare("SELECT user_id FROM group_invites WHERE group_id=? ORDER BY created_at")?;
+    let invited: Vec<String> = q.query_map([g], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(json!({ "id": g, "name": name, "owner": owner, "background": background, "members": members, "invited": invited, "reads": reads, "last": last, "unread": unread }))
+}
+
+fn invite_view(c: &Connection, g: &str, u: &str) -> R<Option<Value>> {
+    let row: Option<(String, String, i64)> = c
+        .query_row("SELECT gr.name, i.from_id, i.created_at FROM group_invites i JOIN groups gr ON gr.id=i.group_id WHERE i.group_id=? AND i.user_id=?", [g, u], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()?;
+    let Some((name, from, at)) = row else { return Ok(None) };
+    let n: i64 = c.query_row("SELECT COUNT(*) FROM group_members WHERE group_id=?", [g], |r| r.get(0))?;
+    Ok(Some(json!({ "group_id": g, "name": name, "from": public_user(c, &from)?, "members": n, "created_at": at })))
+}
+
+/// Invites `who` (a friend of `from`) unless they're already in; tells them in realtime.
+fn invite_member(st: &S, c: &Connection, g: &str, from: &str, who: &str) -> R<()> {
+    if is_member(c, g, who)? { return Ok(()); }
+    c.execute("INSERT OR IGNORE INTO group_invites(group_id, user_id, from_id, created_at) VALUES (?,?,?,?)", params![g, who, from, now_ms()])?;
+    if let Some(v) = invite_view(c, g, who)? {
+        st.hub.send(who, &json!({ "type": "group_invite", "invite": v }));
+    }
+    Ok(())
+}
+
+async fn list_group_invites(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let c = st.db();
+    let mut q = c.prepare("SELECT group_id FROM group_invites WHERE user_id=? ORDER BY created_at DESC")?;
+    let gs: Vec<String> = q.query_map([&me], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut out = Vec::new();
+    for g in gs { if let Some(v) = invite_view(&c, &g, &me)? { out.push(v); } }
+    Ok(Json(json!({ "invites": out })))
+}
+
+async fn group_invite_accept(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>) -> R<Json<Value>> {
+    {
+        let c = st.db();
+        if c.execute("DELETE FROM group_invites WHERE group_id=? AND user_id=?", params![g, me])? == 0 {
+            return Err(not_found("That invite is gone"));
+        }
+        if member_ids(&c, &g)?.len() >= 32 { return Err(bad("Groups are capped at 32 people")); }
+        c.execute("INSERT OR IGNORE INTO group_members(group_id, user_id, joined_at) VALUES (?,?,?)", params![g, me, now_ms()])?;
+    }
+    broadcast_group(&st, &g)?;
+    Ok(Json(group_view(&st.db(), &g, &me)?))
+}
+
+async fn group_invite_decline(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>) -> R<Json<Value>> {
+    st.db().execute("DELETE FROM group_invites WHERE group_id=? AND user_id=?", params![g, me])?;
+    let _ = broadcast_group(&st, &g);
+    Ok(Json(json!({ "ok": true })))
 }
 
 fn tell_group(st: &S, ids: &[String], ev: &Value) {
@@ -2056,10 +2105,9 @@ async fn create_group(State(st): State<S>, Authed(me): Authed, Json(r): Json<New
         let t = now_ms();
         let tx = c.unchecked_transaction()?;
         tx.execute("INSERT INTO groups(id, name, owner, created_at) VALUES (?,?,?,?)", params![id, name, me, t])?;
-        for u in std::iter::once(&me).chain(ids.iter()) {
-            tx.execute("INSERT INTO group_members(group_id, user_id, joined_at) VALUES (?,?,?)", params![id, u, t])?;
-        }
+        tx.execute("INSERT INTO group_members(group_id, user_id, joined_at) VALUES (?,?,?)", params![id, me, t])?;
         tx.commit()?;
+        for u in &ids { invite_member(&st, &c, &id, &me, u)?; }
     }
     broadcast_group(&st, &id)?;
     let v = group_view(&st.db(), &id, &me)?;
@@ -2218,7 +2266,7 @@ async fn group_add(State(st): State<S>, Authed(me): Authed, Path(g): Path<String
         if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
         if !are_friends(&c, &me, &r.user_id)? { return Err(not_friends()); }
         if member_ids(&c, &g)?.len() >= 32 { return Err(bad("Groups are capped at 32 people")); }
-        c.execute("INSERT OR IGNORE INTO group_members(group_id, user_id, joined_at) VALUES (?,?,?)", params![g, r.user_id, now_ms()])?;
+        invite_member(&st, &c, &g, &me, &r.user_id)?;
     }
     broadcast_group(&st, &g)?;
     Ok(Json(group_view(&st.db(), &g, &me)?))
@@ -2360,6 +2408,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/rtc/group", post(rtc_group))
         .route("/v1/groups/{id}/background/photo", put(group_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
         .route("/v1/groups/{id}/members", post(group_add))
+        .route("/v1/groups/invites", get(list_group_invites))
+        .route("/v1/groups/{id}/invite/accept", post(group_invite_accept))
+        .route("/v1/groups/{id}/invite/decline", post(group_invite_decline))
         .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
         .route("/v1/chats/{id}/read", post(mark_read))

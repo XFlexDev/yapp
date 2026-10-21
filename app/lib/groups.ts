@@ -1,5 +1,5 @@
 import { req } from './api';
-import { get, set, type ChatMsg, type Group } from './store';
+import { get, set, type ChatMsg, type Group, type GroupInvite } from './store';
 
 type Wire = Omit<Group, 'messages' | 'loaded' | 'more'>;
 function merge(w: Wire) {
@@ -38,6 +38,12 @@ export const setGroupBackground = (id: string, background: string | null) => req
 export const addMember = (id: string, user_id: string) => req<Wire>(`/v1/groups/${id}/members`, { method: 'POST', body: { user_id } }).then(merge);
 
 export const onGroupUpdated = (g: Wire) => merge(g);
+
+export async function loadInvites() { set({ groupInvites: (await req<{ invites: GroupInvite[] }>('/v1/groups/invites')).invites }); }
+export const onInvite = (i: GroupInvite) => set((s) => ({ groupInvites: [i, ...s.groupInvites.filter((x) => x.group_id !== i.group_id)] }));
+const dropInvite = (id: string) => set((s) => ({ groupInvites: s.groupInvites.filter((x) => x.group_id !== id) }));
+export async function acceptInvite(id: string) { dropInvite(id); merge(await req<Wire>(`/v1/groups/${id}/invite/accept`, { method: 'POST' })); }
+export async function declineInvite(id: string) { dropInvite(id); await req(`/v1/groups/${id}/invite/decline`, { method: 'POST' }); }
 export function onGroupMessage(id: string, m: ChatMsg) {
   const mine = m.from === get().me?.id;
   const open = get().openChat === `g:${id}`;
