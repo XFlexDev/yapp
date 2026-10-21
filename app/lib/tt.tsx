@@ -41,8 +41,8 @@ export function pop(delay = 0) {
   return () => {
     'worklet';
     return {
-      initialValues: { opacity: 0, transform: [{ scale: 0.9 }] },
-      animations: { opacity: withDelay(delay, withTiming(1, { duration: 180, easing: EASE })), transform: [{ scale: withDelay(delay, withSpring(1, SPRING)) }] },
+      initialValues: { opacity: 0, transform: [{ translateY: 10 }] },
+      animations: { opacity: withDelay(delay, withTiming(1, { duration: 180, easing: EASE })), transform: [{ translateY: withDelay(delay, withSpring(0, SPRING)) }] },
     };
   };
 }
@@ -50,8 +50,8 @@ export function popOut() {
   return () => {
     'worklet';
     return {
-      initialValues: { opacity: 1, transform: [{ scale: 1 }] },
-      animations: { opacity: withTiming(0, { duration: 140, easing: EASE }), transform: [{ scale: withTiming(0.94, { duration: 140, easing: EASE }) }] },
+      initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
+      animations: { opacity: withTiming(0, { duration: 140, easing: EASE }), transform: [{ translateY: withTiming(6, { duration: 140, easing: EASE }) }] },
     };
   };
 }

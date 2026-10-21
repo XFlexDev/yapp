@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import Animated, { LayoutAnimationConfig, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, LayoutAnimationConfig, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { ApiError, confirmLogin, startLogin } from '../lib/api';
 import { set } from '../lib/store';
 import { F } from '../lib/theme';
@@ -9,15 +9,22 @@ import { bigInput, FILL, GHOST, Heading, Label, Logo, Pill, pop, popOut, RedScre
 
 type Step = 'welcome' | 'age' | 'email' | 'code';
 
+// Digits rise in without scaling: scaled text gets rasterized small on iOS and looks pixelated.
+const digitIn = () => {
+  'worklet';
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: 8 }] },
+    animations: { opacity: withTiming(1, { duration: 140 }), transform: [{ translateY: withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) }) }] },
+  };
+};
+
 function Box({ ch, active }: { ch?: string; active: boolean }) {
-  const s = useSharedValue(1);
   const b = useSharedValue(active ? 1 : 0);
-  useEffect(() => { if (ch) s.value = withSequence(withTiming(1.05, { duration: 90 }), withSpring(1, SPRING)); }, [ch]);
   useEffect(() => { b.value = withSpring(active ? 1 : 0, SPRING); }, [active]);
-  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }], borderColor: `rgba(255,255,255,${0.9 * b.value})` }));
+  const a = useAnimatedStyle(() => ({ borderColor: `rgba(255,255,255,${0.9 * b.value})` }));
   return (
     <Animated.View style={[{ width: 46, height: 56, borderRadius: 10, borderCurve: 'continuous', backgroundColor: FILL, borderWidth: 2, alignItems: 'center', justifyContent: 'center' }, a]}>
-      {ch ? <Animated.Text entering={pop() as any} exiting={popOut() as any} style={{ color: '#fff', fontFamily: F.black, fontSize: 26 }}>{ch}</Animated.Text> : null}
+      {ch ? <Animated.Text entering={digitIn as any} exiting={FadeOut.duration(100)} style={{ color: '#fff', fontFamily: F.black, fontSize: 26 }}>{ch}</Animated.Text> : null}
     </Animated.View>
   );
 }
