@@ -1,7 +1,7 @@
 import { VideoTrack } from '@livekit/react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect } from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -107,16 +107,17 @@ export function LocalVideo({ top, bottom, friendId }: { top: number; bottom: num
     shadowOpacity: 0.25 + lift.value * 0.25,
     transform: [{ translateX: x.value }, { translateY: y.value }]
   }));
-  const veil = useAnimatedStyle(() => ({ opacity: tucked.value ? 0.55 : 0 }));
+  const veil = useAnimatedStyle(() => {
+    const off = Math.max(0, -x.value, x.value + w.value - W);
+    return { opacity: Math.min(0.5, (off / w.value) * 0.6) };
+  });
 
   if (!ref) return null;
   return (
     <GestureDetector gesture={Gesture.Race(Gesture.Simultaneous(pan, pinch), Gesture.Exclusive(dbl, tap))}>
       <Animated.View entering={FadeIn.duration(220).easing(out)} exiting={FadeOut.duration(180)} style={[{ position: 'absolute', left: 0, top: 0, overflow: 'hidden', borderCurve: 'continuous', backgroundColor: '#111', shadowColor: '#000', shadowRadius: 16, shadowOffset: { width: 0, height: 6 } }, st]}>
         <VideoTrack trackRef={ref} style={StyleSheet.absoluteFill} objectFit="cover" mirror={!swap && front} zOrder={1} />
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, veil]}>
-          <View style={{ position: 'absolute', top: '50%', marginTop: -18, alignSelf: 'center', width: 4, height: 36, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.8)' }} />
-        </Animated.View>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, veil]} />
       </Animated.View>
     </GestureDetector>
   );
