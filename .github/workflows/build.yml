@@ -18,7 +18,7 @@ concurrency:
 jobs:
   android:
     if: (github.event_name == 'workflow_dispatch' && inputs.target != 'ipa') || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[build android]')))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
