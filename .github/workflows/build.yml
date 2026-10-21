@@ -8,14 +8,16 @@ on:
         type: choice
         default: android
         options: [android, apk, aab, ipa]
+  push:
+    branches: [main]
 
 concurrency:
-  group: build-${{ github.ref }}-${{ inputs.target }}
+  group: build-${{ github.ref }}-${{ inputs.target || 'push' }}
   cancel-in-progress: false
 
 jobs:
   android:
-    if: inputs.target != 'ipa'
+    if: (github.event_name == 'workflow_dispatch' && inputs.target != 'ipa') || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[build android]')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -36,7 +38,7 @@ jobs:
       - name: Skip unrequested format
         id: want
         working-directory: .
-        run: echo "go=${{ inputs.target == 'android' || inputs.target == matrix.kind }}" >> "$GITHUB_OUTPUT"
+        run: echo "go=${{ github.event_name == 'push' || inputs.target == 'android' || inputs.target == matrix.kind }}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         if: steps.want.outputs.go == 'true'
       - uses: actions/setup-node@v4
@@ -65,7 +67,7 @@ jobs:
           retention-days: 30
 
   ios:
-    if: inputs.target == 'ipa'
+    if: (github.event_name == 'workflow_dispatch' && inputs.target == 'ipa') || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[build ios]')))
     runs-on: macos-15
     timeout-minutes: 60
     defaults:
