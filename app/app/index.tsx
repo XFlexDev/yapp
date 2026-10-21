@@ -30,6 +30,8 @@ const LOCK_AT = 90;
 const GROW = 1.1;
 const SLOT = 80;
 const MIN = AV / SEL;
+const PLUS_X = 16;
+const FADE_AT = PLUS_X + PLUS + 14;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 const DND = '#FF9F0A';
 const MOON = '#5E5CE6';
@@ -148,14 +150,18 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { f
 function Slot({ i, x, dim, badge, children }: { i: number; x: SharedValue<number>; dim: boolean; badge: number; children: (focus: SharedValue<number>) => React.ReactNode }) {
   const focus = useDerivedValue(() => 1 - Math.min(1, Math.abs(x.value - i * SLOT) / SLOT));
   const st = useAnimatedStyle(() => ({ transform: [{ scale: MIN + (1 - MIN) * focus.value }] }));
+  const edge = useAnimatedStyle(() => {
+    const cx = W / 2 + i * SLOT - x.value;
+    return { opacity: Math.max(0, Math.min(1, (cx - FADE_AT) / 34)) * (dim ? 0.75 : 1) };
+  });
   const r = Math.round(((SEL + 14) * MIN) / 2);
   return (
-    <View style={{ width: SLOT, height: SEL + 14, alignItems: 'center', justifyContent: 'center', opacity: dim ? 0.75 : 1 }}>
+    <Animated.View style={[{ width: SLOT, height: SEL + 14, alignItems: 'center', justifyContent: 'center' }, edge]}>
       <Animated.View style={st}>{children(focus)}</Animated.View>
       <View pointerEvents="none" style={{ position: 'absolute', top: (SEL + 14) / 2 - r, left: SLOT / 2 - r, width: r * 2, height: r * 2 }}>
         <PokeBadge count={badge} />
       </View>
-    </View>
+    </Animated.View>
   );
 }
 function PokeBadge({ count }: { count: number }) {
@@ -551,7 +557,7 @@ export default function Home() {
           contentOffset={{ x: selIdx * SLOT, y: 0 }}
           onLayout={() => scroll.current?.scrollTo({ x: selIdx * SLOT, animated: false })}
           style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingLeft: W / 2 - SLOT / 2 - PLUS - GAP, paddingRight: W / 2 - SLOT / 2, paddingVertical: 10, alignItems: 'center' }}
+          contentContainerStyle={{ paddingLeft: W / 2 - SLOT / 2, paddingRight: W / 2 - SLOT / 2, paddingVertical: 10, alignItems: 'center' }}
         >
           {friends.map((f, i) => {
             const sel = f.id === friend.id;
@@ -568,10 +574,7 @@ export default function Home() {
             );
           })}
         </Animated.ScrollView>
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { flexDirection: 'row' }]}>
-          <LinearGradient colors={['#000', 'rgba(0,0,0,0)']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ width: PLUS + GAP + 34 }} />
-        </View>
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, top: 0, bottom: 0, justifyContent: 'center' }}>{plus}</View>
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: PLUS_X, top: 0, bottom: 0, justifyContent: 'center' }}>{plus}</View>
         </View>
       )}
       </View>
