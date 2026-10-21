@@ -10,7 +10,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedReaction, useAnimatedStyle, useDerivedValue, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
-import { ApiError, avatarUrl, nameOf, req, type Friend, type Me } from '../lib/api';
+import { ApiError, avatarUrl, nameOf, pfpUrl, req, type Friend, type Me } from '../lib/api';
 import { clearPokeCount, removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
 import { Logo, SPRING, Squish, Swap } from '../lib/tt';
@@ -36,7 +36,7 @@ const GAP = 14;
 const LOCK_AT = 90;
 const SLOT = 80;
 const MIN = AV / SEL;
-const SNAP = { damping: 30, stiffness: 260, mass: 1 };
+const SNAP = { damping: 34, stiffness: 260, mass: 1 };
 const PLUS_X = 16;
 const FADE_AT = PLUS_X + PLUS + 14;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
@@ -150,7 +150,10 @@ function Zzz() {
   );
 }
 
-function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus, r = 1 }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number>; focus?: SharedValue<number>; r?: number }) {
+const RING = SEL + 14;
+
+/** Every size here is real layout driven by `focus` on the UI thread, never a scale transform, so iOS always draws it at native resolution. */
+function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number>; focus: SharedValue<number> }) {
   const press = useSharedValue(0);
   const ripple = useSharedValue(0);
   const hear = useSharedValue(hearing ? 1 : 0);
@@ -164,19 +167,36 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus, r = 1
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
-  const body = useAnimatedStyle(() => ({ transform: [...sxy((1 + press.value * 0.1 + bump.value * 0.07) * pokeSquish.value)] }));
-  const ring = useAnimatedStyle(() => ({ opacity: focus ? focus.value : 1, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
-  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: [...sxy(1 + ripple.value * 0.25)] }));
-  const size = Math.round((SEL + 14) * r);
-  const box = Math.round((SEL + 14) * r);
+  const url = pfpUrl(friend);
+  const k = useDerivedValue(() => MIN + (1 - MIN) * focus.value);
+  const body = useAnimatedStyle(() => {
+    const s = RING * k.value;
+    return { width: s, height: s, transform: sxy((1 + press.value * 0.1 + bump.value * 0.07) * pokeSquish.value) };
+  });
+  const round = useAnimatedStyle(() => ({ borderRadius: (RING * k.value) / 2 }));
+  const ring = useAnimatedStyle(() => ({ opacity: focus.value, borderWidth: 3 + focus.value, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
+  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: sxy(1 + ripple.value * 0.25) }));
+  const face = useAnimatedStyle(() => { const s = SEL * k.value; return { width: s, height: s, borderRadius: s / 2 }; });
+  const letter = useAnimatedStyle(() => ({ fontSize: SEL * k.value * 0.42 }));
+  const dot = useAnimatedStyle(() => { const s = 16 + 4 * focus.value; return { width: s, height: s, borderRadius: s / 2 }; });
   return (
-    <View style={{ width: box, height: box, alignItems: 'center', justifyContent: 'center' }}>
-    <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, body]}>
-      <Animated.View pointerEvents="none" style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: '#fff' }, wave]} />
-      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: Math.max(2, Math.round(4 * r)) }, ring]} />
-      <Avatar user={friend} size={Math.round(SEL * r)} />
-      {friend.dnd ? <Zzz /> : <Dot friend={friend} size={Math.round(20 * Math.max(r, 0.8))} />}
-    </Animated.View>
+    <View style={{ width: RING, height: RING, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View style={[{ alignItems: 'center', justifyContent: 'center' }, body]}>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderWidth: 2, borderColor: '#fff' }, round, wave]} />
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, round, ring]} />
+        <Animated.View style={[{ overflow: 'hidden', backgroundColor: SWATCH[friend.color] ?? C.red, alignItems: 'center', justifyContent: 'center' }, face]}>
+          {url ? (
+            <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} cachePolicy="memory-disk" recyclingKey={friend.id} />
+          ) : (
+            <Animated.Text style={[{ color: '#fff', fontFamily: F.black }, letter]}>{nameOf(friend).slice(0, 1).toUpperCase()}</Animated.Text>
+          )}
+        </Animated.View>
+        {friend.dnd ? <Zzz /> : friend.online ? (
+          <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={[{ position: 'absolute', right: 1, top: 1, backgroundColor: '#000', padding: 3 }, dot]}>
+            <View style={{ flex: 1, borderRadius: 99, backgroundColor: C.online }} />
+          </Animated.View>
+        ) : null}
+      </Animated.View>
     </View>
   );
 }
@@ -185,7 +205,7 @@ function Slot({ i, x, dim, badge, sel, dir, cp, ca, children }: { i: number; x: 
   const focus = useDerivedValue(() => 1 - Math.min(1, Math.abs(x.value - i * SLOT) / SLOT));
   const st = useAnimatedStyle(() => {
     const k = sel ? 1 - 0.4 * ca.value : 1 - 0.3 * cp.value;
-    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, ...sxy(((MIN + (1 - MIN) * focus.value) / (sel ? 1 : MIN)) * k)] };
+    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, ...sxy(k)] };
   });
   const edge = useAnimatedStyle(() => {
     const cx = W / 2 + i * SLOT - x.value;
@@ -370,7 +390,7 @@ export default function Home() {
     .onEnd((e) => {
       const i = Math.max(0, Math.min(Math.round((sx.value - e.velocityX * 0.2) / SLOT), count - 1));
       scheduleOnRN(choose, i);
-      sx.value = withSpring(i * SLOT, { ...SNAP, velocity: -e.velocityX }, () => { fling.value = false; });
+      sx.value = withSpring(i * SLOT, { ...SNAP, velocity: Math.max(-1200, Math.min(1200, -e.velocityX)) }, () => { fling.value = false; });
     });
   const jump = (i: number) => {
     if (talking || call) return;
@@ -578,7 +598,7 @@ export default function Home() {
                 {(focus) => (
                   <GestureDetector gesture={sel ? avatarGesture : Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) jump(i); })}>
                     <View collapsable={false}>
-                      <TalkAvatar key={sel ? 'sel' : 'rest'} friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} r={sel ? 1 : MIN} />
+                      <TalkAvatar friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} />
                     </View>
                   </GestureDetector>
                 )}
