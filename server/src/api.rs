@@ -528,7 +528,13 @@ async fn auth_google(State(st): State<S>, Json(r): Json<GoogleReq>) -> R<Json<Va
         return Err(bad("That Google account has no verified email"));
     }
     let email = claims["email"].as_str().and_then(normalize_email).ok_or_else(|| bad("That Google account has no email"))?;
-    let name: String = claims["name"].as_str().unwrap_or("").chars().take(30).collect();
+    let code = google_login(&st, &email, claims["name"].as_str().unwrap_or(""))?;
+    Ok(Json(json!({ "code": code })))
+}
+
+/// Finds or creates the account for a verified Google email and returns a 2-minute one-time code.
+fn google_login(st: &S, email: &str, name: &str) -> R<String> {
+    let name: String = name.chars().take(30).collect();
     let uid = {
         let c = st.db();
         if is_banned(&c, &email)? {
@@ -547,7 +553,77 @@ async fn auth_google(State(st): State<S>, Json(r): Json<GoogleReq>) -> R<Json<Va
     let mut codes = GOOGLE_CODES.lock();
     codes.retain(|_, v| v.1.elapsed() < Duration::from_secs(120));
     codes.insert(code.clone(), (uid, Instant::now()));
-    Ok(Json(json!({ "code": code })))
+    Ok(code)
+}
+
+const GOOGLE_CB: &str = "https://yap.kreatix.dev/auth/google/cb";
+
+fn auth_page(title: &str, msg: &str, action: Option<&str>) -> Response {
+    let (t, m) = (esc(title), esc(msg));
+    let (btn, go) = match action {
+        Some(u) => { let u = esc(u); (format!(r#"<a href="{u}">open yapp</a>"#), format!(r#"<script>location.replace("{u}")</script>"#)) }
+        None => (r#"<a href="/auth/google">try again</a>"#.to_string(), String::new()),
+    };
+    let page = format!(r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex">
+<title>{t}</title><meta name="theme-color" content="#000"><style>
+*{{margin:0;box-sizing:border-box}}html,body{{height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}}
+main{{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:32px;text-align:center}}
+h1{{font-size:44px;font-weight:900;letter-spacing:-1px}}p{{color:rgba(255,255,255,.55);font-size:17px}}
+a{{margin-top:18px;display:block;width:100%;max-width:320px;height:56px;line-height:56px;border-radius:28px;background:#fff;color:#000;font-weight:900;font-size:18px;text-decoration:none}}
+</style></head><body><main><h1>yapp</h1><p>{m}</p>{btn}</main>{go}</body></html>"##);
+    ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response()
+}
+
+/// Step 1: ask Firebase for Google's login URL (coming back to our own callback) and send the browser there.
+async fn google_start(State(st): State<S>) -> Response {
+    let Some(key) = st.cfg.fb_api_key.clone() else { return auth_page("Sign in to Yapp", "google sign in is not set up yet", None) };
+    let res = st
+        .http
+        .post(format!("https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key={key}"))
+        .header(header::REFERER, "https://yap.kreatix.dev/")
+        .json(&json!({ "providerId": "google.com", "continueUri": GOOGLE_CB, "customParameter": { "prompt": "select_account" } }))
+        .send()
+        .await;
+    let v: Value = match res { Ok(r) => r.json().await.unwrap_or_default(), Err(_) => Value::Null };
+    let (Some(url), Some(sid)) = (v["authUri"].as_str(), v["sessionId"].as_str()) else {
+        tracing::warn!(error = %v["error"]["message"], "createAuthUri failed");
+        return auth_page("Sign in to Yapp", "couldn't reach google, try again", None);
+    };
+    let cookie = format!("yg={sid}; Path=/auth/google; Max-Age=600; HttpOnly; Secure; SameSite=Lax");
+    (StatusCode::FOUND, [(header::LOCATION, url.to_string()), (header::SET_COOKIE, cookie), (header::CACHE_CONTROL, "no-store".into())]).into_response()
+}
+
+/// Step 2: Google sends the browser back here; Firebase checks it and tells us who it is.
+async fn google_cb(State(st): State<S>, headers: HeaderMap, uri: axum::http::Uri) -> Response {
+    let fail = |m: &str| auth_page("Sign in to Yapp", m, None);
+    let Some(key) = st.cfg.fb_api_key.clone() else { return fail("google sign in is not set up yet") };
+    let sid = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|h| h.split(';'))
+        .find_map(|c| c.trim().strip_prefix("yg=").map(String::from));
+    let Some(sid) = sid else { return fail("that sign in expired, try again") };
+    let request_uri = format!("{GOOGLE_CB}?{}", uri.query().unwrap_or(""));
+    let res = st
+        .http
+        .post(format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={key}"))
+        .header(header::REFERER, "https://yap.kreatix.dev/")
+        .json(&json!({ "requestUri": request_uri, "sessionId": sid, "returnSecureToken": true, "returnIdpCredential": true }))
+        .send()
+        .await;
+    let v: Value = match res { Ok(r) => r.json().await.unwrap_or_default(), Err(_) => Value::Null };
+    let Some(email) = v["email"].as_str().and_then(normalize_email) else {
+        tracing::warn!(error = %v["error"]["message"], "signInWithIdp failed");
+        return fail("google sign in failed, try again");
+    };
+    if v["emailVerified"] != json!(true) {
+        return fail("that google account has no verified email");
+    }
+    match google_login(&st, &email, v["displayName"].as_str().unwrap_or("")) {
+        Ok(code) => auth_page("Opening Yapp", "opening yapp…", Some(&format!("yapp://auth?code={code}"))),
+        Err(_) => fail("this account can't sign in to yapp"),
+    }
 }
 
 #[derive(Deserialize)]
@@ -2220,7 +2296,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/auth/confirm", post(auth_confirm))
         .route("/v1/auth/google", post(auth_google))
         .route("/v1/auth/exchange", post(auth_exchange))
-        .route("/auth/google", get(google_signin_page))
+        .route("/auth/google", get(google_start))
+        .route("/auth/google/popup", get(google_signin_page))
+        .route("/auth/google/cb", get(google_cb))
         .route("/v1/auth/refresh", post(auth_refresh))
         .route("/v1/auth/logout", post(auth_logout))
         .route("/v1/me", get(get_me).patch(patch_me).delete(delete_me))

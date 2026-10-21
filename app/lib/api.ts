@@ -1,4 +1,6 @@
+import { requireOptionalNativeModule } from 'expo';
 import * as SecureStore from 'expo-secure-store';
+import { Linking } from 'react-native';
 import { API } from './theme';
 
 export type User = { id: string; username: string | null; display_name: string; color: number; avatar: string | null; pfp?: string | null };
@@ -88,10 +90,27 @@ export async function confirmLogin(email: string, code: string): Promise<Me> {
   await save(t);
   return t.user;
 }
-export async function exchangeGoogle(code: string): Promise<Me> {
-  const t = await req<Tokens>('/v1/auth/exchange', { method: 'POST', body: { code } });
-  await save(t);
-  return t.user;
+const exchanging: Record<string, Promise<Me>> = {};
+/** One-time code from the Google sign-in page. Deduped: on Android both the auth sheet and the deep link deliver it. */
+export function exchangeGoogle(code: string): Promise<Me> {
+  return (exchanging[code] ??= (async () => {
+    const t = await req<Tokens>('/v1/auth/exchange', { method: 'POST', body: { code } });
+    await save(t);
+    return t.user;
+  })());
+}
+
+/** In-app Safari sheet when the build has it, otherwise Safari (the deep link comes back to /auth). */
+export async function googleLogin(): Promise<Me | null> {
+  const url = `${API}/auth/google`;
+  if (!requireOptionalNativeModule('ExpoWebBrowser')) {
+    await Linking.openURL(url);
+    return null;
+  }
+  const WebBrowser = await import('expo-web-browser');
+  const r = await WebBrowser.openAuthSessionAsync(url, 'yapp://auth');
+  const code = r.type === 'success' ? /[?&]code=([^&#]+)/.exec(r.url)?.[1] : undefined;
+  return code ? exchangeGoogle(decodeURIComponent(code)) : null;
 }
 export async function logout() {
   if (refresh) await req('/v1/auth/logout', { method: 'POST', body: { refresh_token: refresh } }).catch(() => {});
