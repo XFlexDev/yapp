@@ -11,6 +11,7 @@ import Animated, { FadeIn, FadeOut, LinearTransition, interpolateColor, useAnima
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
 import { pickAndUploadPhoto } from '../lib/photo';
+import { loadBlocks, unblock } from '../lib/safety';
 import { syncAll } from '../lib/realtime';
 import { removeFriend, set, upsertFriend, useStore } from '../lib/store';
 import { API, C, F } from '../lib/theme';
@@ -108,6 +109,9 @@ function Inline({ value, onSave, prefix, placeholder, max, clean }: { value: str
 export default function Settings() {
   const insets = useSafeAreaInsets();
   const { me, friends, incoming, outgoing } = useStore();
+  const [blocked, setBlocked] = useState<User[]>([]);
+  useEffect(() => { loadBlocks().then(setBlocked).catch(() => {}); }, []);
+  const doUnblock = (u: User) => { setBlocked((b) => b.filter((x) => x.id !== u.id)); unblock(u.id).catch(() => loadBlocks().then(setBlocked).catch(() => {})); };
   const [error, setError] = useState('');
   const [sureDelete, setSureDelete] = useState(false);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 3500); return () => clearTimeout(t); } }, [error]);
@@ -188,6 +192,12 @@ export default function Settings() {
         <Section>
           <Row first label="do not disturb" sub="friends can’t talk to you" right={<Toggle on={me.dnd} onChange={setDnd} />} />
         </Section>
+
+        {blocked.length ? (
+          <Section title={`blocked · ${blocked.length}`}>
+            {blocked.map((u, i) => <Person key={u.id} user={u} first={i === 0} right={<Chip title="unblock" onPress={() => doUnblock(u)} />} />)}
+          </Section>
+        ) : null}
 
         {notif ? (
           <Section title="notifications">

@@ -15,6 +15,7 @@ import { C, F, SWATCH } from '../lib/theme';
 import { Logo, SPRING, Squish, Swap } from '../lib/tt';
 import { Avatar, Button } from '../lib/ui';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
+import { block, report, REASONS } from '../lib/safety';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
 const ZZ = require('../assets/tt/zz.png');
@@ -189,13 +190,27 @@ function CallBar({ incoming, muted, cam, onMute, onCam, onEnd, onAccept }: { inc
 
 function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void }) {
   const insets = useSafeAreaInsets();
-  const [sure, setSure] = useState(false);
+  const [sure, setSure] = useState<'remove' | 'block' | null>(null);
+  const [mode, setMode] = useState<'main' | 'report' | 'reported'>('main');
   const [busy, setBusy] = useState(false);
+  const confirm = (k: 'remove' | 'block') => { if (sure === k) return true; Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setSure(k); return false; };
   const remove = async () => {
-    if (!sure) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setSure(true); return; }
+    if (!confirm('remove')) return;
     setBusy(true);
     try { await req(`/v1/friends/${friend.id}`, { method: 'DELETE' }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); removeFriend(friend.id); onClose(); }
-    catch { setBusy(false); setSure(false); }
+    catch { setBusy(false); setSure(null); }
+  };
+  const doBlock = async () => {
+    if (!confirm('block')) return;
+    setBusy(true);
+    try { await block(friend.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); onClose(); }
+    catch { setBusy(false); setSure(null); }
+  };
+  const doReport = async (reason: string) => {
+    setBusy(true);
+    try { await report(friend.id, reason); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setMode('reported'); }
+    catch { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); }
+    finally { setBusy(false); }
   };
   const row = (t: string, on: () => void, color = '#fff') => (
     <Pressable onPress={on} disabled={busy} style={({ pressed }) => ({ height: 54, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
@@ -215,8 +230,21 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
             {friend.username ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 }}>@{friend.username}</Text> : null}
           </View>
         </View>
-        {row(sure ? 'tap again to remove' : 'remove friend', remove, C.danger)}
-        {row('close', onClose, 'rgba(255,255,255,0.5)')}
+        {mode === 'report' ? (
+          <>
+            {REASONS.map((r) => <View key={r}>{row(r, () => doReport(r))}</View>)}
+            {row('back', () => setMode('main'), 'rgba(255,255,255,0.5)')}
+          </>
+        ) : (
+          <>
+            {mode === 'reported'
+              ? <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', paddingHorizontal: 24, paddingVertical: 8 }}>thanks, we’ll look at it. you can also block them.</Text>
+              : row('report', () => setMode('report'))}
+            {row(sure === 'block' ? 'tap again to block' : 'block', doBlock, C.danger)}
+            {mode === 'main' ? row(sure === 'remove' ? 'tap again to remove' : 'remove friend', remove, C.danger) : null}
+            {row('close', onClose, 'rgba(255,255,255,0.5)')}
+          </>
+        )}
       </Animated.View>
     </View>
   );

@@ -8,7 +8,7 @@ use std::{sync::Arc, time::Duration};
 
 const TABLES: &[&str] = &["users", "friendships", "friend_requests", "devices", "messages", "chat_meta", "chat_reads", "groups", "group_members",
     "notif_prefs",
-    "mutes"];
+    "mutes", "blocks", "reports"];
 
 struct Col {
     name: String,

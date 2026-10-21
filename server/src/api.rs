@@ -150,6 +150,16 @@ fn are_friends(c: &Connection, x: &str, y: &str) -> rusqlite::Result<bool> {
     Ok(c.query_row("SELECT 1 FROM friendships WHERE a=? AND b=?", [a, b], |_| Ok(())).optional()?.is_some())
 }
 
+fn blocked_either(c: &Connection, x: &str, y: &str) -> rusqlite::Result<bool> {
+    Ok(c.query_row(
+        "SELECT 1 FROM blocks WHERE (user_id=?1 AND blocked_id=?2) OR (user_id=?2 AND blocked_id=?1)",
+        [x, y],
+        |_| Ok(()),
+    )
+    .optional()?
+    .is_some())
+}
+
 fn friend_view(st: &AppState, c: &Connection, viewer: &str, other: &str) -> R<Friend> {
     let (a, b) = db::pair(viewer, other);
     c.query_row(
@@ -674,11 +684,12 @@ async fn get_avatar(State(st): State<S>, Path(file): Path<String>) -> Response {
 
 // ---------- friends ----------
 
-async fn lookup_user(State(st): State<S>, Authed(_): Authed, Path(username): Path<String>) -> R<Json<PublicUser>> {
+async fn lookup_user(State(st): State<S>, Authed(me): Authed, Path(username): Path<String>) -> R<Json<PublicUser>> {
     let u = username.trim().trim_start_matches('@').to_lowercase();
     let c = st.db();
     c.query_row(&format!("SELECT {USER_COLS} FROM users u WHERE u.username=?"), [&u], |r| row_user(r, 0))
         .optional()?
+        .filter(|p| !blocked_either(&c, &me, &p.id).unwrap_or(true))
         .map(Json)
         .ok_or_else(|| not_found("No one has that username"))
 }
@@ -750,6 +761,9 @@ async fn send_request(State(st): State<S>, Authed(me): Authed, Json(r): Json<Sen
             .ok_or_else(|| not_found("No one has that username"))?;
         if target == me {
             return Err(bad("That's you"));
+        }
+        if blocked_either(&c, &me, &target)? {
+            return Err(not_found("No one has that username"));
         }
         if are_friends(&c, &me, &target)? {
             return Err(err(StatusCode::CONFLICT, "AlreadyFriends", "You're already friends"));
@@ -838,6 +852,98 @@ async fn remove_friend(State(st): State<S>, Authed(me): Authed, Path(other): Pat
     }
     st.hub.send(&other, &json!({ "type": "friendship_deleted", "user_id": me }));
     st.hub.send(&me, &json!({ "type": "friendship_deleted", "user_id": other }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ---------- safety ----------
+
+#[derive(Deserialize)]
+struct BlockReq {
+    user_id: String,
+}
+
+async fn block_user(State(st): State<S>, Authed(me): Authed, Json(r): Json<BlockReq>) -> R<Json<Value>> {
+    let other = r.user_id;
+    if other == me {
+        return Err(bad("That's you"));
+    }
+    let reqs = {
+        let c = st.db();
+        c.query_row("SELECT 1 FROM users WHERE id=?", [&other], |_| Ok(()))
+            .optional()?
+            .ok_or_else(|| not_found("No one like that"))?;
+        c.execute("INSERT OR IGNORE INTO blocks(user_id, blocked_id, created_at) VALUES(?, ?, ?)", params![me, other, now()])?;
+        let (a, b) = db::pair(&me, &other);
+        c.execute("DELETE FROM friendships WHERE a=? AND b=?", [a, b])?;
+        c.execute("DELETE FROM messages WHERE a=? AND b=?", [a, b])?;
+        c.execute("DELETE FROM chat_meta WHERE a=? AND b=?", [a, b])?;
+        let both = "(from_id=?1 AND to_id=?2) OR (from_id=?2 AND to_id=?1)";
+        let mut q = c.prepare(&format!("SELECT id FROM friend_requests WHERE {both}"))?;
+        let reqs = q.query_map([&me, &other], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        c.execute(&format!("DELETE FROM friend_requests WHERE {both}"), [&me, &other])?;
+        reqs
+    };
+    for id in reqs {
+        let ev = json!({ "type": "friend_request_canceled", "id": id });
+        st.hub.send(&other, &ev);
+        st.hub.send(&me, &ev);
+    }
+    st.hub.send(&other, &json!({ "type": "friendship_deleted", "user_id": me }));
+    st.hub.send(&me, &json!({ "type": "friendship_deleted", "user_id": other }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn unblock_user(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>) -> R<Json<Value>> {
+    st.db().execute("DELETE FROM blocks WHERE user_id=? AND blocked_id=?", [&me, &other])?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn list_blocks(State(st): State<S>, Authed(me): Authed) -> R<Json<Vec<PublicUser>>> {
+    let c = st.db();
+    let mut q = c.prepare(&format!(
+        "SELECT {USER_COLS} FROM blocks b JOIN users u ON u.id=b.blocked_id WHERE b.user_id=? ORDER BY b.created_at DESC"
+    ))?;
+    let v = q.query_map([&me], |r| row_user(r, 0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(v))
+}
+
+#[derive(Deserialize)]
+struct ReportReq {
+    user_id: String,
+    reason: String,
+    message_id: Option<String>,
+    group_id: Option<String>,
+}
+
+async fn report_user(State(st): State<S>, Authed(me): Authed, Json(r): Json<ReportReq>) -> R<Json<Value>> {
+    let reason: String = r.reason.trim().chars().take(500).collect();
+    if reason.is_empty() {
+        return Err(bad("Pick a reason"));
+    }
+    let c = st.db();
+    let recent: i64 = c.query_row(
+        "SELECT COUNT(*) FROM reports WHERE reporter_id=? AND created_at>?",
+        params![me, now() - 86_400],
+        |r| r.get(0),
+    )?;
+    if recent >= 20 {
+        return Err(err(StatusCode::TOO_MANY_REQUESTS, "RateLimited", "Too many reports today"));
+    }
+    c.query_row("SELECT 1 FROM users WHERE id=?", [&r.user_id], |_| Ok(()))
+        .optional()?
+        .ok_or_else(|| not_found("No one like that"))?;
+    let snapshot: Option<String> = match &r.message_id {
+        Some(m) => c
+            .query_row("SELECT body FROM messages WHERE id=? AND from_id=?", [m, &r.user_id], |r| r.get(0))
+            .optional()
+            .unwrap_or(None),
+        None => None,
+    };
+    c.execute(
+        "INSERT INTO reports(id, reporter_id, target_id, reason, message_id, group_id, snapshot, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+        params![uuid::Uuid::new_v4().to_string(), me, r.user_id, reason, r.message_id, r.group_id, snapshot, now()],
+    )?;
+    tracing::warn!(target: "reports", "new report against {}", r.user_id);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1471,6 +1577,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/friends/requests", get(list_requests).post(send_request))
         .route("/v1/friends/requests/{id}/accept", post(accept_request))
         .route("/v1/friends/requests/{id}", axum::routing::delete(delete_request))
+        .route("/v1/blocks", get(list_blocks).post(block_user))
+        .route("/v1/blocks/{id}", axum::routing::delete(unblock_user))
+        .route("/v1/reports", post(report_user))
         .route("/v1/devices", post(add_device).delete(remove_device))
         .route("/v1/notifications", get(get_notifs).put(put_notifs))
         .route("/v1/notifications/mute", put(put_mute))

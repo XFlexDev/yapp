@@ -98,6 +98,23 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             chat TEXT NOT NULL,
             PRIMARY KEY(user_id, chat)
         );
+        CREATE TABLE IF NOT EXISTS blocks(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY(user_id, blocked_id)
+        );
+        CREATE TABLE IF NOT EXISTS reports(
+            id TEXT PRIMARY KEY,
+            reporter_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            message_id TEXT,
+            group_id TEXT,
+            snapshot TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS chat_reads(
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             friend_id TEXT NOT NULL,
