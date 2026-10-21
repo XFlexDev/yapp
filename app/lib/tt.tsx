@@ -103,7 +103,7 @@ export function Pill({ title, onPress, disabled, loading, ghost }: { title: stri
 export function Collapse({ open, height, children }: { open: boolean; height: number; children: ReactNode }) {
   const v = useSharedValue(open ? 1 : 0);
   useEffect(() => { v.value = withSpring(open ? 1 : 0, SPRING); }, [open]);
-  const a = useAnimatedStyle(() => ({ height: Math.max(0, v.value) * height, opacity: v.value, transform: [{ scale: 0.9 + 0.1 * v.value }] }));
+  const a = useAnimatedStyle(() => ({ height: Math.max(0, v.value) * height, opacity: v.value, transform: [{ translateY: (1 - v.value) * -6 }] }));
   return <Animated.View pointerEvents={open ? 'auto' : 'none'} style={[{ overflow: 'hidden' }, a]}>{children}</Animated.View>;
 }
 
