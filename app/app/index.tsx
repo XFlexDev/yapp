@@ -1,3 +1,4 @@
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -6,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, cancelAnimation, interpolateColor, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, avatarUrl, nameOf, req, type Friend, type Me } from '../lib/api';
 import { set, useStore } from '../lib/store';
@@ -14,50 +15,97 @@ import { C, F, SWATCH } from '../lib/theme';
 import { Avatar, Button } from '../lib/ui';
 import { focusFriend, pressTalk, releaseTalk } from '../lib/voice';
 
-const AV = 64;
-const SEL = 92;
+const AV = 52;
+const SEL = 84;
+const out = Easing.bezier(0.23, 1, 0.32, 1);
+const spring = { damping: 26, stiffness: 320, mass: 0.9 };
+const DND = '#FF9F0A';
 
-function Icon({ name, fallback, onPress, badge }: { name: any; fallback: string; onPress: () => void; badge?: number }) {
+const GLYPHS = {
+  settings: ['gearshape.fill', 'cog'],
+  add: ['person.badge.plus', 'account-plus'],
+  sound: ['speaker.wave.2.fill', 'volume-high'],
+  muted: ['speaker.slash.fill', 'volume-off'],
+  wave: ['hand.wave.fill', 'hand-wave'],
+} as const;
+
+function Glyph({ g, size = 24 }: { g: keyof typeof GLYPHS; size?: number }) {
+  const [sf, md] = GLYPHS[g];
+  return <SymbolView name={sf as any} tintColor="#fff" size={size} weight="semibold" fallback={<MaterialCommunityIcons name={md as any} size={size} color="#fff" />} />;
+}
+
+function TopButton({ g, onPress, badge }: { g: keyof typeof GLYPHS; onPress: () => void; badge?: number }) {
   return (
-    <Pressable onPress={onPress} hitSlop={10} style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <SymbolView name={name} tintColor="#fff" size={26} weight="bold" fallback={<Text style={{ color: '#fff', fontFamily: F.black, fontSize: 24 }}>{fallback}</Text>} />
-      {badge ? <View style={{ position: 'absolute', top: 4, right: 2, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{badge}</Text></View> : null}
+    <Pressable onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
+      <Glyph g={g} />
+      {badge ? (
+        <View style={{ position: 'absolute', top: 5, right: 3, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{badge}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
 
-function Backdrop({ friend }: { friend: Friend }) {
+function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
   const url = avatarUrl(friend);
+  const tint = useSharedValue(0);
+  useEffect(() => { tint.value = withTiming(talking ? 1 : 0, { duration: talking ? 180 : 320, easing: out }); }, [talking]);
+  const red = useAnimatedStyle(() => ({ opacity: tint.value * 0.42 }));
   return (
-    <Animated.View key={friend.id} entering={FadeIn.duration(220)} style={[StyleSheet.absoluteFill, { backgroundColor: SWATCH[friend.color] ?? C.red }]}>
-      {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} /> : (
-        <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-          <Text style={{ color: 'rgba(255,255,255,0.9)', fontFamily: F.black, fontSize: 220 }}>{nameOf(friend).slice(0, 1).toUpperCase()}</Text>
-        </View>
+    <Animated.View key={friend.id} entering={FadeIn.duration(260)} style={[StyleSheet.absoluteFill, { backgroundColor: SWATCH[friend.color] ?? C.red }]}>
+      {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={220} /> : (
+        <LinearGradient colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0)']} style={StyleSheet.absoluteFill} />
       )}
-      <LinearGradient colors={['rgba(0,0,0,0.55)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 180 }} />
-      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 360 }} />
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, red]} />
+      <LinearGradient colors={['rgba(0,0,0,0.42)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', '#000']} locations={[0, 0.2, 0.42, 0.72, 1]} style={StyleSheet.absoluteFill} />
     </Animated.View>
   );
 }
 
-function TalkAvatar({ friend, talking, hearing }: { friend: Friend; talking: boolean; hearing: boolean }) {
-  const s = useSharedValue(1);
-  const pulse = useSharedValue(0);
+function Bars({ color }: { color: string }) {
+  const v = [useSharedValue(0.35), useSharedValue(0.35), useSharedValue(0.35)];
   useEffect(() => {
-    s.value = withSpring(talking ? 1.12 : 1, { damping: 14, stiffness: 260 });
-    pulse.value = talking || hearing ? withRepeat(withSequence(withTiming(1, { duration: 520, easing: Easing.out(Easing.quad) }), withTiming(0, { duration: 520 })), -1) : withTiming(0, { duration: 150 });
-  }, [talking, hearing]);
-  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
-  const ring = useAnimatedStyle(() => ({ opacity: pulse.value * 0.7, transform: [{ scale: 1 + pulse.value * 0.18 }] }));
+    v.forEach((x, i) => { x.value = withDelay(i * 110, withRepeat(withSequence(withTiming(1, { duration: 260 + i * 40, easing: out }), withTiming(0.3, { duration: 300, easing: out })), -1)); });
+    return () => v.forEach(cancelAnimation);
+  }, []);
   return (
-    <Animated.View style={a}>
-      <Animated.View style={[{ position: 'absolute', inset: -6, borderRadius: SEL, borderWidth: 6, borderColor: talking ? C.red : '#fff' }, ring]} />
-      <View style={{ padding: 4, borderRadius: SEL, borderWidth: 4, borderColor: talking ? C.red : '#fff' }}>
-        <Avatar user={friend} size={SEL} />
-      </View>
-      {friend.online ? <View style={{ position: 'absolute', right: 4, bottom: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: C.online, borderWidth: 3, borderColor: '#000' }} /> : null}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2.5, height: 14, width: 14 }}>
+      {v.map((x, i) => <Animated.View key={i} style={[{ width: 3, height: 14, borderRadius: 1.5, backgroundColor: color }, useAnimatedStyle(() => ({ transform: [{ scaleY: x.value }] }))]} />)}
+    </View>
+  );
+}
+
+function TalkAvatar({ friend, talking, hearing }: { friend: Friend; talking: boolean; hearing: boolean }) {
+  const press = useSharedValue(0);
+  const ripple = useSharedValue(0);
+  useEffect(() => { press.value = withSpring(talking ? 1 : 0, spring); }, [talking]);
+  useEffect(() => {
+    if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
+    else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
+  }, [hearing]);
+  const body = useAnimatedStyle(() => ({ transform: [{ scale: 1 + press.value * 0.08 }] }));
+  const ring = useAnimatedStyle(() => ({ borderColor: interpolateColor(press.value, [0, 1], ['rgba(255,255,255,0.95)', C.red]), borderWidth: 2.5 + press.value * 1.5 }));
+  const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.55, transform: [{ scale: 1 + ripple.value * 0.32 }] }));
+  const size = SEL + 14;
+  return (
+    <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, body]}>
+      <Animated.View pointerEvents="none" style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: '#fff' }, wave]} />
+      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2 }, ring]} />
+      <Avatar user={friend} size={SEL} />
     </Animated.View>
+  );
+}
+
+function Status({ friend, talking, hearing, note }: { friend: Friend; talking: boolean; hearing: boolean; note: string | null }) {
+  const live = talking || hearing;
+  const text = note ?? (talking ? 'talking' : hearing ? 'talking to you' : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
+  const dot = friend.dnd ? DND : friend.online ? C.online : 'rgba(255,255,255,0.35)';
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, height: 22 }}>
+      {live ? <Bars color={talking ? C.red : '#fff'} /> : note ? null : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />}
+      <Animated.Text key={text} entering={FadeIn.duration(180)} style={{ color: live ? '#fff' : 'rgba(255,255,255,0.78)', fontFamily: F.bold, fontSize: 16 }}>{text}</Animated.Text>
+    </View>
   );
 }
 
@@ -66,21 +114,25 @@ export default function Home() {
   const { friends, selectedId, talkingTo, incoming, me, pokedAt } = useStore();
   const friend = useMemo(() => friends.find((f) => f.id === selectedId) ?? friends[0], [friends, selectedId]);
   const [talking, setTalking] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => { if (friend) focusFriend(friend.id); }, [friend?.id]);
   useEffect(() => {
     const id = Object.keys(talkingTo).find((k) => talkingTo[k]);
     if (id && !talking) set({ selectedId: id });
   }, [talkingTo]);
-  useEffect(() => { if (hint) { const t = setTimeout(() => setHint(null), 2200); return () => clearTimeout(t); } }, [hint]);
+  useEffect(() => { if (note) { const t = setTimeout(() => setNote(null), 2200); return () => clearTimeout(t); } }, [note]);
+  useEffect(() => {
+    if (!friend || !pokedAt[friend.id] || Date.now() - pokedAt[friend.id] > 1000) return;
+    setNote(`${nameOf(friend)} waved at you`);
+  }, [friend && pokedAt[friend.id]]);
 
   const start = () => {
     if (!friend) return;
-    if (friend.dnd) { setHint(`${nameOf(friend)} is on do not disturb`); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
+    if (friend.dnd) { setNote('they’re on do not disturb'); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
     setTalking(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    pressTalk(friend.id).catch((e) => { setTalking(false); setHint(e instanceof ApiError || e instanceof Error ? e.message : 'Couldn’t connect'); });
+    pressTalk(friend.id).catch((e) => { setTalking(false); setNote(e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t connect'); });
   };
   const stop = () => {
     if (!friend || !talking) return;
@@ -93,10 +145,10 @@ export default function Home() {
   const poke = () => {
     if (!friend) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    req('/v1/poke', { method: 'POST', body: { friend_id: friend.id } }).then(() => setHint(`poked ${nameOf(friend)}`)).catch((e) => setHint(e.message));
+    req('/v1/poke', { method: 'POST', body: { friend_id: friend.id } }).then(() => setNote('waved')).catch((e) => setNote(e.message));
   };
 
-  const toggleDnd = async () => {
+  const toggleDnd = () => {
     Haptics.selectionAsync();
     const next = !me?.dnd;
     set((s) => ({ me: s.me ? { ...s.me, dnd: next } : s.me }));
@@ -105,63 +157,54 @@ export default function Home() {
 
   if (!friend) {
     return (
-      <View style={{ flex: 1, backgroundColor: C.red, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16, paddingHorizontal: 24 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: -8 }}>
-          <Icon name="gearshape.fill" fallback="⋯" onPress={() => router.push('/settings')} />
-          <Icon name="person.badge.plus" fallback="+" onPress={() => router.push('/add')} badge={incoming.length} />
+      <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top + 4, paddingBottom: insets.bottom + 16, paddingHorizontal: 24 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: -12 }}>
+          <TopButton g="settings" onPress={() => router.push('/settings')} />
+          <TopButton g="add" onPress={() => router.push('/add')} badge={incoming.length} />
         </View>
-        <View style={{ flex: 1, justifyContent: 'center', gap: 10 }}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', gap: 10, paddingBottom: 32 }}>
           <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 44, lineHeight: 46, letterSpacing: -1 }}>add your{'\n'}friends</Text>
-          <Text style={{ color: 'rgba(255,255,255,0.85)', fontFamily: F.bold, fontSize: 17 }}>Then hold their face to talk. They hear you instantly.</Text>
+          <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 17 }}>then hold their photo to talk</Text>
         </View>
-        <Button title="Add friends" onPress={() => router.push('/add')} style={{ backgroundColor: '#000' }} />
+        <Button title="Add friends" onPress={() => router.push('/add')} />
       </View>
     );
   }
 
   const hearing = !!talkingTo[friend.id];
-  const status = talking ? 'talking…' : hearing ? 'is talking…' : friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline';
-  const recentPoke = pokedAt[friend.id] && Date.now() - pokedAt[friend.id] < 4000;
+  const others = friends.filter((f) => f.id !== friend.id);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <Backdrop friend={friend} />
-      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Icon name="gearshape.fill" fallback="⋯" onPress={() => router.push('/settings')} />
+      <Backdrop friend={friend} talking={talking} />
+      <View style={{ paddingTop: insets.top + 2, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
+        <TopButton g="settings" onPress={() => router.push('/settings')} />
         <View style={{ flexDirection: 'row' }}>
-          <Icon name="person.badge.plus" fallback="+" onPress={() => router.push('/add')} badge={incoming.length} />
-          <Icon name={me?.dnd ? 'speaker.slash.fill' : 'speaker.wave.2.fill'} fallback={me?.dnd ? '×' : '♪'} onPress={toggleDnd} />
+          <TopButton g="add" onPress={() => router.push('/add')} badge={incoming.length} />
+          <TopButton g={me?.dnd ? 'muted' : 'sound'} onPress={toggleDnd} />
         </View>
       </View>
       <View style={{ flex: 1 }} />
-      <View style={{ paddingHorizontal: 20, gap: 2 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Pressable onPress={poke} hitSlop={8} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.85 : 1 }] })}>
-            <Text style={{ fontSize: 30 }}>👋</Text>
-          </Pressable>
-          <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 36, letterSpacing: -0.5, flexShrink: 1 }}>{nameOf(friend)}</Text>
+      <View style={{ paddingHorizontal: 24, flexDirection: 'row', alignItems: 'flex-end', gap: 16 }}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ color: '#fff', fontFamily: F.black, fontSize: 44, letterSpacing: -1, lineHeight: 50 }}>{nameOf(friend)}</Text>
+          <Status friend={friend} talking={talking} hearing={hearing} note={note} />
         </View>
-        <Text style={{ color: hearing || talking ? '#fff' : 'rgba(255,255,255,0.75)', fontFamily: F.bold, fontSize: 16 }}>{recentPoke ? 'poked you' : status}</Text>
+        <Pressable onPress={poke} hitSlop={6} style={({ pressed }) => ({ width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center', marginBottom: 2, transform: [{ scale: pressed ? 0.9 : 1 }] })}>
+          <Glyph g="wave" size={24} />
+        </Pressable>
       </View>
-      <View style={{ height: 170, marginTop: 16, marginBottom: insets.bottom + 8 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, alignItems: 'flex-end', gap: 14, paddingBottom: 8 }}>
-          {friends.map((f) => f.id === friend.id ? (
-            <View key={f.id} style={{ alignItems: 'center' }}>
-              <View style={{ backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 10 }}>
-                <Text style={{ color: '#000', fontFamily: F.black, fontSize: 14 }}>{hint ?? (talking ? 'release to stop' : hearing ? 'hold to reply' : 'hold to talk')}</Text>
-              </View>
-              <GestureDetector gesture={hold}>
-                <View><TalkAvatar friend={f} talking={talking} hearing={hearing} /></View>
-              </GestureDetector>
-            </View>
-          ) : (
-            <Pressable key={f.id} onPress={() => { Haptics.selectionAsync(); set({ selectedId: f.id }); }} style={{ marginBottom: 16 }}>
-              <Avatar user={f} size={AV} ring={!!talkingTo[f.id]} />
-              {f.online ? <View style={{ position: 'absolute', right: 0, bottom: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: C.online, borderWidth: 2, borderColor: '#000' }} /> : null}
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginTop: 22, marginBottom: insets.bottom + 14 }} contentContainerStyle={{ paddingHorizontal: 17, alignItems: 'center', gap: 12 }}>
+        <GestureDetector gesture={hold}>
+          <View collapsable={false}><TalkAvatar friend={friend} talking={talking} hearing={hearing} /></View>
+        </GestureDetector>
+        {others.map((f) => (
+          <Pressable key={f.id} onPress={() => { Haptics.selectionAsync(); set({ selectedId: f.id }); }} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+            <Avatar user={f} size={AV} ring={!!talkingTo[f.id]} />
+            {f.online || f.dnd ? <View style={{ position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, borderRadius: 7, backgroundColor: f.dnd ? DND : C.online, borderWidth: 2.5, borderColor: '#000' }} /> : null}
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
   );
 }

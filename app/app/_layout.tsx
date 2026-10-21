@@ -9,9 +9,11 @@ import { registerPush } from '../lib/push';
 import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
 import { C } from '../lib/theme';
+import { startUpdates } from '../lib/updates';
 import { startListening, stopVoice } from '../lib/voice';
 
 SplashScreen.preventAutoHideAsync();
+startUpdates();
 
 export function signOutLocal() {
   stopRealtime();
