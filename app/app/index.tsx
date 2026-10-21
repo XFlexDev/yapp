@@ -383,7 +383,7 @@ export default function Home() {
   const others = friends.filter((f) => f.id !== friend.id);
   const incomingPokeText = incomingPoke?.friendId === friend.id ? `poked you${incomingPoke.count > 1 ? ` ×${incomingPoke.count}` : ''}` : null;
   const pendingPokeCount = pendingPokeCounts[friend.id] ?? 0;
-  const friendActivity = [friend.streak > 0 ? `🔥 ${friend.streak}` : '', friend.last_talked_at > 0 ? `talked ${relativeTalkedAt(friend.last_talked_at)}` : ''].filter(Boolean).join(' · ');
+  const friendActivity = [friend.streak > 0 ? `${friend.streak}` : '', friend.last_talked_at > 0 ? `talked ${relativeTalkedAt(friend.last_talked_at)}` : ''].filter(Boolean).join(' · ');
   const bubble = call?.state === 'incoming' ? `${nameOf(friend).toLowerCase()} is calling`
     : call?.state === 'outgoing' ? 'calling…'
     : call?.state === 'active' ? 'on call'
@@ -418,7 +418,12 @@ export default function Home() {
             <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
           </Pressable>
         </View>
-        {friendActivity ? <Swap text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} /> : null}
+        {friendActivity ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            {friend.streak > 0 && <Image source={require('../assets/fire.png')} style={{ width: 17, height: 17 }} />}
+            <Swap text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} />
+          </View>
+        ) : null}
         <Bubble text={bubble} lock={talking && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </View>
       {call && call.state !== 'outgoing' ? (
