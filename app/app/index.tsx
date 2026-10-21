@@ -18,6 +18,7 @@ import { Avatar, Button } from '../lib/ui';
 import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
+import { haptic } from '../lib/haptic';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
 /** iOS renders a uniform `scale` transform pixelated (facebook/react-native#48673); separate X/Y scales stay sharp. */
@@ -360,6 +361,7 @@ export default function Home() {
   const [pendingPokeCounts, setPendingPokeCounts] = useState<Record<string, number>>({});
   const pendingPokes = useRef<Record<string, { count: number; timer: ReturnType<typeof setTimeout> }>>({});
   const locked = useRef(false);
+  const notch = useRef(0);
   const lift = useSharedValue(0);
   const pokeSquish = useSharedValue(1);
   const one = useSharedValue(1);
@@ -379,7 +381,7 @@ export default function Home() {
     set({ selectedId: f.id });
     clearPokeCount(f.id);
   };
-  const buzz = () => { Haptics.selectionAsync(); };
+  const buzz = () => { haptic.tick(); };
   useAnimatedReaction(() => Math.round(sx.value / SLOT), (i, prev) => {
     if (prev !== null && i !== prev && fling.value && i >= 0 && i < count) scheduleOnRN(buzz);
   }, [count]);
@@ -394,7 +396,7 @@ export default function Home() {
     });
   const jump = (i: number) => {
     if (talking || call) return;
-    Haptics.selectionAsync();
+    haptic.tick();
     choose(i);
   };
   useEffect(() => {
@@ -418,7 +420,8 @@ export default function Home() {
     const timer = setTimeout(() => setIncomingPoke((current) => current?.at === at ? null : current), at + 2500 - Date.now());
     return () => clearTimeout(timer);
   }, [friend?.id, pokedAt[friend?.id ?? ''], pokedCount[friend?.id ?? '']]);
-  useEffect(() => { back.value = withSpring(talking || call ? 1 : 0, SPRING); }, [talking, !!call]);
+  useEffect(() => { back.value = withSpring(talking && !call ? 1 : 0, SPRING); }, [talking, !!call]);
+  useEffect(() => { if (call?.state === 'incoming') haptic.ring(); else haptic.stopRing(); return haptic.stopRing; }, [call?.state]);
   useEffect(() => {
     cp.value = withSpring(call ? 1 : 0, MORPH);
     ca.value = withSpring(call && call.state !== 'outgoing' ? 1 : 0, MORPH);
@@ -439,24 +442,25 @@ export default function Home() {
   };
   const start = () => {
     if (!friend || call) return;
-    if (friend.dnd) { setNote('do not disturb'); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
+    if (friend.dnd) { setNote('do not disturb'); haptic.error(); return; }
     locked.current = false;
+    notch.current = 0;
     lift.value = 0;
     const seq = ++pressSeq.current;
     setTalking(true);
     setConnectingState(true);
     connectTimer.current = setTimeout(() => { if (pressSeq.current === seq && connectingRef.current) setShowConnecting(true); }, 150);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptic.press();
     pressTalk(friend.id).then(() => {
       if (pressSeq.current !== seq) return;
       setConnectingState(false);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      haptic.live();
     }).catch((e) => { if (pressSeq.current === seq) setConnectingState(false); setTalking(false); if (locked.current) endCall(); setNote((e instanceof ApiError || e instanceof Error ? e.message : 'couldn’t connect').toLowerCase()); });
   };
   const lock = () => {
     if (!friend || locked.current || !talking || connectingRef.current) return;
     locked.current = true;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    haptic.lock();
     lift.value = withSpring(1, SPRING);
     lockCall(friend.id).catch((e) => { locked.current = false; setTalking(false); releaseTalk(friend.id); setNote(String(e?.message ?? 'couldn’t call').toLowerCase()); });
   };
@@ -466,12 +470,12 @@ export default function Home() {
     setConnectingState(false);
     setTalking(false);
     lift.value = withTiming(0, { duration: 160 });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    haptic.release();
     releaseTalk(friend.id);
   };
   const hold = Gesture.Pan().activateAfterLongPress(200).runOnJS(true)
     .onStart(start)
-    .onUpdate((e) => { if (locked.current) return; const v = Math.min(1, Math.max(0, -e.translationY / LOCK_AT)); lift.value = v; if (v >= 1) lock(); })
+    .onUpdate((e) => { if (locked.current) return; const v = Math.min(1, Math.max(0, -e.translationY / LOCK_AT)); lift.value = v; const n = Math.floor(v * 3); if (n > notch.current && n < 3 && !connectingRef.current) { notch.current = n; haptic.notch(); } if (v >= 1) lock(); })
     .onFinalize(stop);
   const flushPokes = (friendId: string) => {
     const batch = pendingPokes.current[friendId];
@@ -485,8 +489,8 @@ export default function Home() {
   };
   const poke = () => {
     if (!friend || call) return;
-    if (friend.dnd) { setNote('do not disturb'); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (friend.dnd) { setNote('do not disturb'); haptic.error(); return; }
+    haptic.poke();
     pokeSquish.value = withSequence(withTiming(0.94, { duration: 70 }), withSpring(1, SPRING));
     const previous = pendingPokes.current[friend.id];
     if (previous) clearTimeout(previous.timer);
@@ -498,9 +502,9 @@ export default function Home() {
   const tap = Gesture.Tap().maxDuration(190).runOnJS(true).onEnd((_event, success) => { if (success) poke(); });
   const avatarGesture = Gesture.Race(hold, tap);
 
-  const accept = () => acceptCall().catch((e) => { setNote(String(e?.message ?? 'couldn’t connect').toLowerCase()); endCall(); });
-  const toggleMute = () => { Haptics.selectionAsync(); const m = !muted; setMutedState(m); setMuted(m); };
-  const toggleCam = () => { Haptics.selectionAsync(); setCamera(!cam).catch((e) => setNote(String(e?.message ?? 'camera failed').toLowerCase())); };
+  const accept = () => { haptic.connected(); return acceptCall().catch((e) => { setNote(String(e?.message ?? 'couldn’t connect').toLowerCase()); endCall(); }); };
+  const toggleMute = () => { haptic.click(); const m = !muted; setMutedState(m); setMuted(m); };
+  const toggleCam = () => { haptic.click(); setCamera(!cam).catch((e) => setNote(String(e?.message ?? 'camera failed').toLowerCase())); };
 
   const toggleDnd = () => {
     Haptics.selectionAsync();
@@ -607,7 +611,7 @@ export default function Home() {
           })}
         </Animated.View>
         <Animated.View pointerEvents={call ? 'none' : 'box-none'} style={[{ position: 'absolute', left: PLUS_X, top: 0, bottom: 0, justifyContent: 'center' }, plusSt]}>{plus}</Animated.View>
-        <CallControls cp={cp} ca={ca} on={!!call} incoming={(call ?? lastCall.current)?.state === 'incoming'} muted={muted} cam={cam} onCam={toggleCam} onMute={toggleMute} onEnd={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} onAccept={accept} />
+        <CallControls cp={cp} ca={ca} on={!!call} incoming={(call ?? lastCall.current)?.state === 'incoming'} muted={muted} cam={cam} onCam={toggleCam} onMute={toggleMute} onEnd={() => { haptic.hangup(); endCall(); }} onAccept={accept} />
         </View>
         </GestureDetector>
       </View>

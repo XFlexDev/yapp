@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { haptic } from '../lib/haptic';
 import { useEffect } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -78,7 +79,7 @@ export default function Order() {
   const positions = useSharedValue<Pos>(Object.fromEntries(friends.map((f, i) => [f.id, i])));
   useEffect(() => { positions.value = Object.fromEntries(friends.map((f, i) => [f.id, i])); }, [key]);
 
-  const lift = () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); };
+  const lift = () => { haptic.softHeavy(); };
   const move = () => { Haptics.selectionAsync(); };
   const drop = () => {
     const pos = positions.value;
