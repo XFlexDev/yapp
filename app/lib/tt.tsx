@@ -16,9 +16,10 @@ function Sym({ sf, md, size = 26 }: { sf: string; md: string; size?: number }) {
 }
 
 // Near-critical spring: settles with a hint of give, never wobbles.
-export const SPRING = { damping: 28, stiffness: 280, mass: 1 };
-const PRESS = { damping: 30, stiffness: 600 };
-const RELEASE = { damping: 24, stiffness: 340 };
+// Critically damped: settles with a soft ease, never overshoots.
+export const SPRING = { damping: 38, stiffness: 340, mass: 1 };
+const PRESS = { damping: 50, stiffness: 600 };
+const RELEASE = { damping: 38, stiffness: 400 };
 const EASE = Easing.bezier(0.23, 1, 0.32, 1);
 
 // Full-width push like a native nav stack: both pages stay solid and move in lockstep on one spring.
@@ -54,7 +55,7 @@ export function popOut() {
     };
   };
 }
-export const rise = (delay = 0) => FadeInDown.springify().damping(SPRING.damping).stiffness(SPRING.stiffness).delay(delay);
+export const rise = (delay = 0) => FadeInDown.duration(320).easing(EASE).delay(delay);
 
 // Crossfades text changes in place so swaps never cut.
 export function Swap({ text, style }: { text: string; style?: any }) {
@@ -133,7 +134,7 @@ function HelpSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)' }}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
-      <Animated.View entering={SlideInDown.springify().damping(32).stiffness(320)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6 }}>
+      <Animated.View entering={SlideInDown.duration(340).easing(EASE)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6 }}>
         <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>send feedback</Text>
         <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.regular, fontSize: 14, textAlign: 'center', marginTop: 4, marginBottom: 10 }}>let’s improve the app together!</Text>
         {row('email us', () => { onClose(); Linking.openURL('mailto:info@kreatix.dev?subject=yapp'); })}

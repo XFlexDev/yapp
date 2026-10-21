@@ -23,7 +23,7 @@ const PLUS = 48;
 const GAP = 14;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 const DND = '#FF9F0A';
-const MOVE = LinearTransition.springify().damping(SPRING.damping).stiffness(SPRING.stiffness);
+const MOVE = LinearTransition.duration(320).easing(out);
 
 const GLYPHS = {
   settings: ['gearshape.fill', 'cog'],
@@ -40,8 +40,8 @@ function Glyph({ g, size = 24 }: { g: keyof typeof GLYPHS; size?: number }) {
 
 function TopButton({ g, onPress }: { g: keyof typeof GLYPHS; onPress: () => void }) {
   return (
-    <Squish onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-      <Glyph g={g} />
+    <Squish onPress={onPress} style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
+      <Glyph g={g} size={31} />
     </Squish>
   );
 }
@@ -123,7 +123,7 @@ function FriendSheet({ friend, onClose, onWave }: { friend: Friend; onClose: () 
       <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
-      <Animated.View entering={SlideInDown.springify().damping(32).stiffness(320)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6, alignItems: 'stretch' }}>
+      <Animated.View entering={SlideInDown.duration(340).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6, alignItems: 'stretch' }}>
         <View style={{ alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <Avatar user={friend} size={64} />
           <View style={{ alignItems: 'center' }}>
@@ -227,7 +227,7 @@ export default function Home() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop friend={friend} talking={talking} />
-      <View style={{ paddingTop: insets.top + 2, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
+      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }}>
         <TopButton g="settings" onPress={() => router.push('/settings')} />
         <TopButton g={me?.dnd ? 'muted' : 'sound'} onPress={toggleDnd} />
       </View>
