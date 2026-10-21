@@ -23,6 +23,7 @@ const SEL = 76;
 const PLUS = 48;
 const GAP = 14;
 const LOCK_AT = 90;
+const GROW = 1.1;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 const DND = '#FF9F0A';
 const MOON = '#5E5CE6';
@@ -100,7 +101,12 @@ function Bubble({ text, lock, lift }: { text: string; lock: boolean; lift: { val
 
 function Dot({ friend, size = 14 }: { friend: Friend; size?: number }) {
   if (!friend.online && !friend.dnd) return null;
-  return <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', right: 1, top: 1, width: size, height: size, borderRadius: size / 2, backgroundColor: friend.dnd ? DND : C.online, borderWidth: 2.5, borderColor: '#000' }} />;
+  const inner = size - 6;
+  return (
+    <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', right: 1, top: 1, width: size, height: size, borderRadius: size / 2, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: friend.dnd ? DND : C.online }} />
+    </Animated.View>
+  );
 }
 
 function Zzz() {
@@ -124,17 +130,20 @@ function TalkAvatar({ friend, talking, hearing }: { friend: Friend; talking: boo
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
-  const body = useAnimatedStyle(() => ({ transform: [{ scale: 1 + press.value * 0.1 }] }));
+  const body = useAnimatedStyle(() => ({ transform: [{ scale: (1 + press.value * 0.1) / GROW }] }));
   const ring = useAnimatedStyle(() => ({ borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
   const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
-  const size = SEL + 14;
+  const size = Math.round((SEL + 14) * GROW);
+  const box = SEL + 14;
   return (
+    <View style={{ width: box, height: box, alignItems: 'center', justifyContent: 'center' }}>
     <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, body]}>
       <Animated.View pointerEvents="none" style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: '#fff' }, wave]} />
-      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 3.5 }, ring]} />
-      <Avatar user={friend} size={SEL} />
-      {friend.dnd ? <Zzz /> : <Dot friend={friend} size={18} />}
+      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 4 }, ring]} />
+      <Avatar user={friend} size={Math.round(SEL * GROW)} />
+      {friend.dnd ? <Zzz /> : <Dot friend={friend} size={20} />}
     </Animated.View>
+    </View>
   );
 }
 

@@ -63,11 +63,11 @@ export function Swap({ text, style }: { text: string; style?: any }) {
   const o = useSharedValue(1);
   useEffect(() => {
     if (text === shown) { o.value = withTiming(1, { duration: 160, easing: EASE }); return; }
-    o.value = withTiming(0, { duration: 110, easing: EASE });
-    const t = setTimeout(() => setShown(text), 110);
+    o.value = withTiming(0, { duration: 70, easing: EASE });
+    const t = setTimeout(() => setShown(text), 70);
     return () => clearTimeout(t);
   }, [text]);
-  useEffect(() => { o.value = withTiming(1, { duration: 200, easing: EASE }); }, [shown]);
+  useEffect(() => { o.value = withTiming(1, { duration: 160, easing: EASE }); }, [shown]);
   const a = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ translateY: (1 - o.value) * 4 }] }));
   return <Animated.Text style={[style, a]}>{shown}</Animated.Text>;
 }
