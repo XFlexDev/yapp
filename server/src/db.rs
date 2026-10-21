@@ -53,6 +53,33 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
     )?;
     let _ = c.execute("ALTER TABLE users ADD COLUMN avatar TEXT", []);
     let _ = c.execute("ALTER TABLE users ADD COLUMN pfp TEXT", []);
+    c.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS messages(
+            id TEXT PRIMARY KEY,
+            a TEXT NOT NULL,
+            b TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS messages_pair ON messages(a, b, created_at);
+        CREATE TABLE IF NOT EXISTS chat_meta(
+            a TEXT NOT NULL,
+            b TEXT NOT NULL,
+            background TEXT,
+            PRIMARY KEY(a, b)
+        );
+        CREATE TABLE IF NOT EXISTS chat_reads(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            friend_id TEXT NOT NULL,
+            read_at INTEGER NOT NULL,
+            PRIMARY KEY(user_id, friend_id)
+        );
+        "#,
+    )?;
     Ok(c)
 }
 

@@ -482,6 +482,9 @@ async fn delete_me(State(st): State<S>, Authed(uid): Authed) -> R<Json<Value>> {
         for a in [av, pf].into_iter().flatten() {
             let _ = std::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(a));
         }
+        c.execute("DELETE FROM messages WHERE a=?1 OR b=?1", [&uid])?;
+        c.execute("DELETE FROM chat_meta WHERE a=?1 OR b=?1", [&uid])?;
+        c.execute("DELETE FROM chat_reads WHERE friend_id=?", [&uid])?;
         c.execute("DELETE FROM users WHERE id=?", [&uid])?;
         f
     };
@@ -724,9 +727,12 @@ async fn delete_request(State(st): State<S>, Authed(me): Authed, Path(id): Path<
 async fn remove_friend(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>) -> R<Json<Value>> {
     {
         let (a, b) = db::pair(&me, &other);
-        if st.db().execute("DELETE FROM friendships WHERE a=? AND b=?", [a, b])? == 0 {
+        let c = st.db();
+        if c.execute("DELETE FROM friendships WHERE a=? AND b=?", [a, b])? == 0 {
             return Err(not_friends());
         }
+        c.execute("DELETE FROM messages WHERE a=? AND b=?", [a, b])?;
+        c.execute("DELETE FROM chat_meta WHERE a=? AND b=?", [a, b])?;
     }
     st.hub.send(&other, &json!({ "type": "friendship_deleted", "user_id": me }));
     st.hub.send(&me, &json!({ "type": "friendship_deleted", "user_id": other }));
@@ -885,6 +891,170 @@ async fn call_end(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendR
     call_signal(&st, &me, &r.friend_id, "call_ended").await
 }
 
+// ---------- chats ----------
+
+#[derive(Serialize)]
+struct ChatMsg {
+    id: String,
+    from: String,
+    to: String,
+    kind: String,
+    body: String,
+    created_at: i64,
+}
+
+const MSG_COLS: &str = "id, sender, recipient, kind, body, created_at";
+
+fn row_msg(r: &Row) -> rusqlite::Result<ChatMsg> {
+    Ok(ChatMsg { id: r.get(0)?, from: r.get(1)?, to: r.get(2)?, kind: r.get(3)?, body: r.get(4)?, created_at: r.get(5)? })
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+fn read_at(c: &Connection, user: &str, friend: &str) -> rusqlite::Result<i64> {
+    Ok(c.query_row("SELECT read_at FROM chat_reads WHERE user_id=? AND friend_id=?", [user, friend], |r| r.get(0)).optional()?.unwrap_or(0))
+}
+
+fn chat_background(c: &Connection, a: &str, b: &str) -> rusqlite::Result<Option<String>> {
+    Ok(c.query_row("SELECT background FROM chat_meta WHERE a=? AND b=?", [a, b], |r| r.get(0)).optional()?.flatten())
+}
+
+async fn list_chats(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let c = st.db();
+    let mut out = Vec::new();
+    for f in friend_ids(&c, &me)? {
+        let (a, b) = db::pair(&me, &f);
+        let last = c
+            .query_row(&format!("SELECT {MSG_COLS} FROM messages WHERE a=? AND b=? ORDER BY created_at DESC LIMIT 1"), [a, b], row_msg)
+            .optional()?;
+        let mine = read_at(&c, &me, &f)?;
+        let unread: i64 = c.query_row(
+            "SELECT COUNT(*) FROM messages WHERE a=?1 AND b=?2 AND recipient=?3 AND created_at>?4",
+            params![a, b, me, mine],
+            |r| r.get(0),
+        )?;
+        out.push(json!({ "friend_id": f, "last": last, "unread": unread, "background": chat_background(&c, a, b)? }));
+    }
+    Ok(Json(json!({ "chats": out })))
+}
+
+#[derive(Deserialize)]
+struct Page {
+    before: Option<i64>,
+    limit: Option<i64>,
+}
+
+async fn list_messages(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, axum::extract::Query(p): axum::extract::Query<Page>) -> R<Json<Value>> {
+    let c = st.db();
+    if !are_friends(&c, &me, &other)? {
+        return Err(not_friends());
+    }
+    let (a, b) = db::pair(&me, &other);
+    let mut q = c.prepare(&format!("SELECT {MSG_COLS} FROM messages WHERE a=?1 AND b=?2 AND created_at<?3 ORDER BY created_at DESC LIMIT ?4"))?;
+    let msgs: Vec<ChatMsg> = q
+        .query_map(params![a, b, p.before.unwrap_or(i64::MAX), p.limit.unwrap_or(50).clamp(1, 100)], row_msg)?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Json(json!({ "messages": msgs, "background": chat_background(&c, a, b)?, "their_read_at": read_at(&c, &other, &me)? })))
+}
+
+#[derive(Deserialize)]
+struct SendMsg {
+    body: String,
+}
+
+async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<SendMsg>) -> R<Json<ChatMsg>> {
+    let body = r.body.trim().to_string();
+    if body.is_empty() {
+        return Err(bad("Say something"));
+    }
+    if body.chars().count() > 2000 {
+        return Err(bad("That message is too long"));
+    }
+    let (m, u) = {
+        let c = st.db();
+        if !are_friends(&c, &me, &other)? {
+            return Err(not_friends());
+        }
+        let (a, b) = db::pair(&me, &other);
+        let mut t = now_ms();
+        let last: Option<i64> = c.query_row("SELECT MAX(created_at) FROM messages WHERE a=? AND b=?", [a, b], |r| r.get(0))?;
+        if let Some(l) = last {
+            t = t.max(l + 1);
+        }
+        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: other.clone(), kind: "text".into(), body, created_at: t };
+        c.execute(
+            "INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            params![m.id, a, b, m.from, m.to, m.kind, m.body, m.created_at],
+        )?;
+        c.execute(
+            "INSERT INTO chat_reads(user_id, friend_id, read_at) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, friend_id) DO UPDATE SET read_at=excluded.read_at",
+            params![me, other, t],
+        )?;
+        (m, public_user(&c, &me)?)
+    };
+    let ev = json!({ "type": "message", "message": &m });
+    let online = st.hub.online(&other);
+    st.hub.send(&other, &ev);
+    st.hub.send(&me, &ev);
+    if !online {
+        let preview: String = m.body.chars().take(120).collect();
+        push(&st, &other, label(&u), preview, json!({ "type": "message", "from": me }));
+    }
+    Ok(Json(m))
+}
+
+#[derive(Deserialize)]
+struct ReadReq {
+    at: i64,
+}
+
+async fn mark_read(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<ReadReq>) -> R<Json<Value>> {
+    let at = r.at.min(now_ms() + 60_000);
+    {
+        let c = st.db();
+        if !are_friends(&c, &me, &other)? {
+            return Err(not_friends());
+        }
+        c.execute(
+            "INSERT INTO chat_reads(user_id, friend_id, read_at) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, friend_id) DO UPDATE SET read_at=MAX(read_at, excluded.read_at)",
+            params![me, other, at],
+        )?;
+    }
+    st.hub.send(&other, &json!({ "type": "chat_read", "user_id": me, "at": at }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct BgReq {
+    background: Option<String>,
+}
+
+async fn set_chat_background(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<BgReq>) -> R<Json<Value>> {
+    let bg = r.background.filter(|b| !b.is_empty());
+    if let Some(b) = &bg {
+        if b.len() > 64 || !b.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+            return Err(bad("Unknown background"));
+        }
+    }
+    {
+        let c = st.db();
+        if !are_friends(&c, &me, &other)? {
+            return Err(not_friends());
+        }
+        let (a, b) = db::pair(&me, &other);
+        c.execute(
+            "INSERT INTO chat_meta(a, b, background) VALUES (?1, ?2, ?3) ON CONFLICT(a, b) DO UPDATE SET background=excluded.background",
+            params![a, b, bg],
+        )?;
+    }
+    let ev = json!({ "type": "chat_background", "user_id": me, "friend_id": other, "background": bg });
+    st.hub.send(&other, &ev);
+    st.hub.send(&me, &ev);
+    Ok(Json(json!({ "ok": true, "background": bg })))
+}
+
 // ---------- event stream ----------
 
 #[derive(Deserialize)]
@@ -958,6 +1128,10 @@ pub fn router(st: S) -> Router {
         .route("/v1/call/start", post(call_start))
         .route("/v1/call/accept", post(call_accept))
         .route("/v1/call/end", post(call_end))
+        .route("/v1/chats", get(list_chats))
+        .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
+        .route("/v1/chats/{id}/read", post(mark_read))
+        .route("/v1/chats/{id}/background", put(set_chat_background))
         .route("/v1/poke", post(poke))
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))
