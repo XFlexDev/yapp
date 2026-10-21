@@ -6,8 +6,8 @@ on:
       target:
         description: What to build
         type: choice
-        default: all
-        options: [all, apk, aab, ipa]
+        default: android
+        options: [android, apk, aab, ipa]
 
 concurrency:
   group: build-${{ github.ref }}-${{ inputs.target }}
@@ -36,7 +36,7 @@ jobs:
       - name: Skip unrequested format
         id: want
         working-directory: .
-        run: echo "go=${{ inputs.target == 'all' || inputs.target == matrix.kind }}" >> "$GITHUB_OUTPUT"
+        run: echo "go=${{ inputs.target == 'android' || inputs.target == matrix.kind }}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         if: steps.want.outputs.go == 'true'
       - uses: actions/setup-node@v4
@@ -65,7 +65,7 @@ jobs:
           retention-days: 30
 
   ios:
-    if: inputs.target == 'all' || inputs.target == 'ipa'
+    if: inputs.target == 'ipa'
     runs-on: macos-15
     timeout-minutes: 60
     defaults:
