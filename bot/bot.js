@@ -1,7 +1,7 @@
-// @test: always-online Yapp friend that auto-accepts requests and plays your talk back to you.
+// Test friend (@test by default): always-online Yapp friend that auto-accepts requests and plays your talk back to you.
 import { AudioFrame, AudioSource, AudioStream, LocalAudioTrack, Room, RoomEvent, TrackKind, TrackPublishOptions, TrackSource } from '@livekit/rtc-node';
 
-const { BOT_EMAIL, BOT_CODE, YAP_API, LK_URL } = process.env;
+const { BOT_EMAIL, BOT_CODE, YAP_API, LK_URL, BOT_USERNAME = 'test', BOT_NAME = 'Test' } = process.env;
 const RATE = 48000;
 const MAX_FRAMES = 3000; // ~30s of 10ms frames
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -143,7 +143,7 @@ async function stream() {
 }
 
 await login();
-if (me.username !== 'test' || me.display_name !== 'Test') await api('/v1/me', 'PATCH', { username: 'test', display_name: 'Test' });
+if (me.username !== BOT_USERNAME || me.display_name !== BOT_NAME) await api('/v1/me', 'PATCH', { username: BOT_USERNAME, display_name: BOT_NAME });
 await api('/v1/status', 'PUT', { dnd: false });
 await joinInbox();
 setInterval(() => login().catch((e) => log('refresh', e.message)), 45 * 60 * 1000);
