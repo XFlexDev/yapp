@@ -18,8 +18,10 @@ build:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
           rm -rf Payload && mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/Yapp.app Payload/
-          zip -qry ../yapp-unsigned.ipa Payload
+          zip -qry yapp-unsigned.ipa Payload
+          ls -la "$PWD/yapp-unsigned.ipa"
     - eas/upload_artifact:
         name: Upload IPA
+        working_directory: ./ios
         inputs:
           path: yapp-unsigned.ipa
