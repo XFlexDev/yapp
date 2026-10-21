@@ -7,6 +7,10 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
         PRAGMA journal_mode=WAL;
         PRAGMA foreign_keys=ON;
         PRAGMA busy_timeout=5000;
+        PRAGMA synchronous=NORMAL;
+        PRAGMA temp_store=MEMORY;
+        PRAGMA cache_size=-32768;
+        PRAGMA mmap_size=268435456;
         CREATE TABLE IF NOT EXISTS users(
             id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,

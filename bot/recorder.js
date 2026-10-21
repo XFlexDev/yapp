@@ -35,33 +35,43 @@ function ffmpeg(args, input) {
 }
 
 const fileOf = (id) => path.join(CLIP_DIR, `${id.replace(/[^a-zA-Z0-9-]/g, '')}.ogg`);
-const live = new Map(); // `${from}>${to}` -> session
+const live = new Map(); // `${from}>${to}` -> warm session listening to `from` in `to`'s inbox
+const IDLE_MS = 3 * 60_000;
 
-async function start(from, to) {
+// Sessions stay connected a few minutes after a talk, so the next talk records from its very first frame.
+function sessionFor(from, to) {
   const key = `${from}>${to}`;
-  if (live.has(key)) return;
-  const s = { id: crypto.randomUUID(), from, to, room: new Room(), frames: [], samples: 0, done: false };
+  const old = live.get(key);
+  if (old && !old.dead) { clearTimeout(old.idle); return old; }
+  const s = { room: new Room(), rec: null, dead: false, idle: null };
   live.set(key, s);
-  s.cap = setTimeout(() => stop(from, to).catch((e) => log('cap stop', e.message)), MAX_MS + 1000);
+  const drop = () => { s.dead = true; if (live.get(key) === s) live.delete(key); };
   s.room.on(RoomEvent.TrackSubscribed, (track, _pub, p) => { if (p.identity === from && track.kind === TrackKind.KIND_AUDIO) read(s, track); });
-  try {
-    await s.room.connect(LK_URL, token(`rec_${s.id}`, 'recorder', `u_${to}`, { canPublish: false, canSubscribe: true, hidden: true }), { autoSubscribe: true, dynacast: false });
-  } catch (e) {
-    log('join failed', key, e.message);
-    clearTimeout(s.cap);
-    if (live.get(key) === s) live.delete(key);
-  }
+  s.room.on(RoomEvent.Disconnected, drop);
+  s.ready = s.room.connect(LK_URL, token(`rec_${crypto.randomUUID()}`, 'recorder', `u_${to}`, { canPublish: false, canSubscribe: true, hidden: true }), { autoSubscribe: true, dynacast: false })
+    .catch((e) => { log('join failed', key, e.message); drop(); });
+  return s;
 }
 
 async function read(s, track) {
   try {
     for await (const f of new AudioStream(track, RATE, 1)) {
-      if (s.done) break;
-      if (s.samples >= (MAX_MS / 1000) * RATE) continue;
-      s.frames.push(Buffer.from(new Int16Array(f.data).buffer));
-      s.samples += f.samplesPerChannel;
+      if (s.dead) break;
+      const r = s.rec;
+      if (!r || r.samples >= (MAX_MS / 1000) * RATE) continue;
+      r.frames.push(Buffer.from(new Int16Array(f.data).buffer));
+      r.samples += f.samplesPerChannel;
     }
   } catch {}
+}
+
+async function start(from, to) {
+  const s = sessionFor(from, to);
+  if (s.rec) return;
+  s.rec = { id: crypto.randomUUID(), frames: [], samples: 0 };
+  clearTimeout(s.cap);
+  s.cap = setTimeout(() => stop(from, to).catch((e) => log('cap stop', e.message)), MAX_MS + 1000);
+  await s.ready;
 }
 
 function loud(pcm) {
@@ -74,19 +84,20 @@ function loud(pcm) {
 async function stop(from, to) {
   const key = `${from}>${to}`;
   const s = live.get(key);
-  if (!s) return;
-  live.delete(key);
+  const r = s?.rec;
+  if (!r) return;
   clearTimeout(s.cap);
   await sleep(350);
-  s.done = true;
-  await s.room.disconnect().catch(() => {});
-  const pcm = Buffer.concat(s.frames);
+  if (s.rec === r) s.rec = null;
+  clearTimeout(s.idle);
+  s.idle = setTimeout(() => { s.dead = true; if (live.get(key) === s) live.delete(key); s.room.disconnect().catch(() => {}); }, IDLE_MS);
+  const pcm = Buffer.concat(r.frames);
   const ms = Math.round((pcm.length / 2 / RATE) * 1000);
   if (ms < 600 || !loud(pcm)) return;
-  const file = fileOf(s.id);
+  const file = fileOf(r.id);
   await fs.writeFile(file, await ffmpeg(['-f', 's16le', '-ar', String(RATE), '-ac', '1', '-i', 'pipe:0', '-c:a', 'libopus', '-b:a', '32k', '-application', 'voip', '-f', 'ogg', 'pipe:1'], pcm));
-  const r = await fetch(`${YAP_API}/internal/clips`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-recorder-secret': RECORDER_SECRET }, body: JSON.stringify({ id: s.id, from, to, ms }) }).catch(() => null);
-  if (!r?.ok) { await fs.unlink(file).catch(() => {}); log('clip rejected', key, r?.status); return; }
+  const res = await fetch(`${YAP_API}/internal/clips`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-recorder-secret': RECORDER_SECRET }, body: JSON.stringify({ id: r.id, from, to, ms }) }).catch(() => null);
+  if (!res?.ok) { await fs.unlink(file).catch(() => {}); log('clip rejected', key, res?.status); return; }
   log('saved', key, `${(ms / 1000).toFixed(1)}s`);
 }
 

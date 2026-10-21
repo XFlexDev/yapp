@@ -24,5 +24,6 @@ dashmap = "6"
 parking_lot = "0.12"
 
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 strip = true
