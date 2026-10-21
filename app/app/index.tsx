@@ -41,6 +41,7 @@ const GLYPHS = {
   micOff: ['mic.slash.fill', 'microphone-off'],
   phone: ['phone.fill', 'phone'],
   moon: ['moon.fill', 'moon-waning-crescent'],
+  chat: ['bubble.left.fill', 'chat'],
 } as const;
 
 function Glyph({ g, size = 24, color = '#fff' }: { g: keyof typeof GLYPHS; size?: number; color?: string }) {
@@ -220,7 +221,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { friends, selectedId, talkingTo, incoming, me, call } = useStore();
+  const { friends, selectedId, talkingTo, incoming, me, call, chats } = useStore();
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
   const [talking, setTalking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -320,7 +321,17 @@ export default function Home() {
       <Backdrop friend={friend} talking={live || !!call} />
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }}>
         <TopButton g="settings" onPress={() => router.push('/settings')} />
-        <TopButton g={me?.dnd ? 'muted' : 'sound'} onPress={toggleDnd} />
+        <View style={{ flexDirection: 'row' }}>
+          <View>
+            <TopButton g="chat" onPress={() => router.push({ pathname: '/chat', params: { id: friend.id } })} />
+            {chats[friend.id]?.unread ? (
+              <Animated.View pointerEvents="none" entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', top: 8, right: 6, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{chats[friend.id].unread}</Text>
+              </Animated.View>
+            ) : null}
+          </View>
+          <TopButton g={me?.dnd ? 'muted' : 'sound'} onPress={toggleDnd} />
+        </View>
       </View>
       {friend.dnd ? <View style={{ marginTop: 6 }}><DndPill /></View> : null}
       <View style={{ flex: 1 }} />

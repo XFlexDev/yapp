@@ -2,6 +2,7 @@ import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent } from 'livekit-client';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { req } from './api';
+import { setSelfTalking, startBackground } from './background';
 import { get, set } from './store';
 
 type Grant = { url: string; room: string; token: string };
@@ -65,7 +66,9 @@ async function micPermission() {
 
 export async function pressTalk(friendId: string) {
   pressed = true;
-  if (!(await micPermission())) throw new Error('Yap needs your microphone to talk');
+  if (!(await micPermission())) throw new Error('Yapp needs your microphone to talk');
+  startBackground();
+  setSelfTalking(true);
   focusFriend(friendId);
   const t = talk!;
   await Promise.all([t.ready, req('/v1/ptt/start', { method: 'POST', body: { friend_id: friendId } })]);
@@ -76,6 +79,7 @@ export async function pressTalk(friendId: string) {
 
 export async function releaseTalk(friendId: string) {
   pressed = false;
+  setSelfTalking(false);
   await talk?.room.localParticipant.setMicrophoneEnabled(false).catch(() => {});
   await req('/v1/ptt/stop', { method: 'POST', body: { friend_id: friendId } }).catch(() => {});
 }

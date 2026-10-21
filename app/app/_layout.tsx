@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { restore, setSignedOutHandler } from '../lib/api';
+import { startBackground, stopBackground } from '../lib/background';
 import { registerPush } from '../lib/push';
 import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
@@ -19,6 +20,7 @@ startUpdates();
 export function signOutLocal() {
   stopRealtime();
   stopVoice();
+  stopBackground();
   set({ status: 'out', me: null, friends: [], incoming: [], outgoing: [], selectedId: null, call: null });
 }
 
@@ -38,6 +40,7 @@ export default function Root() {
     if (status !== 'in') return;
     startRealtime();
     startListening().catch(() => {});
+    startBackground();
     registerPush();
   }, [status]);
 
@@ -60,6 +63,7 @@ export default function Root() {
         <Stack.Protected guard={status === 'in' && onboarded}>
           <Stack.Screen name="index" />
           <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
+          <Stack.Screen name="chat" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack.Protected>
         <Stack.Protected guard={status === 'in'}>

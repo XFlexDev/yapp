@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { Friend, FriendRequest, Me, User } from './api';
 
+export type ChatMsg = { id: string; from: string; to: string; kind: string; body: string; created_at: number; pending?: boolean; failed?: boolean };
+export type Chat = { messages: ChatMsg[]; loaded: boolean; more: boolean; background: string | null; theirReadAt: number; unread: number };
+
 type State = {
   status: 'loading' | 'out' | 'in';
   me: Me | null;
@@ -13,11 +16,13 @@ type State = {
   pokeCount: Record<string, number>;
   call: { friendId: string; state: 'outgoing' | 'incoming' | 'active'; since: number } | null;
   connected: boolean;
+  chats: Record<string, Chat>;
+  openChat: string | null;
 };
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null,
 }));
 
 export const set = useStore.setState;

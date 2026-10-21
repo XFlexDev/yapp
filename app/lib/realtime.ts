@@ -5,6 +5,7 @@ import { accessToken, avatarUrl, req, type Friend, type FriendRequest, type Me }
 import { get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './store';
 import { API } from './theme';
 import { remoteEnded } from './voice';
+import { loadChats, onBackground, onMessage, onRead } from './chat';
 
 let ws: WebSocket | null = null;
 let stopped = true;
@@ -51,6 +52,9 @@ function onEvent(e: any) {
       set((s) => ({ pokedAt: { ...s.pokedAt, [e.from.id]: Date.now() }, pokeCount: { ...s.pokeCount, [e.from.id]: e.count || 1 } }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       break;
+    case 'message': onMessage(e.message); break;
+    case 'chat_read': onRead(e.user_id, e.at); break;
+    case 'chat_background': onBackground(e.user_id === get().me?.id ? e.friend_id : e.user_id, e.background); break;
     case 'call_ringing':
       if (!get().call) { set({ call: { friendId: e.from.id, state: 'incoming', since: Date.now() }, selectedId: e.from.id }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
       break;
@@ -69,7 +73,7 @@ function connect() {
   if (!t) return;
   const sock = new WebSocket(`${API.replace('https', 'wss')}/v1/stream?access_token=${encodeURIComponent(t)}`);
   ws = sock;
-  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); };
+  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); };
   sock.onmessage = (m) => { try { onEvent(JSON.parse(String(m.data))); } catch {} };
   sock.onclose = () => {
     if (ws === sock) ws = null;
