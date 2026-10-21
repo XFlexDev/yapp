@@ -72,6 +72,7 @@ export default function Root() {
         <Stack.Protected guard={status === 'in' && onboarded}>
           <Stack.Screen name="index" />
           <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
+          <Stack.Screen name="order" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
           <Stack.Screen name="chat" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="group" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="inbox" options={{ animation: 'slide_from_right' }} />

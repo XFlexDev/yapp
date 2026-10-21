@@ -13,6 +13,7 @@ use rusqlite::{params, Connection, ErrorCode, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -720,8 +721,10 @@ async fn lookup_user(State(st): State<S>, Authed(me): Authed, Path(username): Pa
         .ok_or_else(|| not_found("No one has that username"))
 }
 
-async fn list_friends(State(st): State<S>, Authed(uid): Authed) -> R<Json<Vec<Friend>>> {
-    let c = st.db();
+fn friend_list<F>(c: &Connection, uid: &str, online: F) -> R<Vec<Friend>>
+where
+    F: Fn(&str) -> bool,
+{
     let today = now_ms() / 86_400_000;
     let mut s = c.prepare(&format!(
         "SELECT {USER_COLS}, u.dnd, f.created_at,
@@ -730,13 +733,14 @@ async fn list_friends(State(st): State<S>, Authed(uid): Authed) -> R<Json<Vec<Fr
          FROM friendships f
          JOIN users u ON u.id = CASE WHEN f.a=?1 THEN f.b ELSE f.a END
          LEFT JOIN streaks s ON s.a=f.a AND s.b=f.b
-         WHERE f.a=?1 OR f.b=?1 ORDER BY f.created_at DESC"
+         LEFT JOIN friend_order o ON o.user_id=?1 AND o.friend_id=u.id
+         WHERE f.a=?1 OR f.b=?1 ORDER BY (o.pos IS NULL), o.pos, f.created_at ASC"
     ))?;
     let v = s
         .query_map(params![uid, today - 1], |r| {
             let user = row_user(r, 0)?;
             Ok(Friend {
-                online: st.hub.online(&user.id),
+                online: online(&user.id),
                 user,
                 dnd: r.get::<_, i64>(6)? != 0,
                 since: r.get(7)?,
@@ -745,7 +749,50 @@ async fn list_friends(State(st): State<S>, Authed(uid): Authed) -> R<Json<Vec<Fr
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(Json(v))
+    Ok(v)
+}
+
+async fn list_friends(State(st): State<S>, Authed(uid): Authed) -> R<Json<Vec<Friend>>> {
+    let c = st.db();
+    Ok(Json(friend_list(&c, &uid, |id| st.hub.online(id))?))
+}
+
+#[derive(Deserialize)]
+struct FriendOrderReq {
+    ids: Vec<String>,
+}
+
+fn save_friend_order(c: &Connection, uid: &str, ids: &[String]) -> rusqlite::Result<()> {
+    let tx = c.unchecked_transaction()?;
+    tx.execute("DELETE FROM friend_order WHERE user_id=?", [uid])?;
+    let mut seen = HashSet::new();
+    for (pos, friend_id) in ids.iter().enumerate() {
+        if !seen.insert(friend_id.as_str()) {
+            continue;
+        }
+        let is_friend: i64 = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM friendships WHERE (a=?1 AND b=?2) OR (a=?2 AND b=?1))",
+            params![uid, friend_id],
+            |r| r.get(0),
+        )?;
+        if is_friend != 0 {
+            tx.execute(
+                "INSERT INTO friend_order(user_id, friend_id, pos) VALUES (?1, ?2, ?3)",
+                params![uid, friend_id, pos as i64],
+            )?;
+        }
+    }
+    tx.commit()
+}
+
+async fn update_friend_order(
+    State(st): State<S>,
+    Authed(uid): Authed,
+    Json(r): Json<FriendOrderReq>,
+) -> R<Json<Vec<Friend>>> {
+    let c = st.db();
+    save_friend_order(&c, &uid, &r.ids)?;
+    Ok(Json(friend_list(&c, &uid, |id| st.hub.online(id))?))
 }
 
 #[derive(Serialize)]
@@ -885,6 +932,10 @@ async fn remove_friend(State(st): State<S>, Authed(me): Authed, Path(other): Pat
         if c.execute("DELETE FROM friendships WHERE a=? AND b=?", [a, b])? == 0 {
             return Err(not_friends());
         }
+        c.execute(
+            "DELETE FROM friend_order WHERE (user_id=?1 AND friend_id=?2) OR (user_id=?2 AND friend_id=?1)",
+            [a, b],
+        )?;
         c.execute("DELETE FROM messages WHERE a=? AND b=?", [a, b])?;
         c.execute("DELETE FROM chat_meta WHERE a=? AND b=?", [a, b])?;
     }
@@ -913,6 +964,10 @@ async fn block_user(State(st): State<S>, Authed(me): Authed, Json(r): Json<Block
         c.execute("INSERT OR IGNORE INTO blocks(user_id, blocked_id, created_at) VALUES(?, ?, ?)", params![me, other, now()])?;
         let (a, b) = db::pair(&me, &other);
         c.execute("DELETE FROM friendships WHERE a=? AND b=?", [a, b])?;
+        c.execute(
+            "DELETE FROM friend_order WHERE (user_id=?1 AND friend_id=?2) OR (user_id=?2 AND friend_id=?1)",
+            [a, b],
+        )?;
         c.execute("DELETE FROM messages WHERE a=? AND b=?", [a, b])?;
         c.execute("DELETE FROM chat_meta WHERE a=? AND b=?", [a, b])?;
         let both = "(from_id=?1 AND to_id=?2) OR (from_id=?2 AND to_id=?1)";
@@ -1817,6 +1872,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/status", put(set_status))
         .route("/v1/users/{username}", get(lookup_user))
         .route("/v1/friends", get(list_friends))
+        .route("/v1/friends/order", put(update_friend_order))
         .route("/v1/friends/{id}", axum::routing::delete(remove_friend))
         .route("/v1/friends/requests", get(list_requests).post(send_request))
         .route("/v1/friends/requests/{id}/accept", post(accept_request))
@@ -1885,5 +1941,32 @@ mod streak_tests {
         let (a, b) = db::pair("a", "b");
         let longest: i64 = c.query_row("SELECT longest FROM streaks WHERE a=?1 AND b=?2", params![a, b], |r| r.get(0)).unwrap();
         assert_eq!(longest, 2);
+    }
+
+    #[test]
+    fn friend_order_ignores_non_friends_and_appends_unordered_friends() {
+        let c = db::open(":memory:").unwrap();
+        for id in ["me", "f1", "f2", "f3", "f4", "stranger"] {
+            c.execute(
+                "INSERT INTO users(id, email, created_at) VALUES (?1, ?2, 0)",
+                params![id, format!("{id}@example.com")],
+            )
+            .unwrap();
+        }
+        for (friend, created_at) in [("f1", 10), ("f2", 20), ("f3", 30), ("f4", 40)] {
+            let (a, b) = db::pair("me", friend);
+            c.execute(
+                "INSERT INTO friendships(a, b, created_at) VALUES (?1, ?2, ?3)",
+                params![a, b, created_at],
+            )
+            .unwrap();
+        }
+
+        let ids = ["f4", "stranger", "f4", "f3"].map(str::to_string);
+        save_friend_order(&c, "me", &ids).unwrap();
+        let ordered = friend_list(&c, "me", |_| false)
+            .unwrap_or_else(|_| panic!("friend list query failed"));
+        let ids: Vec<String> = ordered.into_iter().map(|friend| friend.user.id).collect();
+        assert_eq!(ids, ["f4", "f3", "f1", "f2"]);
     }
 }

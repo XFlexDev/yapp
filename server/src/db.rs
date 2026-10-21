@@ -47,6 +47,12 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             last_talked INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(a, b)
         );
+        CREATE TABLE IF NOT EXISTS friend_order(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            friend_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            pos INTEGER NOT NULL,
+            PRIMARY KEY(user_id, friend_id)
+        );
         CREATE TABLE IF NOT EXISTS friend_requests(
             id TEXT PRIMARY KEY,
             from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

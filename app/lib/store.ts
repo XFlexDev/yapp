@@ -39,7 +39,7 @@ export const set = useStore.setState;
 export const get = useStore.getState;
 
 export function upsertFriend(f: Friend) {
-  set((s) => ({ friends: [f, ...s.friends.filter((x) => x.id !== f.id)], selectedId: s.selectedId ?? f.id }));
+  set((s) => ({ friends: s.friends.some((x) => x.id === f.id) ? s.friends.map((x) => (x.id === f.id ? f : x)) : [...s.friends, f], selectedId: s.selectedId ?? f.id }));
 }
 export function patchFriend(id: string, p: Partial<Friend>) {
   set((s) => ({ friends: s.friends.map((f) => (f.id === id ? { ...f, ...p } : f)) }));

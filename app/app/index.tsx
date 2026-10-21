@@ -7,8 +7,9 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 import { ApiError, avatarUrl, nameOf, req, type Friend, type Me } from '../lib/api';
 import { clearPokeCount, removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
@@ -27,6 +28,8 @@ const PLUS = 48;
 const GAP = 14;
 const LOCK_AT = 90;
 const GROW = 1.1;
+const SLOT = 80;
+const MIN = AV / SEL;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 const DND = '#FF9F0A';
 const MOON = '#5E5CE6';
@@ -113,7 +116,7 @@ function Zzz() {
   );
 }
 
-function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number> }) {
+function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number>; focus?: SharedValue<number> }) {
   const press = useSharedValue(0);
   const ripple = useSharedValue(0);
   const bump = useSharedValue(0);
@@ -126,7 +129,7 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish }: { friend: 
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
   const body = useAnimatedStyle(() => ({ transform: [{ scale: ((1 + press.value * 0.1 + bump.value * 0.07) / GROW) * pokeSquish.value }] }));
-  const ring = useAnimatedStyle(() => ({ borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
+  const ring = useAnimatedStyle(() => ({ opacity: focus ? focus.value : 1, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
   const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
   const size = Math.round((SEL + 14) * GROW);
   const box = SEL + 14;
@@ -142,6 +145,19 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish }: { friend: 
   );
 }
 
+function Slot({ i, x, dim, badge, children }: { i: number; x: SharedValue<number>; dim: boolean; badge: number; children: (focus: SharedValue<number>) => React.ReactNode }) {
+  const focus = useDerivedValue(() => 1 - Math.min(1, Math.abs(x.value - i * SLOT) / SLOT));
+  const st = useAnimatedStyle(() => ({ transform: [{ scale: MIN + (1 - MIN) * focus.value }] }));
+  const r = Math.round(((SEL + 14) * MIN) / 2);
+  return (
+    <View style={{ width: SLOT, height: SEL + 14, alignItems: 'center', justifyContent: 'center', opacity: dim ? 0.75 : 1 }}>
+      <Animated.View style={st}>{children(focus)}</Animated.View>
+      <View pointerEvents="none" style={{ position: 'absolute', top: (SEL + 14) / 2 - r, left: SLOT / 2 - r, width: r * 2, height: r * 2 }}>
+        <PokeBadge count={badge} />
+      </View>
+    </View>
+  );
+}
 function PokeBadge({ count }: { count: number }) {
   if (!count) return null;
   return (
@@ -239,6 +255,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
             {mode === 'reported'
               ? <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', paddingHorizontal: 24, paddingVertical: 8 }}>thanks, we’ll look at it. you can also block them.</Text>
               : row('report', () => setMode('report'))}
+            {mode === 'main' ? row('reorder friends', () => { onClose(); router.push('/order'); }) : null}
             {row(sure === 'block' ? 'tap again to block' : 'block', doBlock, C.danger)}
             {mode === 'main' ? row(sure === 'remove' ? 'tap again to remove' : 'remove friend', remove, C.danger) : null}
             {row('close', onClose, 'rgba(255,255,255,0.5)')}
@@ -274,7 +291,61 @@ export default function Home() {
   const locked = useRef(false);
   const lift = useSharedValue(0);
   const pokeSquish = useSharedValue(1);
-  useEffect(() => { if (friend) focusFriend(friend.id); }, [friend?.id]);
+  const one = useSharedValue(1);
+  const sx = useSharedValue(0);
+  const lastIdx = useSharedValue(-1);
+  const target = useRef<number | null>(null);
+  const list = useRef(friends);
+  list.current = friends;
+  const selRef = useRef(friend?.id);
+  selRef.current = friend?.id;
+  const selIdx = friend ? Math.max(0, friends.findIndex((f) => f.id === friend.id)) : 0;
+  const pick = (i: number) => {
+    if (target.current !== null) { if (i === target.current) target.current = null; return; }
+    const f = list.current[i];
+    if (!f || f.id === selRef.current) return;
+    Haptics.selectionAsync();
+    set({ selectedId: f.id });
+    clearPokeCount(f.id);
+  };
+  const dropTarget = () => { target.current = null; };
+  const count = friends.length;
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      sx.value = e.contentOffset.x;
+      const i = Math.max(0, Math.min(Math.round(e.contentOffset.x / SLOT), count - 1));
+      if (i !== lastIdx.value) { lastIdx.value = i; scheduleOnRN(pick, i); }
+    },
+    onBeginDrag: () => { scheduleOnRN(dropTarget); },
+  }, [count]);
+  const jump = (i: number) => {
+    const f = friends[i];
+    if (!f || talking) return;
+    Haptics.selectionAsync();
+    target.current = i;
+    lastIdx.value = i;
+    scroll.current?.scrollTo({ x: i * SLOT, animated: true });
+    set({ selectedId: f.id });
+    clearPokeCount(f.id);
+  };
+  useEffect(() => {
+    if (!friend || call) return;
+    if (lastIdx.value === -1) { lastIdx.value = selIdx; sx.value = selIdx * SLOT; return; }
+    if (lastIdx.value === selIdx) return;
+    target.current = selIdx;
+    lastIdx.value = selIdx;
+    scroll.current?.scrollTo({ x: selIdx * SLOT, animated: true });
+  }, [friend?.id, selIdx]);
+  useEffect(() => {
+    if (call || !friend) return;
+    lastIdx.value = selIdx;
+    sx.value = selIdx * SLOT;
+  }, [!!call]);
+  useEffect(() => {
+    if (!friend) return;
+    const t = setTimeout(() => focusFriend(friend.id), 220);
+    return () => clearTimeout(t);
+  }, [friend?.id]);
   useEffect(() => {
     const id = Object.keys(talkingTo).find((k) => talkingTo[k]);
     if (id && !talking && !call) { set({ selectedId: id }); clearPokeCount(id); }
@@ -402,7 +473,6 @@ export default function Home() {
 
   const hearing = !!talkingTo[friend.id];
   const live = talking || call?.state === 'active';
-  const others = friends.filter((f) => f.id !== friend.id);
   const incomingPokeText = incomingPoke?.friendId === friend.id ? `poked you${incomingPoke.count > 1 ? ` ×${incomingPoke.count}` : ''}` : null;
   const pendingPokeCount = pendingPokeCounts[friend.id] ?? 0;
   const friendActivity = [friend.streak > 0 ? `${friend.streak}` : '', friend.last_talked_at > 0 ? `talked ${relativeTalkedAt(friend.last_talked_at)}` : ''].filter(Boolean).join(' · ');
@@ -410,7 +480,6 @@ export default function Home() {
     : call?.state === 'outgoing' ? 'calling…'
     : call?.state === 'active' ? 'on call'
     : talking && connecting ? (showConnecting ? 'connecting' : 'hold to talk') : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
-  const lead = W / 2 - (SEL + 14) / 2 - GAP - PLUS;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -465,23 +534,36 @@ export default function Home() {
           <Round g="close" bg={C.red} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} size={52} />
         </View>
       ) : (
-        <ScrollView ref={scroll} horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: insets.bottom + 6 }} contentContainerStyle={{ paddingLeft: lead, paddingRight: 24, paddingVertical: 10, alignItems: 'center', gap: GAP }}>
-          <Animated.View layout={MOVE}>{plus}</Animated.View>
-          <Animated.View key={friend.id} layout={MOVE}>
-            <GestureDetector gesture={avatarGesture}>
-              <View collapsable={false}><TalkAvatar friend={friend} talking={talking} hearing={hearing} pokeAt={pokedAt[friend.id] ?? 0} pokeSquish={pokeSquish} /></View>
-            </GestureDetector>
-          </Animated.View>
-          {others.map((f) => (
-            <Animated.View key={f.id} layout={MOVE}>
-              <Squish onPress={() => { Haptics.selectionAsync(); set({ selectedId: f.id }); clearPokeCount(f.id); scroll.current?.scrollTo({ x: 0, animated: true }); }} style={{ opacity: f.online || talkingTo[f.id] ? 1 : 0.75 }}>
-                <Avatar user={f} size={AV} ring={!!talkingTo[f.id]} />
-                <Dot friend={f} />
-                <PokeBadge count={pokeCount[f.id] ?? 0} />
-              </Squish>
-            </Animated.View>
-          ))}
-        </ScrollView>
+        <Animated.ScrollView
+          ref={scroll}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          scrollEnabled={!talking}
+          snapToInterval={SLOT}
+          decelerationRate="fast"
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          contentOffset={{ x: selIdx * SLOT, y: 0 }}
+          onLayout={() => scroll.current?.scrollTo({ x: selIdx * SLOT, animated: false })}
+          style={{ flexGrow: 0, marginBottom: insets.bottom + 6 }}
+          contentContainerStyle={{ paddingLeft: W / 2 - SLOT / 2 - PLUS - GAP, paddingRight: W / 2 - SLOT / 2, paddingVertical: 10, alignItems: 'center' }}
+        >
+          <View style={{ marginRight: GAP }}>{plus}</View>
+          {friends.map((f, i) => {
+            const sel = f.id === friend.id;
+            return (
+              <Slot key={f.id} i={i} x={sx} dim={!sel && !(f.online || talkingTo[f.id])} badge={sel ? 0 : pokeCount[f.id] ?? 0}>
+                {(focus) => (
+                  <GestureDetector gesture={sel ? avatarGesture : Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) jump(i); })}>
+                    <View collapsable={false}>
+                      <TalkAvatar friend={f} talking={sel && talking} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} />
+                    </View>
+                  </GestureDetector>
+                )}
+              </Slot>
+            );
+          })}
+        </Animated.ScrollView>
       )}
       </View>
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}
