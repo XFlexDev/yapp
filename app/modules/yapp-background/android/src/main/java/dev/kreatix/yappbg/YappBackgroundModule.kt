@@ -20,13 +20,13 @@ class YappBackgroundModule : Module() {
     }
 
     Function("stop") {
-      val ctx = appContext.reactContext ?: return@Function
+      val ctx = appContext.reactContext ?: return@Function null
       YappAudioService.setActive(ctx, false)
       ctx.stopService(Intent(ctx, YappAudioService::class.java))
     }
 
     Function("setActive") { active: Boolean ->
-      val ctx = appContext.reactContext ?: return@Function
+      val ctx = appContext.reactContext ?: return@Function null
       YappAudioService.setActive(ctx, active)
     }
   }
