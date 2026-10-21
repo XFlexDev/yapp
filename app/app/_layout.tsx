@@ -64,6 +64,8 @@ export default function Root() {
           <Stack.Screen name="index" />
           <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
           <Stack.Screen name="chat" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="group" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="inbox" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack.Protected>
         <Stack.Protected guard={status === 'in'}>

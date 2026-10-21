@@ -16,12 +16,12 @@ import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
-const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], plus: ['photo.badge.plus', 'image-plus'] } as const;
-function Glyph({ g, size = 20, color = '#fff' }: { g: keyof typeof G; size?: number; color?: string }) {
+export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'] } as const;
+export function Glyph({ g, size = 20, color = '#fff' }: { g: keyof typeof G; size?: number; color?: string }) {
   return <SymbolView name={G[g][0] as any} tintColor={color} size={size} weight="bold" fallback={<MaterialCommunityIcons name={G[g][1] as any} size={size + 4} color={color} />} />;
 }
 
-function Backdrop({ bg, photo }: { bg: string | null; photo: string | null }) {
+export function Backdrop({ bg, photo }: { bg: string | null; photo: string | null }) {
   const preset = BACKGROUNDS.find((b) => b.id === bg);
   return (
     <Animated.View key={bg ?? 'none'} entering={FadeIn.duration(260)} exiting={FadeOut.duration(260)} style={StyleSheet.absoluteFill}>
@@ -40,13 +40,14 @@ function Backdrop({ bg, photo }: { bg: string | null; photo: string | null }) {
   );
 }
 
-function Bubble({ m, mine, joined, fresh, seen, onRetry }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean; onRetry: () => void }) {
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; author?: string }) {
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
+      {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
       <Pressable disabled={!m.failed} onPress={onRetry} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
         <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 21 }}>{m.body}</Text>
       </Pressable>
-      {m.failed ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>not sent · tap to retry</Text> : seen ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>seen</Text> : null}
+      {m.failed ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>not sent · tap to retry</Text> : seen ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>{typeof seen === 'string' ? seen : 'seen'}</Text> : null}
     </Animated.View>
   );
 }

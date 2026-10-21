@@ -67,14 +67,15 @@ export function setBackground(id: string, bg: string | null) {
 }
 
 /** Pick any photo as the chat background; it's shrunk to a ~100 KB WebP before upload. */
-export async function pickBackgroundPhoto(id: string) {
+export async function pickBackgroundPhoto(id: string, path = `/v1/chats/${id}/background/photo`) {
   const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
   const a = r.assets?.[0];
   if (r.canceled || !a) return;
   const out = await ImageManipulator.manipulateAsync(a.uri, a.width > 1080 ? [{ resize: { width: 1080 } }] : [], { compress: 0.72, format: ImageManipulator.SaveFormat.WEBP });
   const blob = await (await fetch(out.uri)).blob();
-  const res = await req<{ background: string | null }>(`/v1/chats/${id}/background/photo`, { method: 'PUT', raw: blob, ctype: 'image/webp' });
-  onBackground(id, res.background);
+  const res = await req<{ background: string | null }>(path, { method: 'PUT', raw: blob, ctype: 'image/webp' });
+  if (path.startsWith('/v1/chats/')) onBackground(id, res.background);
+  return res;
 }
 
 export const BACKGROUNDS: { id: string; colors: [string, string, ...string[]] }[] = [

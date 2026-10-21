@@ -6,6 +6,7 @@ import { get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './
 import { API } from './theme';
 import { remoteEnded } from './voice';
 import { loadChats, onBackground, onMessage, onRead } from './chat';
+import { loadGroups, onGroupMessage, onGroupRead, onGroupUpdated, onLeft } from './groups';
 
 let ws: WebSocket | null = null;
 let stopped = true;
@@ -53,6 +54,10 @@ function onEvent(e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       break;
     case 'message': onMessage(e.message); break;
+    case 'group_updated': onGroupUpdated(e.group); break;
+    case 'group_message': onGroupMessage(e.group_id, e.message); break;
+    case 'group_read': onGroupRead(e.group_id, e.user_id, e.at); break;
+    case 'group_left': onLeft(e.group_id); break;
     case 'chat_read': onRead(e.user_id, e.at); break;
     case 'chat_background': onBackground(e.user_id === get().me?.id ? e.friend_id : e.user_id, e.background); break;
     case 'call_ringing':
@@ -73,7 +78,7 @@ function connect() {
   if (!t) return;
   const sock = new WebSocket(`${API.replace('https', 'wss')}/v1/stream?access_token=${encodeURIComponent(t)}`);
   ws = sock;
-  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); };
+  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); };
   sock.onmessage = (m) => { try { onEvent(JSON.parse(String(m.data))); } catch {} };
   sock.onclose = () => {
     if (ws === sock) ws = null;

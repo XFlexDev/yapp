@@ -221,7 +221,8 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { friends, selectedId, talkingTo, incoming, me, call, chats } = useStore();
+  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups } = useStore();
+  const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
   const [talking, setTalking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -323,10 +324,10 @@ export default function Home() {
         <TopButton g="settings" onPress={() => router.push('/settings')} />
         <View style={{ flexDirection: 'row' }}>
           <View>
-            <TopButton g="chat" onPress={() => router.push({ pathname: '/chat', params: { id: friend.id } })} />
-            {chats[friend.id]?.unread ? (
+            <TopButton g="chat" onPress={() => router.push('/inbox')} />
+            {unreadAll ? (
               <Animated.View pointerEvents="none" entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', top: 8, right: 6, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
-                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{chats[friend.id].unread}</Text>
+                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{unreadAll > 99 ? '99+' : unreadAll}</Text>
               </Animated.View>
             ) : null}
           </View>

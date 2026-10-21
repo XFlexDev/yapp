@@ -4,6 +4,8 @@ import type { Friend, FriendRequest, Me, User } from './api';
 export type ChatMsg = { id: string; from: string; to: string; kind: string; body: string; created_at: number; pending?: boolean; failed?: boolean };
 export type Chat = { messages: ChatMsg[]; loaded: boolean; more: boolean; background: string | null; theirReadAt: number; unread: number };
 
+export type Group = { id: string; name: string; owner: string; background: string | null; members: import('./api').User[]; reads: Record<string, number>; last: ChatMsg | null; unread: number; messages: ChatMsg[]; loaded: boolean; more: boolean };
+
 type State = {
   status: 'loading' | 'out' | 'in';
   me: Me | null;
@@ -18,11 +20,12 @@ type State = {
   connected: boolean;
   chats: Record<string, Chat>;
   openChat: string | null;
+  groups: Record<string, Group>;
 };
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {},
 }));
 
 export const set = useStore.setState;
