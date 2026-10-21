@@ -1,6 +1,7 @@
 mod api;
 mod db;
 mod hub;
+mod replica;
 mod util;
 
 use dashmap::DashMap;
@@ -31,6 +32,7 @@ async fn main() {
         .init();
     let cfg = util::Config::from_env();
     let conn = db::open(&cfg.db_path).expect("open database");
+    replica::install(&conn).expect("install replica triggers");
     let bind = cfg.bind.clone();
     let state = Arc::new(AppState {
         db: Mutex::new(conn),
@@ -44,5 +46,6 @@ async fn main() {
     });
     let listener = tokio::net::TcpListener::bind(&bind).await.expect("bind");
     tracing::info!("yap-server listening on {bind}");
+    tokio::spawn(replica::run(state.clone()));
     axum::serve(listener, api::router(state)).await.expect("serve");
 }
