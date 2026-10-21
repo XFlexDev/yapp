@@ -2,8 +2,8 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, SlideOutDown, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
+import { ActivityIndicator, Keyboard, Linking, Platform, Pressable, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { F } from './theme';
 
@@ -87,38 +87,42 @@ function Fade({ show, children }: { show: boolean; children: ReactNode }) {
 
 function HelpSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  if (!open) return null;
   const row = (t: string, on: () => void, dim?: boolean) => (
     <Pressable onPress={on} style={({ pressed }) => ({ height: 54, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
       <Text style={{ color: dim ? 'rgba(255,255,255,0.5)' : '#fff', fontFamily: F.bold, fontSize: 17 }}>{t}</Text>
     </Pressable>
   );
   return (
-    <Modal visible={open} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      {open ? <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}>
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+      <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)' }}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
-        <Animated.View entering={SlideInDown.springify().damping(17).stiffness(190)} exiting={SlideOutDown.duration(220)} style={{ marginHorizontal: 8, marginBottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6 }}>
-          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>send feedback</Text>
-          <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.regular, fontSize: 14, textAlign: 'center', marginTop: 4, marginBottom: 10 }}>let’s improve the app together!</Text>
-          {row('email us', () => { onClose(); Linking.openURL('mailto:info@kreatix.dev?subject=yapp'); })}
-          {row('close', onClose, true)}
-        </Animated.View>
-      </Animated.View> : null}
-    </Modal>
+      </Animated.View>
+      <Animated.View entering={SlideInDown.springify().damping(24).stiffness(260)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6 }}>
+        <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>send feedback</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.regular, fontSize: 14, textAlign: 'center', marginTop: 4, marginBottom: 10 }}>let’s improve the app together!</Text>
+        {row('email us', () => { onClose(); Linking.openURL('mailto:info@kreatix.dev?subject=yapp'); })}
+        {row('close', onClose, true)}
+      </Animated.View>
+    </View>
   );
 }
 
 export function RedScreen({ children, onBack, help = true, bar = true }: { children: ReactNode; onBack?: () => void; help?: boolean; bar?: boolean }) {
   const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState(false);
+  const kb = useAnimatedKeyboard();
+  const bottom = Math.max(insets.bottom, 12);
+  const pad = useAnimatedStyle(() => ({ paddingBottom: Platform.OS === 'ios' ? Math.max(kb.height.value + 10, bottom) : bottom }));
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: RED }}>
+    <View style={{ flex: 1, backgroundColor: RED }}>
       <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 14, height: insets.top + 56, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Fade show={bar && !!onBack}><Squish onPress={() => onBack?.()} style={{ width: 40, height: 40, justifyContent: 'center' }}><Sym sf="chevron.left" md="chevron-left" size={22} /></Squish></Fade>
-        <Fade show={bar && help}><Squish onPress={() => setSheet(true)} style={{ width: 40, height: 40, alignItems: 'flex-end', justifyContent: 'center' }}><Sym sf="questionmark.circle" md="help-circle-outline" size={26} /></Squish></Fade>
+        <Fade show={bar && help}><Squish onPress={() => { Keyboard.dismiss(); setSheet(true); }} style={{ width: 40, height: 40, alignItems: 'flex-end', justifyContent: 'center' }}><Sym sf="questionmark.circle" md="help-circle-outline" size={26} /></Squish></Fade>
       </View>
-      <View style={{ flex: 1, paddingBottom: Math.max(insets.bottom, 12) }}>{children}</View>
+      <Animated.View style={[{ flex: 1 }, pad]}>{children}</Animated.View>
       <HelpSheet open={sheet} onClose={() => setSheet(false)} />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
