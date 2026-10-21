@@ -1833,15 +1833,21 @@ fn chat_background(c: &Connection, a: &str, b: &str) -> rusqlite::Result<Option<
     Ok(c.query_row("SELECT background FROM chat_meta WHERE a=? AND b=?", [a, b], |r| r.get(0)).optional()?.flatten())
 }
 
+/// When `user` last deleted their copy of the chat with `friend` (0 = never).
+fn cleared_at(c: &Connection, user: &str, friend: &str) -> rusqlite::Result<i64> {
+    Ok(c.query_row("SELECT at FROM chat_clears WHERE user_id=? AND friend_id=?", [user, friend], |r| r.get(0)).optional()?.unwrap_or(0))
+}
+
 async fn list_chats(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
     let c = st.db();
     let mut out = Vec::new();
     for f in friend_ids(&c, &me)? {
         let (a, b) = db::pair(&me, &f);
+        let gone = cleared_at(&c, &me, &f)?;
         let last = c
-            .query_row(&format!("SELECT {MSG_COLS} FROM messages WHERE a=? AND b=? ORDER BY created_at DESC LIMIT 1"), [a, b], row_msg)
+            .query_row(&format!("SELECT {MSG_COLS} FROM messages WHERE a=?1 AND b=?2 AND created_at>?3 ORDER BY created_at DESC LIMIT 1"), params![a, b, gone], row_msg)
             .optional()?;
-        let mine = read_at(&c, &me, &f)?;
+        let mine = read_at(&c, &me, &f)?.max(gone);
         let unread: i64 = c.query_row(
             "SELECT COUNT(*) FROM messages WHERE a=?1 AND b=?2 AND recipient=?3 AND created_at>?4",
             params![a, b, me, mine],
@@ -1864,11 +1870,42 @@ async fn list_messages(State(st): State<S>, Authed(me): Authed, Path(other): Pat
         return Err(not_friends());
     }
     let (a, b) = db::pair(&me, &other);
-    let mut q = c.prepare(&format!("SELECT {MSG_COLS} FROM messages WHERE a=?1 AND b=?2 AND created_at<?3 ORDER BY created_at DESC LIMIT ?4"))?;
+    let gone = cleared_at(&c, &me, &other)?;
+    let mut q = c.prepare(&format!("SELECT {MSG_COLS} FROM messages WHERE a=?1 AND b=?2 AND created_at<?3 AND created_at>?5 ORDER BY created_at DESC LIMIT ?4"))?;
     let msgs: Vec<ChatMsg> = q
-        .query_map(params![a, b, p.before.unwrap_or(i64::MAX), p.limit.unwrap_or(50).clamp(1, 100)], row_msg)?
+        .query_map(params![a, b, p.before.unwrap_or(i64::MAX), p.limit.unwrap_or(50).clamp(1, 100), gone], row_msg)?
         .collect::<rusqlite::Result<_>>()?;
     Ok(Json(json!({ "messages": msgs, "background": chat_background(&c, a, b)?, "their_read_at": read_at(&c, &other, &me)? })))
+}
+
+/// Deletes my copy of the chat. Whatever both sides have deleted is wiped for real, photos included.
+async fn delete_chat(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>) -> R<Json<Value>> {
+    let photos = {
+        let c = st.db();
+        let (a, b) = db::pair(&me, &other);
+        let top: i64 = c.query_row("SELECT COALESCE(MAX(created_at), 0) FROM messages WHERE a=? AND b=?", [a, b], |r| r.get(0))?;
+        let at = top.max(now_ms());
+        c.execute("INSERT INTO chat_clears(user_id, friend_id, at) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, friend_id) DO UPDATE SET at=excluded.at", params![me, other, at])?;
+        let both = at.min(cleared_at(&c, &other, &me)?);
+        let mut q = c.prepare("SELECT body FROM messages WHERE a=?1 AND b=?2 AND kind='image' AND created_at<=?3")?;
+        let photos: Vec<String> = q.query_map(params![a, b, both], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        drop(q);
+        c.execute("DELETE FROM messages WHERE a=?1 AND b=?2 AND created_at<=?3", params![a, b, both])?;
+        photos
+    };
+    for k in photos { drop_media(&st, k).await; }
+    st.hub.send(&me, &json!({ "type": "chat_cleared", "friend_id": other }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn chat_photos(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>) -> R<Json<Vec<ChatMsg>>> {
+    let c = st.db();
+    if !are_friends(&c, &me, &other)? { return Err(not_friends()); }
+    let (a, b) = db::pair(&me, &other);
+    let gone = cleared_at(&c, &me, &other)?;
+    let mut q = c.prepare(&format!("SELECT {MSG_COLS} FROM messages WHERE a=?1 AND b=?2 AND kind='image' AND created_at>?3 ORDER BY created_at DESC LIMIT 300"))?;
+    let v = q.query_map(params![a, b, gone], row_msg)?.collect::<rusqlite::Result<_>>()?;
+    Ok(Json(v))
 }
 
 #[derive(Deserialize)]
@@ -2471,6 +2508,8 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups/{id}/invite/decline", post(group_invite_decline))
         .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
+        .route("/v1/chats/{id}", axum::routing::delete(delete_chat))
+        .route("/v1/chats/{id}/photos", get(chat_photos))
         .route("/v1/chats/{id}/photo", post(send_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/v1/chats/{id}/read", post(mark_read))
         .route("/v1/chats/{id}/background", put(set_chat_background))

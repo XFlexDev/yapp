@@ -100,6 +100,12 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             background TEXT,
             created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS chat_clears(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            friend_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            at INTEGER NOT NULL,
+            PRIMARY KEY(user_id, friend_id)
+        );
         CREATE TABLE IF NOT EXISTS media_meta(
             key TEXT PRIMARY KEY,
             w INTEGER NOT NULL,

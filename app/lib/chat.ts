@@ -90,6 +90,14 @@ export async function sendPhoto(id: string) {
   if (p) await sendPhotoTo(id, p);
 }
 
+/** Deletes my copy of the chat; the server wipes it for good once both sides have. */
+export async function deleteChat(id: string) {
+  patch(id, () => ({ messages: [], unread: 0, more: false }));
+  await req(`/v1/chats/${id}`, { method: 'DELETE' });
+}
+export const onCleared = (id: string) => patch(id, () => ({ messages: [], unread: 0, more: false }));
+export const loadChatPhotos = (id: string) => req<ChatMsg[]>(`/v1/chats/${id}/photos`);
+
 export function markRead(id: string) {
   const top = chatOf(id).messages.find((m) => !m.pending && !m.failed);
   patch(id, () => ({ unread: 0 }));

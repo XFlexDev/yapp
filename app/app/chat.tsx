@@ -7,11 +7,12 @@ import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { avatarUrl, mediaUrl, nameOf } from '../lib/api';
-import { BACKGROUNDS, chatOf, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, setBackground } from '../lib/chat';
-import { set, useStore, type ChatMsg } from '../lib/store';
+import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
+import { block, REASONS, report } from '../lib/safety';
+import { BACKGROUNDS, chatOf, deleteChat, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, setBackground } from '../lib/chat';
+import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
@@ -24,6 +25,15 @@ export function MuteRow({ chat }: { chat: string }) {
     <Squish onPress={() => { Haptics.selectionAsync(); setMuted(chat, !muted); }} style={{ marginHorizontal: 18, height: 48, borderRadius: 24, backgroundColor: muted ? '#fff' : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: muted ? '#000' : '#fff', fontFamily: F.black, fontSize: 16 }}>{muted ? 'muted · tap to unmute' : 'mute notifications'}</Text>
     </Squish>
+  );
+}
+
+export function SettingRow({ title, onPress, more, danger }: { title: string; onPress: () => void; more?: boolean; danger?: boolean }) {
+  return (
+    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ marginHorizontal: 10, height: 52, borderRadius: 22, backgroundColor: danger ? C.danger : 'rgba(255,255,255,0.06)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
+      <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{title}</Text>
+      {more ? <Text style={{ color: 'rgba(255,255,255,0.35)', fontFamily: F.black, fontSize: 18 }}>›</Text> : null}
+    </Pressable>
   );
 }
 
@@ -127,6 +137,12 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const [picker, setPicker] = useState(false);
   const [view, setView] = useState<string | null>(null);
+  const [page, setPage] = useState<null | 'bg' | 'photos' | 'report'>(null);
+  const [photos, setPhotos] = useState<ChatMsg[] | null>(null);
+  const [sure, setSure] = useState<null | 'delete' | 'remove' | 'block'>(null);
+  const [reported, setReported] = useState(false);
+  const close = () => { setPicker(false); setPage(null); setSure(null); };
+  const arm = (k: 'delete' | 'remove' | 'block', go: () => void) => { if (sure !== k) { Haptics.selectionAsync(); setSure(k); return; } Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); go(); };
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
@@ -196,12 +212,15 @@ export default function ChatScreen() {
       </View>
       {picker ? (
         <View style={StyleSheet.absoluteFill}>
-          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={() => setPicker(false)} /></Animated.View>
-          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 14 }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>chat settings</Text>
-            <SectionLabel>notifications</SectionLabel>
-            <MuteRow chat={id!} />
-            <SectionLabel>background</SectionLabel>
+          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
+          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 14, maxHeight: '85%' }}>
+            {page ? (
+              <Animated.View key={page} entering={SlideInRight.duration(260).easing(out)} style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
+                  <Squish onPress={() => setPage(null)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={20} /></Squish>
+                  <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center', marginRight: 44 }}>{page === 'bg' ? 'background' : page === 'photos' ? 'photos' : 'report'}</Text>
+                </View>
+                {page === 'bg' ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 12 }}>
               <Squish onPress={() => { Haptics.selectionAsync(); pickBackgroundPhoto(id!).catch(() => {}); }} style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
                 <Glyph g="plus" size={20} />
@@ -220,6 +239,38 @@ export default function ChatScreen() {
                 );
               })}
             </ScrollView>
+                ) : page === 'photos' ? (
+                  <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingHorizontal: 12 }}>
+                    {photos === null ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, padding: 12 }}>loading…</Text>
+                      : !photos.length ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, padding: 12 }}>no photos yet</Text>
+                      : photos.map((p) => { const [, , t] = (p.meta ?? '').split(','); const src = mediaUrl(p.body); return (
+                        <Pressable key={p.id} onPress={() => setView(src)} style={{ width: '32.4%', aspectRatio: 1 }}>
+                          <Image source={src} placeholder={t ? { uri: `data:image/webp;base64,${t}` } : undefined} contentFit="cover" cachePolicy="memory-disk" transition={150} style={{ flex: 1, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                        </Pressable>
+                      ); })}
+                  </ScrollView>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    {REASONS.map((r) => (
+                      <SettingRow key={r} title={r} onPress={() => { report(friend.id, r).catch(() => {}); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setPage(null); setReported(true); }} />
+                    ))}
+                  </View>
+                )}
+              </Animated.View>
+            ) : (
+              <Animated.View key="main" entering={FadeIn.duration(180)} style={{ gap: 12 }}>
+                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>chat settings</Text>
+                <SectionLabel>notifications</SectionLabel>
+                <MuteRow chat={id!} />
+                <SettingRow title="background" onPress={() => setPage('bg')} more />
+                <SettingRow title="photos" onPress={() => { setPage('photos'); setPhotos(null); loadChatPhotos(id!).then(setPhotos).catch(() => setPhotos([])); }} more />
+                <SettingRow title={sure === 'delete' ? 'tap again to delete chat' : 'delete chat'} danger={sure === 'delete'} onPress={() => arm('delete', () => { deleteChat(id!).catch(() => {}); close(); router.back(); })} />
+                <SectionLabel>{nameOf(friend).toLowerCase()}</SectionLabel>
+                <SettingRow title={sure === 'remove' ? 'tap again to remove friend' : 'remove friend'} danger={sure === 'remove'} onPress={() => arm('remove', () => { req(`/v1/friends/${friend.id}`, { method: 'DELETE' }).then(() => removeFriend(friend.id)).catch(() => {}); close(); router.back(); })} />
+                <SettingRow title={sure === 'block' ? 'tap again to block' : 'block'} danger={sure === 'block'} onPress={() => arm('block', () => { block(friend.id).catch(() => {}); close(); router.back(); })} />
+                <SettingRow title={reported ? 'reported, thanks' : 'report'} onPress={() => !reported && setPage('report')} more={!reported} />
+              </Animated.View>
+            )}
           </Animated.View>
         </View>
       ) : null}

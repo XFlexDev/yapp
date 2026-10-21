@@ -72,11 +72,11 @@ export function Swap({ text, style }: { text: string; style?: any }) {
   return <Animated.Text style={[style, a]}>{shown}</Animated.Text>;
 }
 
-export function Squish({ children, onPress, disabled, style }: { children: ReactNode; onPress: () => void; disabled?: boolean; style?: any }) {
+export function Squish({ children, onPress, onLongPress, disabled, style }: { children: ReactNode; onPress: () => void; onLongPress?: () => void; disabled?: boolean; style?: any }) {
   const s = useSharedValue(1);
   const a = useAnimatedStyle(() => ({ transform: [{ scaleX: s.value }, { scaleY: s.value }] }));
   return (
-    <Pressable disabled={disabled} onPress={onPress} onPressIn={() => { s.value = withSpring(0.96, PRESS); }} onPressOut={() => { s.value = withSpring(1, RELEASE); }}>
+    <Pressable disabled={disabled} onPress={onPress} onLongPress={onLongPress} delayLongPress={380} onPressIn={() => { s.value = withSpring(0.96, PRESS); }} onPressOut={() => { s.value = withSpring(1, RELEASE); }}>
       <Animated.View style={[style, a]}>{children}</Animated.View>
     </Pressable>
   );
