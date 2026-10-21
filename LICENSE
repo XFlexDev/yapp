@@ -1,0 +1,58 @@
+Kreatix Proprietary Source License (KPSL) 1.0
+
+Copyright (c) 2026 Kreatix (github.com/XFlexDev). All rights reserved.
+
+This repository, including all source code, assets, designs, icons, branding,
+documentation, configuration and build scripts (the "Software"), is the
+exclusive property of the copyright holder. It is published for viewing only.
+
+1. Viewing only
+   You may view the Software on GitHub through a web browser. That is the only
+   permission granted. Nothing in this license grants any other right, by
+   implication, estoppel or otherwise.
+
+2. Prohibited
+   Without prior written permission from the copyright holder, you may not, in
+   whole or in part:
+   a. copy, clone, fork, download, mirror or archive the Software, except as
+      technically unavoidable to view it on GitHub;
+   b. modify it or create derivative works, ports, translations or rewrites;
+   c. compile, build, run, deploy, host or operate it, or any service based on
+      it;
+   d. publish, distribute, sublicense, sell, rent or otherwise make it
+      available to anyone;
+   e. use it, or any part of its design, protocol, interface or look and feel,
+      to build a competing or substantially similar product;
+   f. use it to train, fine-tune, evaluate or prompt any machine learning or AI
+      system, or include it in any dataset;
+   g. reverse engineer, decompile or disassemble any app or binary built from
+      it;
+   h. remove or alter this license or any copyright, trademark or attribution
+      notice.
+
+3. Names and marks
+   "Yapp", "Kreatix", the Yapp wordmark and all related logos are reserved.
+   No right to use them is granted.
+
+4. Contributions
+   Issues, pull requests and other contributions are not accepted unless the
+   copyright holder asks for them. Anything you submit may be used by the
+   copyright holder freely and without obligation to you.
+
+5. Termination
+   Any breach of this license immediately ends every permission under it. You
+   must then delete every copy of the Software in your possession.
+
+6. Enforcement
+   Unauthorized use is copyright infringement. The copyright holder will pursue
+   every available remedy, including DMCA and equivalent takedown notices,
+   injunctions, damages and recovery of costs.
+
+7. No warranty
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. THE
+   COPYRIGHT HOLDER IS NOT LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY
+   ARISING FROM THE SOFTWARE OR ITS USE.
+
+8. Permission requests
+   For any use not allowed above, contact info@kreatix.dev. Permission is only
+   valid if it is in writing from the copyright holder.

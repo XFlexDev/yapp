@@ -3,6 +3,8 @@ name = "yap-server"
 version = "0.1.0"
 edition = "2021"
 
+license-file = "../LICENSE"
+publish = false
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
