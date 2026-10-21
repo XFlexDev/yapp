@@ -25,7 +25,7 @@ export function Avatar({ user, size, ring }: { user: User; size: number; ring?: 
 
 export function Button({ title, onPress, loading, disabled, kind = 'primary', style }: { title: string; onPress: () => void; loading?: boolean; disabled?: boolean; kind?: 'primary' | 'ghost' | 'danger'; style?: ViewStyle }) {
   const s = useSharedValue(1);
-  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  const a = useAnimatedStyle(() => ({ transform: [{ scaleX: s.value }, { scaleY: s.value }] }));
   const bg = kind === 'primary' ? C.red : kind === 'danger' ? 'transparent' : C.surface2;
   const fg = kind === 'danger' ? C.danger : '#fff';
   return (

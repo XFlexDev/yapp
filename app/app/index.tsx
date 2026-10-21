@@ -20,6 +20,13 @@ import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
+/** iOS renders a uniform `scale` transform pixelated (facebook/react-native#48673); separate X/Y scales stay sharp. */
+function sxy(v: number) {
+  'worklet';
+  return [{ scaleX: v }, { scaleY: v }];
+}
+
+
 const ZZ = require('../assets/tt/zz.png');
 const { width: W, height: H } = Dimensions.get('window');
 const AV = 54;
@@ -157,9 +164,9 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus, r = 1
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
-  const body = useAnimatedStyle(() => ({ transform: [{ scale: (1 + press.value * 0.1 + bump.value * 0.07) * pokeSquish.value }] }));
+  const body = useAnimatedStyle(() => ({ transform: [...sxy((1 + press.value * 0.1 + bump.value * 0.07) * pokeSquish.value)] }));
   const ring = useAnimatedStyle(() => ({ opacity: focus ? focus.value : 1, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
-  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
+  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: [...sxy(1 + ripple.value * 0.25)] }));
   const size = Math.round((SEL + 14) * r);
   const box = Math.round((SEL + 14) * r);
   return (
@@ -178,7 +185,7 @@ function Slot({ i, x, dim, badge, sel, dir, cp, ca, children }: { i: number; x: 
   const focus = useDerivedValue(() => 1 - Math.min(1, Math.abs(x.value - i * SLOT) / SLOT));
   const st = useAnimatedStyle(() => {
     const k = sel ? 1 - 0.4 * ca.value : 1 - 0.3 * cp.value;
-    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, { scale: ((MIN + (1 - MIN) * focus.value) / (sel ? 1 : MIN)) * k }] };
+    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, ...sxy(((MIN + (1 - MIN) * focus.value) / (sel ? 1 : MIN)) * k)] };
   });
   const edge = useAnimatedStyle(() => {
     const cx = W / 2 + i * SLOT - x.value;
@@ -228,10 +235,10 @@ function CallControls({ cp, ca, on, incoming, muted, cam, onMute, onCam, onEnd, 
   const inc = incoming ? 1 : 0;
   const end = useAnimatedStyle(() => ({
     opacity: Math.min(1, cp.value * 1.5),
-    transform: [{ translateX: interpolate(ca.value, [0, 1], [SLOT, inc ? -50 : 0]) }, { scale: Math.max(0, cp.value) * interpolate(ca.value, [0, 1], [52 / BTN, 1]) }]
+    transform: [{ translateX: interpolate(ca.value, [0, 1], [SLOT, inc ? -50 : 0]) }, ...sxy(Math.max(0, cp.value) * interpolate(ca.value, [0, 1], [52 / BTN, 1]))]
   }));
-  const left = useAnimatedStyle(() => ({ opacity: Math.max(0, ca.value), transform: [{ translateX: -SLOT * ca.value }, { scale: 0.4 + 0.6 * ca.value }] }));
-  const right = useAnimatedStyle(() => ({ opacity: Math.max(0, ca.value), transform: [{ translateX: (inc ? 50 : SLOT) * ca.value }, { scale: 0.4 + 0.6 * ca.value }] }));
+  const left = useAnimatedStyle(() => ({ opacity: Math.max(0, ca.value), transform: [{ translateX: -SLOT * ca.value }, ...sxy(0.4 + 0.6 * ca.value)] }));
+  const right = useAnimatedStyle(() => ({ opacity: Math.max(0, ca.value), transform: [{ translateX: (inc ? 50 : SLOT) * ca.value }, ...sxy(0.4 + 0.6 * ca.value)] }));
   const at = { position: 'absolute' as const, left: W / 2 - BTN / 2, top: (SEL + 34) / 2 - BTN / 2, width: BTN, height: BTN, alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
     <View pointerEvents={on ? 'box-none' : 'none'} style={StyleSheet.absoluteFill}>
@@ -325,7 +332,7 @@ export default function Home() {
   const ca = useSharedValue(call && call.state !== 'outgoing' ? 1 : 0);
   const lastCall = useRef(call);
   if (call) lastCall.current = call;
-  const stage = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [{ scale: 1 - back.value * 0.08 }] }));
+  const stage = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [...sxy(1 - back.value * 0.08)] }));
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const [muted, setMutedState] = useState(false);
@@ -482,7 +489,7 @@ export default function Home() {
     req<Me>('/v1/status', { method: 'PUT', body: { dnd: next } }).then((m) => set({ me: m })).catch(() => set((s) => ({ me: s.me ? { ...s.me, dnd: !next } : s.me })));
   };
 
-  const plusSt = useAnimatedStyle(() => ({ opacity: Math.max(0, 1 - cp.value * 1.4), transform: [{ scale: 1 - 0.3 * cp.value }] }));
+  const plusSt = useAnimatedStyle(() => ({ opacity: Math.max(0, 1 - cp.value * 1.4), transform: [...sxy(1 - 0.3 * cp.value)] }));
   const plus = (
     <Squish onPress={() => router.push('/add')} style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
       <Glyph g="plus" size={22} />

@@ -4,6 +4,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { Easing, cancelAnimation, interpolateColor, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { C, F } from './theme';
 
+/** iOS renders a uniform `scale` transform pixelated (facebook/react-native#48673); separate X/Y scales stay sharp. */
+function sxy(v: number) {
+  'worklet';
+  return [{ scaleX: v }, { scaleY: v }];
+}
+
+
 const DARK = '#1a1a1a';
 const MORPH = { damping: 17, stiffness: 260, mass: 1 };
 const JELLY = { damping: 8, stiffness: 220, mass: 1 };
@@ -70,9 +77,9 @@ export function Bubble({ text, lock, lift, icon, loading = false }: { text: stri
   });
   const red = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, lift.value * m.value)) }));
   const redTail = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, lift.value * m.value)) }));
-  const lockIn = useAnimatedStyle(() => ({ width: Math.max(0, m.value) * ICON, opacity: Math.min(1, Math.max(0, m.value)), transform: [{ scale: 0.4 + Math.min(1, Math.max(0, m.value)) * 0.6 }] }));
-  const inText = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']), opacity: x.value, transform: [{ translateX: -Math.max(0, ld.value) * DOTS / 2 }, { translateY: (1 - x.value) * 7 }, { scale: 0.86 + x.value * 0.14 }] }));
-  const outText = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']), opacity: 1 - Math.min(1, x.value * 1.6), transform: [{ translateX: -Math.max(0, ld.value) * DOTS / 2 }, { translateY: -x.value * 7 }, { scale: 1 - x.value * 0.14 }] }));
+  const lockIn = useAnimatedStyle(() => ({ width: Math.max(0, m.value) * ICON, opacity: Math.min(1, Math.max(0, m.value)), transform: [...sxy(0.4 + Math.min(1, Math.max(0, m.value)) * 0.6)] }));
+  const inText = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']), opacity: x.value, transform: [{ translateX: -Math.max(0, ld.value) * DOTS / 2 }, { translateY: (1 - x.value) * 7 }, ...sxy(0.86 + x.value * 0.14)] }));
+  const outText = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']), opacity: 1 - Math.min(1, x.value * 1.6), transform: [{ translateX: -Math.max(0, ld.value) * DOTS / 2 }, { translateY: -x.value * 7 }, ...sxy(1 - x.value * 0.14)] }));
 
   const dots = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, ld.value)) }));
   const band = useAnimatedStyle(() => {
