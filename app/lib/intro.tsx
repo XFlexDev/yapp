@@ -53,5 +53,5 @@ export function Intro() {
 const s = StyleSheet.create({
   wrap: { backgroundColor: BG, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row' },
-  letter: { color: '#fff', fontFamily: F.black, fontSize: 83, letterSpacing: -3, includeFontPadding: false },
+  letter: { color: '#fff', fontFamily: F.black, fontSize: 83, includeFontPadding: false, paddingHorizontal: 4, marginHorizontal: -5.5 },
 });
