@@ -795,6 +795,9 @@ fn delete_account(st: &S, uid: &str) -> R<()> {
         for a in [av, pf].into_iter().flatten() {
             let _ = std::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(a));
         }
+        let mut q = c.prepare("SELECT body FROM messages WHERE kind='image' AND (a=?1 OR b=?1)")?;
+        let photos: Vec<String> = q.query_map([uid], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        drop(q);
         c.execute("DELETE FROM messages WHERE a=?1 OR b=?1", [uid])?;
         c.execute("DELETE FROM chat_meta WHERE a=?1 OR b=?1", [uid])?;
         c.execute("DELETE FROM chat_reads WHERE friend_id=?", [uid])?;
@@ -804,6 +807,10 @@ fn delete_account(st: &S, uid: &str) -> R<()> {
         c.execute("DELETE FROM users WHERE id=?", [uid])?;
         if !clips.is_empty() {
             recorder(st, "/delete", json!({ "ids": clips }));
+        }
+        if !photos.is_empty() {
+            let st = st.clone();
+            tokio::spawn(async move { for k in photos { drop_media(&st, k).await; } });
         }
         f
     };
@@ -900,6 +907,7 @@ async fn drop_media(st: &S, key: String) {
         if let Some(store) = crate::storage::get() {
             store.delete(&key).await;
         }
+        let _ = st.db().execute("DELETE FROM media_meta WHERE key=?", [&key]);
     } else if valid_avatar_name(&key) {
         let _ = tokio::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(key)).await;
     }
@@ -1773,12 +1781,15 @@ struct ChatMsg {
     kind: String,
     body: String,
     created_at: i64,
+    /// Photos: "w,h,thumb" (thumb = tiny base64 WebP for the instant blurred preview).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    meta: Option<String>,
 }
 
-const MSG_COLS: &str = "id, sender, recipient, kind, body, created_at";
+const MSG_COLS: &str = "id, sender, recipient, kind, body, created_at, (SELECT w || ',' || h || ',' || thumb FROM media_meta WHERE key=messages.body AND messages.kind='image')";
 
 fn row_msg(r: &Row) -> rusqlite::Result<ChatMsg> {
-    Ok(ChatMsg { id: r.get(0)?, from: r.get(1)?, to: r.get(2)?, kind: r.get(3)?, body: r.get(4)?, created_at: r.get(5)? })
+    Ok(ChatMsg { id: r.get(0)?, from: r.get(1)?, to: r.get(2)?, kind: r.get(3)?, body: r.get(4)?, created_at: r.get(5)?, meta: r.get(6)? })
 }
 
 fn now_ms() -> i64 {
@@ -1873,6 +1884,42 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
     if body.chars().count() > 2000 {
         return Err(bad("That message is too long"));
     }
+    post_dm(&st, me, other, "text", body, None).await
+}
+
+#[derive(Deserialize)]
+struct PhotoMeta {
+    w: u32,
+    h: u32,
+    #[serde(default)]
+    t: String,
+}
+
+/// Stores a chat photo once (content-addressed `c-` key on B2/CDN) plus its size and blur preview.
+async fn save_chat_photo(st: &S, body: &[u8], p: &PhotoMeta) -> R<(String, String)> {
+    let Some((ext, ctype)) = crate::storage::image_kind(body).filter(|_| body.len() >= 100) else {
+        return Err(bad("Upload a JPEG or WebP photo"));
+    };
+    if p.w == 0 || p.h == 0 || p.w > 4096 || p.h > 4096 { return Err(bad("Bad photo size")); }
+    let thumb: String = p.t.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')).take(3000).collect();
+    let store = crate::storage::get().ok_or_else(|| bad("Photos aren't available right now"))?;
+    let key = crate::storage::key_for("c", body, ext);
+    let known = st.db().query_row("SELECT 1 FROM media_meta WHERE key=?", [&key], |_| Ok(())).optional()?.is_some();
+    if !known {
+        store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+        st.db().execute("INSERT OR IGNORE INTO media_meta(key, w, h, thumb) VALUES (?,?,?,?)", params![key, p.w, p.h, thumb])?;
+    }
+    let meta = format!("{},{},{}", p.w, p.h, thumb);
+    Ok((key, meta))
+}
+
+async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
+    if !are_friends(&st.db(), &me, &other)? { return Err(not_friends()); }
+    let (key, meta) = save_chat_photo(&st, &body, &p).await?;
+    post_dm(&st, me, other, "image", key, Some(meta)).await
+}
+
+async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
     let (m, u) = {
         let c = st.db();
         if !are_friends(&c, &me, &other)? {
@@ -1884,7 +1931,7 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
         if let Some(l) = last {
             t = t.max(l + 1);
         }
-        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: other.clone(), kind: "text".into(), body, created_at: t };
+        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: other.clone(), kind: kind.into(), body, created_at: t, meta: meta.clone() };
         c.execute(
             "INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at) VALUES (?,?,?,?,?,?,?,?)",
             params![m.id, a, b, m.from, m.to, m.kind, m.body, m.created_at],
@@ -1900,8 +1947,8 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
     st.hub.send(&other, &ev);
     st.hub.send(&me, &ev);
     if !online {
-        let preview: String = m.body.chars().take(120).collect();
-        push(&st, &other, label(&u), preview, json!({ "type": "message", "from": me }));
+        let preview: String = if m.kind == "image" { "sent a photo".into() } else { m.body.chars().take(120).collect() };
+        push(st, &other, label(&u), preview, json!({ "type": "message", "from": me }));
     }
     Ok(Json(m))
 }
@@ -2134,22 +2181,32 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
     let body = r.body.trim().to_string();
     if body.is_empty() { return Err(bad("Say something")); }
     if body.chars().count() > 2000 { return Err(bad("That message is too long")); }
+    post_group(&st, me, g, "text", body, None).await
+}
+
+async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
+    if !is_member(&st.db(), &g, &me)? { return Err(not_found("Group not found")); }
+    let (key, meta) = save_chat_photo(&st, &body, &p).await?;
+    post_group(&st, me, g, "image", key, Some(meta)).await
+}
+
+async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
     let (m, ids, title) = {
         let c = st.db();
         if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
         let last: Option<i64> = c.query_row("SELECT MAX(created_at) FROM messages WHERE a=? AND b='#'", [&g], |r| r.get(0))?;
         let t = last.map_or(now_ms(), |l| now_ms().max(l + 1));
-        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: g.clone(), kind: "text".into(), body, created_at: t };
+        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: g.clone(), kind: kind.into(), body, created_at: t, meta: meta.clone() };
         c.execute("INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at) VALUES (?,?,'#',?,?,?,?,?)", params![m.id, g, m.from, m.to, m.kind, m.body, m.created_at])?;
         c.execute("UPDATE group_members SET read_at=? WHERE group_id=? AND user_id=?", params![t, g, me])?;
         let gname: String = c.query_row("SELECT name FROM groups WHERE id=?", [&g], |r| r.get(0))?;
         let u = public_user(&c, &me)?;
         (m, member_ids(&c, &g)?, format!("{gname} · {}", label(&u)))
     };
-    tell_group(&st, &ids, &json!({ "type": "group_message", "group_id": g, "message": &m }));
-    let preview: String = m.body.chars().take(120).collect();
+    tell_group(st, &ids, &json!({ "type": "group_message", "group_id": g, "message": &m }));
+    let preview: String = if m.kind == "image" { "sent a photo".into() } else { m.body.chars().take(120).collect() };
     for u in ids.iter().filter(|u| **u != me && !st.hub.online(u)) {
-        push(&st, u, title.clone(), preview.clone(), json!({ "type": "group_message", "group_id": g }));
+        push(st, u, title.clone(), preview.clone(), json!({ "type": "group_message", "group_id": g }));
     }
     Ok(Json(m))
 }
@@ -2402,6 +2459,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups", get(list_groups).post(create_group))
         .route("/v1/groups/{id}", axum::routing::patch(group_patch))
         .route("/v1/groups/{id}/messages", get(group_messages).post(group_send))
+        .route("/v1/groups/{id}/photo", post(group_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/v1/groups/{id}/read", post(group_read))
         .route("/v1/groups/{id}/talk/start", post(group_talk_start))
         .route("/v1/groups/{id}/talk/stop", post(group_talk_stop))
@@ -2413,6 +2471,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups/{id}/invite/decline", post(group_invite_decline))
         .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
+        .route("/v1/chats/{id}/photo", post(send_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/v1/chats/{id}/read", post(mark_read))
         .route("/v1/chats/{id}/background", put(set_chat_background))
         .route("/v1/chats/{id}/background/photo", put(put_chat_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))

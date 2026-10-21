@@ -10,14 +10,14 @@ import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf } from '../lib/api';
-import { BACKGROUNDS, chatOf, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, setBackground } from '../lib/chat';
+import { BACKGROUNDS, chatOf, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, setBackground } from '../lib/chat';
 import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
-export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'] } as const;
+export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'], photo: ['photo.fill', 'image'] } as const;
 export function MuteRow({ chat }: { chat: string }) {
   const muted = useStore((s) => !!s.notif?.muted.includes(chat));
   return (
@@ -61,13 +61,35 @@ function sxy(v: number) {
 const AV = 38;
 const MORPH = { damping: 24, stiffness: 260, mass: 0.8 };
 
-export function Bubble({ m, mine, joined, fresh, seen, onRetry, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; author?: string }) {
+/** Photo bubble: exact aspect from the start, blurred preview until the WebP arrives from the CDN. */
+function PhotoBubble({ m, onOpen, onRetry }: { m: ChatMsg; onOpen?: (uri: string) => void; onRetry: () => void }) {
+  const [w, h, thumb] = (m.meta ?? '').split(',');
+  const ratio = +w && +h ? Math.min(1.5, Math.max(0.6, +h / +w)) : 1;
+  const src = m.body.startsWith('c-') ? mediaUrl(m.body) : m.body;
+  return (
+    <Pressable onPress={() => (m.failed ? onRetry() : onOpen?.(src))} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.98 : 1 }, { scaleY: pressed ? 0.98 : 1 }] })}>
+      <Image source={src} placeholder={thumb ? { uri: `data:image/webp;base64,${thumb}` } : undefined} placeholderContentFit="cover" contentFit="cover" transition={200} cachePolicy="memory-disk" recyclingKey={m.cid ?? m.id}
+        style={{ width: 230, height: 230 * ratio, borderRadius: 20, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.08)', opacity: m.pending ? 0.6 : 1 }} />
+    </Pressable>
+  );
+}
+
+export function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void }) {
+  if (!uri) return null;
+  return (
+    <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(150)} style={[StyleSheet.absoluteFill, { backgroundColor: '#000', zIndex: 20 }]}>
+      <Pressable style={{ flex: 1 }} onPress={onClose}><Image source={uri} style={{ flex: 1 }} contentFit="contain" cachePolicy="memory-disk" /></Pressable>
+    </Animated.View>
+  );
+}
+
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; author?: string }) {
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
       {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
-      <Pressable disabled={!m.failed} onPress={onRetry} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
+      {m.kind === 'image' ? <PhotoBubble m={m} onOpen={onOpen} onRetry={onRetry} /> : <Pressable disabled={!m.failed} onPress={onRetry} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
         <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 21 }}>{m.body}</Text>
-      </Pressable>
+      </Pressable>}
       {m.failed ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>not sent · tap to retry</Text> : seen ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>{typeof seen === 'string' ? seen : 'seen'}</Text> : null}
     </Animated.View>
   );
@@ -104,6 +126,7 @@ export default function ChatScreen() {
   const meId = useStore((s) => s.me?.id);
   const [text, setText] = useState('');
   const [picker, setPicker] = useState(false);
+  const [view, setView] = useState<string | null>(null);
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
@@ -154,7 +177,7 @@ export default function ChatScreen() {
           keyExtractor={(m) => m.cid ?? m.id}
           renderItem={({ item, index }) => (
             <Bubble m={item} mine={item.from === meId} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current}
-              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} />
+              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView} />
           )}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
@@ -164,6 +187,7 @@ export default function ChatScreen() {
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
+          <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <TextInput value={text} onChangeText={setText} placeholder="message" placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
             style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
           <Squish onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: text.trim() ? C.red : 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} /></Squish>
@@ -199,6 +223,7 @@ export default function ChatScreen() {
           </Animated.View>
         </View>
       ) : null}
+      <PhotoViewer uri={view} onClose={() => setView(null)} />
     </View>
   );
 }

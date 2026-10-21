@@ -100,6 +100,12 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             background TEXT,
             created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS media_meta(
+            key TEXT PRIMARY KEY,
+            w INTEGER NOT NULL,
+            h INTEGER NOT NULL,
+            thumb TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS group_invites(
             group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

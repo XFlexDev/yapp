@@ -1,4 +1,5 @@
 import { req } from './api';
+import { photoFromMsg, photoMeta, pickPhoto, uploadPhoto, type Photo } from './chat';
 import { get, set, type ChatMsg, type Group, type GroupInvite } from './store';
 
 type Wire = Omit<Group, 'messages' | 'loaded' | 'more'>;
@@ -8,7 +9,12 @@ function merge(w: Wire) {
 function patch(id: string, f: (g: Group) => Partial<Group>) {
   set((s) => (s.groups[id] ? { groups: { ...s.groups, [id]: { ...s.groups[id], ...f(s.groups[id]) } } } : {}));
 }
-const add = (list: ChatMsg[], m: ChatMsg) => (list.some((x) => x.id === m.id) ? list : [m, ...list.filter((x) => !(x.pending && x.from === m.from && x.body === m.body))]);
+const add = (list: ChatMsg[], m: ChatMsg) => {
+  if (list.some((x) => x.id === m.id)) return list;
+  const twin = list.find((x) => x.pending && x.from === m.from && (x.body === m.body || (x.kind === 'image' && m.kind === 'image')));
+  const next = twin ? { ...m, cid: twin.cid ?? twin.id } : m;
+  return twin ? list.map((x) => (x === twin ? next : x)) : [next, ...list];
+};
 
 export async function loadGroups() { (await req<{ groups: Wire[] }>('/v1/groups')).groups.forEach(merge); }
 export async function createGroup(name: string, members: string[]) { const g = await req<Wire>('/v1/groups', { method: 'POST', body: { name, members } }); merge(g); return g.id; }
@@ -24,8 +30,23 @@ export async function sendGroup(id: string, body: string) {
   const me = get().me!.id;
   const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'text', body, created_at: Date.now(), pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
-  try { const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body } }); patch(id, (g) => ({ messages: add(g.messages.filter((x) => x.id !== tmp.id), m) })); }
+  try { const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body } }); patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) })); }
   catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
+}
+async function groupPhotoTo(id: string, p: Photo) {
+  const me = get().me!.id;
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), created_at: Date.now(), pending: true };
+  patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
+  try {
+    const m = await uploadPhoto(`/v1/groups/${id}/photo`, p);
+    patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
+  } catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
+}
+export async function sendGroupPhoto(id: string) { const p = await pickPhoto(); if (p) await groupPhotoTo(id, p); }
+export async function retryGroup(id: string, m: ChatMsg) {
+  patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== m.id) }));
+  if (m.kind === 'image') return groupPhotoTo(id, await photoFromMsg(m));
+  return sendGroup(id, m.body);
 }
 export function markGroupRead(id: string) {
   const top = get().groups[id]?.messages.find((m) => !m.pending && !m.failed);

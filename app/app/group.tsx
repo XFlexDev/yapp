@@ -10,12 +10,12 @@ import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, pickBackgroundPhoto } from '../lib/chat';
-import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground } from '../lib/groups';
+import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto } from '../lib/groups';
 import { set, useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, Glyph, MuteRow, SectionLabel } from './chat';
+import { Backdrop, Bubble, Glyph, MuteRow, PhotoViewer, SectionLabel } from './chat';
 import { req } from '../lib/api';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
@@ -73,6 +73,7 @@ export default function GroupScreen() {
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
   const [sure, setSure] = useState(false);
+  const [view, setView] = useState<string | null>(null);
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
   const talker = useStore((s) => s.groupTalk[id!] ?? null);
@@ -116,11 +117,12 @@ export default function GroupScreen() {
           renderItem={({ item, index }) => {
             const mine = item.from === me?.id;
             return <Bubble m={item} mine={mine} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
-              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => sendGroup(id!, item.body)} />;
+              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView} />;
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
+          <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <TextInput value={text} onChangeText={setText} placeholder={`message ${g.name}`} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
             style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
           {text.trim() ? (
@@ -188,6 +190,7 @@ export default function GroupScreen() {
           </Animated.View>
         </View>
       ) : null}
+      <PhotoViewer uri={view} onClose={() => setView(null)} />
     </View>
   );
 }

@@ -11,7 +11,7 @@ function patch(id: string, f: (c: Chat) => Partial<Chat>) {
 /** Adds `m`, replacing its optimistic copy; keeps the copy's key (`cid`) so the bubble doesn't re-mount. */
 const add = (list: ChatMsg[], m: ChatMsg) => {
   if (list.some((x) => x.id === m.id)) return list;
-  const twin = list.find((x) => x.pending && x.from === m.from && x.body === m.body);
+  const twin = list.find((x) => x.pending && x.from === m.from && (x.body === m.body || (x.kind === 'image' && m.kind === 'image')));
   const next = twin ? { ...m, cid: twin.cid ?? twin.id } : m;
   return twin ? list.map((x) => (x === twin ? next : x)) : [next, ...list];
 };
@@ -46,7 +46,48 @@ export async function sendMessage(id: string, body: string) {
 
 export function retry(id: string, m: ChatMsg) {
   patch(id, (c) => ({ messages: c.messages.filter((x) => x.id !== m.id) }));
+  if (m.kind === 'image') return photoFromMsg(m).then((p) => sendPhotoTo(id, p));
   return sendMessage(id, m.body);
+}
+
+export type Photo = { uri: string; w: number; h: number; thumb: string };
+const ACCEPT = ImageManipulator.SaveFormat.WEBP;
+/** Picks a photo and shrinks it on the phone: max 1600px WebP (~150-300 KB) plus a ~20px base64 preview for the blur-up. */
+export async function pickPhoto(): Promise<Photo | null> {
+  const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+  const a = r.assets?.[0];
+  if (r.canceled || !a) return null;
+  const wide = a.width >= a.height;
+  const big = Math.max(a.width, a.height) > 1600;
+  const out = await ImageManipulator.manipulateAsync(a.uri, big ? [{ resize: wide ? { width: 1600 } : { height: 1600 } }] : [], { compress: 0.75, format: ACCEPT });
+  const t = await ImageManipulator.manipulateAsync(out.uri, [{ resize: wide ? { width: 20 } : { height: 20 } }], { compress: 0.5, format: ACCEPT, base64: true });
+  return { uri: out.uri, w: out.width, h: out.height, thumb: t.base64 ?? '' };
+}
+export const photoMeta = (p: Photo) => `${p.w},${p.h},${p.thumb}`;
+export async function photoFromMsg(m: ChatMsg): Promise<Photo> {
+  const [w, h, thumb] = (m.meta ?? '0,0,').split(',');
+  return { uri: m.body, w: +w, h: +h, thumb: thumb ?? '' };
+}
+/** Uploads a picked photo; the server stores each unique photo once. */
+export async function uploadPhoto(path: string, p: Photo) {
+  const blob = await (await fetch(p.uri)).blob();
+  return req<ChatMsg>(`${path}?w=${p.w}&h=${p.h}&t=${encodeURIComponent(p.thumb)}`, { method: 'POST', raw: blob, ctype: 'image/webp' });
+}
+
+async function sendPhotoTo(id: string, p: Photo) {
+  const me = get().me!.id;
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), created_at: Date.now(), pending: true };
+  patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
+  try {
+    const m = await uploadPhoto(`/v1/chats/${id}/photo`, p);
+    patch(id, (c) => (c.messages.some((x) => x.id === m.id) ? { messages: c.messages.filter((x) => x.id !== tmp.id) } : { messages: c.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
+  } catch {
+    patch(id, (c) => ({ messages: c.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));
+  }
+}
+export async function sendPhoto(id: string) {
+  const p = await pickPhoto();
+  if (p) await sendPhotoTo(id, p);
 }
 
 export function markRead(id: string) {
