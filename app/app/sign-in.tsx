@@ -1,23 +1,23 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSequence, withSpring, ZoomIn, ZoomOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { ApiError, confirmLogin, startLogin } from '../lib/api';
 import { set } from '../lib/store';
 import { F } from '../lib/theme';
-import { bigInput, Collapse, FILL, GHOST, Heading, Label, Logo, Pill, RedScreen, rise, slide, slideOut, SPRING, Squish, useShake } from '../lib/tt';
+import { bigInput, Collapse, FILL, GHOST, Heading, Label, Logo, Pill, pop, popOut, RedScreen, rise, slide, slideOut, SPRING, Squish, Swap, useShake } from '../lib/tt';
 
 type Step = 'welcome' | 'age' | 'email' | 'code';
 
 function Box({ ch, active }: { ch?: string; active: boolean }) {
   const s = useSharedValue(1);
   const b = useSharedValue(active ? 1 : 0);
-  useEffect(() => { if (ch) s.value = withSequence(withSpring(1.15, { damping: 8, stiffness: 700 }), withSpring(1, { damping: 9, stiffness: 300 })); }, [ch]);
+  useEffect(() => { if (ch) s.value = withSequence(withTiming(1.05, { duration: 90 }), withSpring(1, SPRING)); }, [ch]);
   useEffect(() => { b.value = withSpring(active ? 1 : 0, SPRING); }, [active]);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }], borderColor: `rgba(255,255,255,${0.9 * b.value})` }));
   return (
     <Animated.View style={[{ width: 46, height: 56, borderRadius: 10, borderCurve: 'continuous', backgroundColor: FILL, borderWidth: 2, alignItems: 'center', justifyContent: 'center' }, a]}>
-      {ch ? <Animated.Text entering={ZoomIn.springify().damping(10).stiffness(400)} style={{ color: '#fff', fontFamily: F.black, fontSize: 26 }}>{ch}</Animated.Text> : null}
+      {ch ? <Animated.Text entering={pop() as any} exiting={popOut() as any} style={{ color: '#fff', fontFamily: F.black, fontSize: 26 }}>{ch}</Animated.Text> : null}
     </Animated.View>
   );
 }
@@ -67,7 +67,7 @@ export default function SignIn() {
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
           <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             {step === 'welcome' ? (
-              <Animated.View entering={ZoomIn.springify().damping(14).stiffness(200)}>
+              <Animated.View entering={pop() as any}>
                 <Squish onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}><Logo /></Squish>
               </Animated.View>
             ) : step === 'age' ? (
@@ -83,18 +83,18 @@ export default function SignIn() {
                 <Animated.View entering={rise(110)} style={[{ alignSelf: 'stretch' }, shakeStyle]}>
                   <TextInput value={email} onChangeText={setEmail} placeholder="rachel@gmail.com" placeholderTextColor={GHOST} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" keyboardAppearance="dark" autoFocus selectionColor="#fff" returnKeyType="send" onSubmitEditing={() => !pill.disabled && send()} style={bigInput} />
                 </Animated.View>
-                <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 15, height: 20 }}>{error}</Text>
+                <Swap text={error} style={{ color: '#fff', fontFamily: F.bold, fontSize: 15, height: 20 }} />
               </View>
             ) : (
               <View style={{ alignItems: 'center', gap: 22 }}>
-                <Animated.View entering={ZoomIn.springify().damping(8).stiffness(220).delay(60)} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+                <Animated.View entering={pop(60) as any} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
                   <View style={{ width: 16, height: 9, borderLeftWidth: 3, borderBottomWidth: 3, borderColor: '#fff', transform: [{ rotate: '-45deg' }, { translateY: -2 }] }} />
                 </Animated.View>
                 <Animated.View entering={rise(100)}><Heading>{'an email has\nbeen sent'}</Heading></Animated.View>
                 <Animated.View style={shakeStyle}>
                   <Pressable onPress={() => codeRef.current?.focus()} style={{ flexDirection: 'row', gap: 8 }}>
                     {Array.from({ length: 6 }, (_, i) => (
-                      <Animated.View key={i} entering={ZoomIn.springify().damping(11).stiffness(260).delay(160 + i * 40)}>
+                      <Animated.View key={i} entering={rise(160 + i * 35)}>
                         <Box ch={code[i]} active={i === Math.min(code.length, 5) && !busy} />
                       </Animated.View>
                     ))}
@@ -102,7 +102,7 @@ export default function SignIn() {
                 </Animated.View>
                 <TextInput ref={codeRef} value={code} onChangeText={(t) => { const d = t.replace(/\D/g, '').slice(0, 6); if (d.length > code.length) Haptics.selectionAsync(); setCode(d); if (d.length === 6) confirm(d); }} keyboardType="number-pad" keyboardAppearance="dark" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} caretHidden style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
                 <Animated.View entering={rise(260)} style={{ alignItems: 'center', gap: 4 }}>
-                  <Text style={{ color: error ? '#fff' : 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15 }}>{error || `code sent to ${email.trim()}`}</Text>
+                  <Swap text={error || `code sent to ${email.trim()}`} style={{ color: error ? '#fff' : 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15 }} />
                   <Pressable hitSlop={10} onPress={() => go('email', -1)}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>change</Text></Pressable>
                 </Animated.View>
               </View>
@@ -118,7 +118,7 @@ export default function SignIn() {
       </RedScreen>
       {tooYoung ? (
         <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(180)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
-          <Animated.View entering={ZoomIn.springify().damping(13).stiffness(260)} exiting={ZoomOut.duration(150)} style={{ width: 280, borderRadius: 26, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 20, gap: 6, alignItems: 'center' }}>
+          <Animated.View entering={pop() as any} exiting={popOut() as any} style={{ width: 280, borderRadius: 26, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 20, gap: 6, alignItems: 'center' }}>
             <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18, textAlign: 'center' }}>you’re not old enough{'\n'}to use yapp</Text>
             <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.regular, fontSize: 13, textAlign: 'center', marginBottom: 12 }}>you need to be at least 13 years old</Text>
             <Squish onPress={() => { setTooYoung(false); setAge(''); }} style={{ alignSelf: 'stretch', width: 240, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>

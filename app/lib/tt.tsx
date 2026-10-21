@@ -3,7 +3,7 @@ import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Keyboard, Linking, Platform, Pressable, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { F } from './theme';
 
@@ -15,15 +15,18 @@ function Sym({ sf, md, size = 26 }: { sf: string; md: string; size?: number }) {
   return <SymbolView name={sf as any} tintColor="#fff" size={size} weight="bold" fallback={<MaterialCommunityIcons name={md as any} size={size + 4} color="#fff" />} />;
 }
 
-export const SPRING = { damping: 15, stiffness: 210, mass: 0.9 };
-const PRESS = { damping: 14, stiffness: 520 };
+// Near-critical spring: settles with a hint of give, never wobbles.
+export const SPRING = { damping: 28, stiffness: 280, mass: 1 };
+const PRESS = { damping: 30, stiffness: 600 };
+const RELEASE = { damping: 24, stiffness: 340 };
+const EASE = Easing.bezier(0.23, 1, 0.32, 1);
 
 export function slide(dir: number) {
   return () => {
     'worklet';
     return {
-      initialValues: { opacity: 0, transform: [{ translateX: dir * 80 }, { scale: 0.94 }] },
-      animations: { opacity: withTiming(1, { duration: 200 }), transform: [{ translateX: withSpring(0, SPRING) }, { scale: withSpring(1, SPRING) }] },
+      initialValues: { opacity: 0, transform: [{ translateX: dir * 56 }, { scale: 0.98 }] },
+      animations: { opacity: withTiming(1, { duration: 220, easing: EASE }), transform: [{ translateX: withSpring(0, SPRING) }, { scale: withSpring(1, SPRING) }] },
     };
   };
 }
@@ -32,17 +35,50 @@ export function slideOut(dir: number) {
     'worklet';
     return {
       initialValues: { opacity: 1, transform: [{ translateX: 0 }, { scale: 1 }] },
-      animations: { opacity: withTiming(0, { duration: 160 }), transform: [{ translateX: withSpring(-dir * 80, SPRING) }, { scale: withSpring(0.94, SPRING) }] },
+      animations: { opacity: withTiming(0, { duration: 160, easing: EASE }), transform: [{ translateX: withTiming(-dir * 40, { duration: 200, easing: EASE }) }, { scale: withTiming(0.98, { duration: 200, easing: EASE }) }] },
     };
   };
 }
-export const rise = (delay = 0) => FadeInDown.springify().damping(14).stiffness(200).delay(delay);
+export function pop(delay = 0) {
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 0, transform: [{ scale: 0.9 }] },
+      animations: { opacity: withDelay(delay, withTiming(1, { duration: 180, easing: EASE })), transform: [{ scale: withDelay(delay, withSpring(1, SPRING)) }] },
+    };
+  };
+}
+export function popOut() {
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 1, transform: [{ scale: 1 }] },
+      animations: { opacity: withTiming(0, { duration: 140, easing: EASE }), transform: [{ scale: withTiming(0.94, { duration: 140, easing: EASE }) }] },
+    };
+  };
+}
+export const rise = (delay = 0) => FadeInDown.springify().damping(SPRING.damping).stiffness(SPRING.stiffness).delay(delay);
+
+// Crossfades text changes in place so swaps never cut.
+export function Swap({ text, style }: { text: string; style?: any }) {
+  const [shown, setShown] = useState(text);
+  const o = useSharedValue(1);
+  useEffect(() => {
+    if (text === shown) return;
+    o.value = withTiming(0, { duration: 110, easing: EASE });
+    const t = setTimeout(() => setShown(text), 110);
+    return () => clearTimeout(t);
+  }, [text]);
+  useEffect(() => { o.value = withTiming(1, { duration: 200, easing: EASE }); }, [shown]);
+  const a = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ translateY: (1 - o.value) * 4 }] }));
+  return <Animated.Text style={[style, a]}>{shown}</Animated.Text>;
+}
 
 export function Squish({ children, onPress, disabled, style }: { children: ReactNode; onPress: () => void; disabled?: boolean; style?: any }) {
   const s = useSharedValue(1);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
   return (
-    <Pressable disabled={disabled} onPress={onPress} onPressIn={() => { s.value = withSpring(0.93, PRESS); }} onPressOut={() => { s.value = withSpring(1, { damping: 9, stiffness: 320 }); }}>
+    <Pressable disabled={disabled} onPress={onPress} onPressIn={() => { s.value = withSpring(0.96, PRESS); }} onPressOut={() => { s.value = withSpring(1, RELEASE); }}>
       <Animated.View style={[style, a]}>{children}</Animated.View>
     </Pressable>
   );
@@ -57,8 +93,8 @@ export function Pill({ title, onPress, disabled, loading, ghost }: { title: stri
   const fg = useAnimatedStyle(() => ({ color: interpolateColor(p.value, [0, 1], [interpolateColor(g.value, [0, 1], [GHOST, '#ffffff']), '#000000']) }));
   return (
     <Squish disabled={disabled || loading} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }} style={[{ height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, bg]}>
-      {loading ? <Animated.View entering={ZoomIn.springify().damping(12)}><ActivityIndicator color={white ? '#000' : '#fff'} /></Animated.View> : (
-        <Animated.Text key={title} entering={FadeInDown.springify().damping(13).stiffness(260)} exiting={FadeOut.duration(90)} style={[{ fontFamily: F.black, fontSize: 17 }, fg]}>{title}</Animated.Text>
+      {loading ? <Animated.View entering={pop() as any} exiting={popOut() as any}><ActivityIndicator color={white ? '#000' : '#fff'} /></Animated.View> : (
+        <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}><Swap text={title} style={[{ fontFamily: F.black, fontSize: 17 }, fg]} /></Animated.View>
       )}
     </Squish>
   );
@@ -74,7 +110,7 @@ export function Collapse({ open, height, children }: { open: boolean; height: nu
 export function useShake() {
   const x = useSharedValue(0);
   const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
-  const shake = () => { x.value = withSequence(withTiming(-12, { duration: 50 }), withSpring(0, { damping: 4, stiffness: 600, velocity: 600 })); };
+  const shake = () => { x.value = withSequence(withTiming(-9, { duration: 45 }), withTiming(7, { duration: 70 }), withTiming(-3, { duration: 70 }), withSpring(0, SPRING)); };
   return { style, shake };
 }
 
@@ -98,7 +134,7 @@ function HelpSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)' }}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
-      <Animated.View entering={SlideInDown.springify().damping(24).stiffness(260)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6 }}>
+      <Animated.View entering={SlideInDown.springify().damping(32).stiffness(320)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6 }}>
         <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>send feedback</Text>
         <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.regular, fontSize: 14, textAlign: 'center', marginTop: 4, marginBottom: 10 }}>let’s improve the app together!</Text>
         {row('email us', () => { onClose(); Linking.openURL('mailto:info@kreatix.dev?subject=yapp'); })}

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import Animated, { ZoomIn } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { ApiError, req, type Me } from '../lib/api';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { set, useStore } from '../lib/store';
 import { F } from '../lib/theme';
-import { bigInput, Collapse, GHOST, Label, Pill, RedScreen, rise, slide, slideOut, Squish, useShake } from '../lib/tt';
+import { bigInput, Collapse, GHOST, Label, Pill, pop, RedScreen, rise, slide, slideOut, Squish, Swap, useShake } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 
 type Step = 'name' | 'username' | 'photo';
@@ -58,17 +58,17 @@ export default function Onboarding() {
                 <Text style={[bigInput, { minWidth: 0, color: username ? '#fff' : GHOST }]}>@</Text>
                 <TextInput value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="rachel" placeholderTextColor={GHOST} autoCapitalize="none" autoCorrect={false} maxLength={20} keyboardAppearance="dark" autoFocus selectionColor="#fff" returnKeyType="next" onSubmitEditing={() => !pill.disabled && saveUsername()} style={[bigInput, { textAlign: 'left' }]} />
               </Animated.View>
-              <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 15, height: 20 }}>{error}</Text>
+              <Swap text={error} style={{ color: '#fff', fontFamily: F.bold, fontSize: 15, height: 20 }} />
             </>
           ) : (
             <>
               <Animated.View entering={rise(40)}><Label>add a photo</Label></Animated.View>
-              <Animated.View entering={ZoomIn.springify().damping(10).stiffness(180).delay(90)}>
+              <Animated.View entering={pop(90) as any}>
                 <Squish onPress={pick} style={{ padding: 5, borderRadius: 100, borderWidth: 4, borderColor: '#fff' }}>
                   <Avatar user={{ ...me, display_name: name || '?' }} size={150} />
                 </Squish>
               </Animated.View>
-              <Animated.Text entering={rise(170)} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center' }}>{error || 'your friends see it when you talk'}</Animated.Text>
+              <Animated.View entering={rise(170)}><Swap text={error || 'your friends see it when you talk'} style={{ color: error ? '#fff' : 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center' }} /></Animated.View>
             </>
           )}
         </Animated.View>
