@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedReaction, useAnimatedStyle, useDerivedValue, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { ApiError, avatarUrl, nameOf, req, type Friend, type Me } from '../lib/api';
@@ -30,6 +30,7 @@ const LOCK_AT = 90;
 const GROW = 1.1;
 const SLOT = 80;
 const MIN = AV / SEL;
+const SNAP = { damping: 30, stiffness: 260, mass: 1 };
 const PLUS_X = 16;
 const FADE_AT = PLUS_X + PLUS + 14;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
@@ -79,20 +80,45 @@ function TopButton({ g, onPress }: { g: keyof typeof GLYPHS; onPress: () => void
 }
 
 function Backdrop({ friend }: { friend: Friend }) {
+  const seq = useRef(0);
+  const [layers, setLayers] = useState<{ f: Friend; k: number }[]>([{ f: friend, k: 0 }]);
+  useEffect(() => {
+    setLayers((l) => {
+      const top = l[l.length - 1];
+      if (top.f.id === friend.id) return top.f === friend ? l : [...l.slice(0, -1), { f: friend, k: top.k }];
+      return [...l, { f: friend, k: ++seq.current }].slice(-3);
+    });
+  }, [friend]);
+  const settle = (k: number) => setLayers((l) => { const i = l.findIndex((x) => x.k === k); return i > 0 ? l.slice(i) : l; });
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {layers.map((x, i) => <Layer key={x.k} friend={x.f} fade={i > 0} onIn={() => settle(x.k)} />)}
+      <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
+    </View>
+  );
+}
+
+function Layer({ friend, fade, onIn }: { friend: Friend; fade: boolean; onIn: () => void }) {
   const url = avatarUrl(friend);
   const hue = SWATCH[friend.color] ?? C.red;
+  const o = useSharedValue(fade ? 0 : 1);
+  useEffect(() => {
+    if (fade) o.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.quad) }, (done) => { if (done) scheduleOnRN(onIn); });
+  }, []);
+  const st = useAnimatedStyle(() => ({ opacity: o.value }));
   return (
-    <Animated.View key={friend.id} entering={FadeIn.duration(220)} exiting={FadeOut.duration(220)} style={StyleSheet.absoluteFill}>
-     <View style={[StyleSheet.absoluteFill, { backgroundColor: url ? '#000' : hue }]}>
-      {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={160} cachePolicy="memory-disk" priority="high" /> : (
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: url ? '#000' : hue }, st]}>
+      {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" priority="high" /> : (
         <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingBottom: '30%' }]}>
           <Logo ch={nameOf(friend).slice(0, 1).toLowerCase()} size={190} />
         </View>
       )}
-      <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
-     </View>
     </Animated.View>
   );
+}
+
+function Fresh({ text, style }: { text: string; style: any }) {
+  return <Animated.Text key={text} entering={FadeIn.duration(150)} style={style}>{text}</Animated.Text>;
 }
 
 function Dot({ friend, size = 14 }: { friend: Friend; size?: number }) {
@@ -293,59 +319,48 @@ export default function Home() {
   const [incomingPoke, setIncomingPoke] = useState<{ friendId: string; count: number; at: number } | null>(null);
   const [pendingPokeCounts, setPendingPokeCounts] = useState<Record<string, number>>({});
   const pendingPokes = useRef<Record<string, { count: number; timer: ReturnType<typeof setTimeout> }>>({});
-  const scroll = useRef<any>(null);
   const locked = useRef(false);
   const lift = useSharedValue(0);
   const pokeSquish = useSharedValue(1);
   const one = useSharedValue(1);
-  const sx = useSharedValue(0);
-  const lastIdx = useSharedValue(-1);
-  const target = useRef<number | null>(null);
   const list = useRef(friends);
   list.current = friends;
   const selRef = useRef(friend?.id);
   selRef.current = friend?.id;
   const selIdx = friend ? Math.max(0, friends.findIndex((f) => f.id === friend.id)) : 0;
-  const pick = (i: number) => {
-    lastIdx.value = i;
-    if (target.current !== null) { if (i === target.current) target.current = null; return; }
+  const count = friends.length;
+  const sx = useSharedValue(selIdx * SLOT);
+  const from = useSharedValue(0);
+  const fling = useSharedValue(false);
+  const track = useAnimatedStyle(() => ({ transform: [{ translateX: -sx.value }] }));
+  const choose = (i: number) => {
     const f = list.current[i];
     if (!f || f.id === selRef.current) return;
-    Haptics.selectionAsync();
     set({ selectedId: f.id });
     clearPokeCount(f.id);
   };
-  const dropTarget = () => { target.current = null; };
-  const count = friends.length;
-  const onScroll = useAnimatedScrollHandler({
-    onScroll: (e) => {
-      sx.value = e.contentOffset.x;
-    },
-    onBeginDrag: () => { scheduleOnRN(dropTarget); },
+  const buzz = () => { Haptics.selectionAsync(); };
+  useAnimatedReaction(() => Math.round(sx.value / SLOT), (i, prev) => {
+    if (prev !== null && i !== prev && fling.value && i >= 0 && i < count) scheduleOnRN(buzz);
   }, [count]);
+  const maxX = Math.max(0, (count - 1) * SLOT);
+  const swipe = Gesture.Pan().enabled(!talking && count > 1).activeOffsetX([-8, 8]).failOffsetY([-14, 14])
+    .onStart(() => { cancelAnimation(sx); fling.value = true; from.value = sx.value; })
+    .onUpdate((e) => { const v = from.value - e.translationX; sx.value = v < 0 ? v * 0.3 : v > maxX ? maxX + (v - maxX) * 0.3 : v; })
+    .onEnd((e) => {
+      const i = Math.max(0, Math.min(Math.round((sx.value - e.velocityX * 0.2) / SLOT), count - 1));
+      scheduleOnRN(choose, i);
+      sx.value = withSpring(i * SLOT, { ...SNAP, velocity: -e.velocityX }, () => { fling.value = false; });
+    });
   const jump = (i: number) => {
-    const f = friends[i];
-    if (!f || talking) return;
+    if (talking) return;
     Haptics.selectionAsync();
-    target.current = i;
-    lastIdx.value = i;
-    scroll.current?.scrollTo({ x: i * SLOT, animated: true });
-    set({ selectedId: f.id });
-    clearPokeCount(f.id);
+    choose(i);
   };
   useEffect(() => {
-    if (!friend || call) return;
-    if (lastIdx.value === -1) { lastIdx.value = selIdx; sx.value = selIdx * SLOT; return; }
-    if (lastIdx.value === selIdx) return;
-    target.current = selIdx;
-    lastIdx.value = selIdx;
-    scroll.current?.scrollTo({ x: selIdx * SLOT, animated: true });
-  }, [friend?.id, selIdx]);
-  useEffect(() => {
-    if (call || !friend) return;
-    lastIdx.value = selIdx;
-    sx.value = selIdx * SLOT;
-  }, [!!call]);
+    if (!friend || call || fling.value) return;
+    sx.value = withSpring(selIdx * SLOT, SNAP);
+  }, [friend?.id, selIdx, !!call]);
   useEffect(() => {
     if (!friend) return;
     const t = setTimeout(() => focusFriend(friend.id), 220);
@@ -511,14 +526,14 @@ export default function Home() {
       <View style={{ alignItems: 'center', gap: 12, paddingHorizontal: 24, marginBottom: bottomH + 12, opacity: bottomH ? 1 : 0 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Pressable onPress={() => { Haptics.selectionAsync(); setSheet(true); }} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, opacity: pressed ? 0.6 : 1 })}>
-            <Swap text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
+            <Fresh text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
             <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
           </Pressable>
         </View>
         {friendActivity ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             {friend.streak > 0 && <Image source={require('../assets/fire.png')} style={{ width: 17, height: 17 }} />}
-            <Swap text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} />
+            <Fresh text={friendActivity} style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.regular, fontSize: 14 }} />
           </View>
         ) : null}
       </View>
@@ -539,26 +554,9 @@ export default function Home() {
           <Round g="close" bg={C.red} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); endCall(); }} size={52} />
         </View>
       ) : (
-        <View style={{ marginBottom: insets.bottom + 6 }}>
-        <Animated.ScrollView
-          ref={scroll}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          scrollEnabled={!talking}
-          snapToInterval={SLOT}
-          decelerationRate="fast"
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-          onScrollEndDrag={(e) => {
-            const t = e.nativeEvent.targetContentOffset?.x;
-            if (t != null) pick(Math.max(0, Math.min(Math.round(t / SLOT), count - 1)));
-          }}
-          onMomentumScrollEnd={(e) => pick(Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.x / SLOT), count - 1)))}
-          contentOffset={{ x: selIdx * SLOT, y: 0 }}
-          onLayout={() => scroll.current?.scrollTo({ x: selIdx * SLOT, animated: false })}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingLeft: W / 2 - SLOT / 2, paddingRight: W / 2 - SLOT / 2, paddingVertical: 10, alignItems: 'center' }}
-        >
+        <GestureDetector gesture={swipe}>
+        <View style={{ marginBottom: insets.bottom + 6, height: SEL + 34 }}>
+        <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2, top: 10, flexDirection: 'row' }, track]}>
           {friends.map((f, i) => {
             const sel = f.id === friend.id;
             return (
@@ -573,9 +571,10 @@ export default function Home() {
               </Slot>
             );
           })}
-        </Animated.ScrollView>
+        </Animated.View>
         <View pointerEvents="box-none" style={{ position: 'absolute', left: PLUS_X, top: 0, bottom: 0, justifyContent: 'center' }}>{plus}</View>
         </View>
+        </GestureDetector>
       )}
       </View>
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}

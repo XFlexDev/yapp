@@ -15,7 +15,7 @@ async function ensureSession() {
   if (sessionStarted) return;
   sessionStarted = true;
   await AudioSession.configureAudio({
-    android: { preferredOutputList: ['speaker'], audioTypeOptions: { manageAudioFocus: true, audioMode: 'normal', audioFocusMode: 'gain', audioStreamType: 'music', audioAttributesUsageType: 'media', audioAttributesContentType: 'speech' } },
+    android: { preferredOutputList: ['speaker'], audioTypeOptions: { manageAudioFocus: false, audioMode: 'normal', audioFocusMode: 'gain', audioStreamType: 'music', audioAttributesUsageType: 'media', audioAttributesContentType: 'speech' } },
     ios: { defaultOutput: 'speaker' },
   });
   await AudioSession.startAudioSession();

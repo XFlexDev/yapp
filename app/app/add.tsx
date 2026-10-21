@@ -56,7 +56,7 @@ export default function Add() {
   };
 
   return (
-    <ScrollView style={{ backgroundColor: C.surface }} contentContainerStyle={{ padding: 24, paddingTop: 28, gap: 12 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <ScrollView style={{ backgroundColor: C.surface, flexGrow: 0 }} contentContainerStyle={{ padding: 24, paddingTop: 28, gap: 12 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 28 }}>add friends</Text>
       <Field value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="username" prefix="@" autoCapitalize="none" autoCorrect={false} returnKeyType="send" onSubmitEditing={send} />
       <ErrorText>{error}</ErrorText>
