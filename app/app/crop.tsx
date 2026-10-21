@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -8,6 +8,7 @@ import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError } from '../lib/api';
 import { crop, takePending, uploadPhotos } from '../lib/photo';
+import { useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { SPRING, Squish, Swap, slide, slideOut } from '../lib/tt';
 
@@ -83,10 +84,10 @@ export default function Crop() {
   const [error, setError] = useState('');
   const rect = useRef<() => Rect>(null);
   const done = useRef(false);
+  const onboarded = useStore((s) => !!s.me?.username && !!s.me?.display_name);
 
-  useEffect(() => { if (!p) router.back(); }, []);
   useEffect(() => () => { if (!done.current) p?.resolve(null); }, []);
-  if (!p) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  if (!p) return <Redirect href={onboarded ? '/' : '/onboarding'} />;
 
   const room = H - insets.top - insets.bottom - 230;
   let fw = W - 56, fh = fw * 16 / 9;
