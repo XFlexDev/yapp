@@ -14,6 +14,7 @@ import { removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
 import { Logo, SPRING, Squish, Swap } from '../lib/tt';
 import { Avatar, Button } from '../lib/ui';
+import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
@@ -76,34 +77,6 @@ function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
       )}
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, red]} />
       <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
-    </Animated.View>
-  );
-}
-
-const DARK = '#1a1a1a';
-const MORPH = { damping: 28, stiffness: 300, mass: 1 };
-
-/** One liquid pill: white "hold to talk" -> dark "slide up to lock" -> red as you slide. The tail is part of the same body and melts into it. */
-function Bubble({ text, lock, lift }: { text: string; lock: boolean; lift: { value: number } }) {
-  const m = useSharedValue(lock ? 1 : 0);
-  useEffect(() => { m.value = withSpring(lock ? 1 : 0, MORPH); }, [lock]);
-  const body = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value * m.value * 16 }, { scale: 1 + lift.value * m.value * 0.06 }] }));
-  const pill = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(m.value, [0, 1], ['#ffffff', DARK]) }));
-  const tail = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(m.value, [0, 1], ['#ffffff', DARK]), transform: [{ translateY: -m.value * 10 }, { rotate: '45deg' }, { scale: 1 - m.value * 0.5 }] }));
-  const red = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, lift.value * m.value)) }));
-  const redTail = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, lift.value * m.value)) }));
-  const ink = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']) }));
-  const icon = useAnimatedStyle(() => ({ width: Math.max(0, m.value) * 21, opacity: Math.min(1, Math.max(0, m.value)) }));
-  return (
-    <Animated.View style={[{ alignItems: 'center' }, body]}>
-      <Animated.View layout={LinearTransition.springify().damping(MORPH.damping).stiffness(MORPH.stiffness)} style={[{ zIndex: 2, height: 34, paddingHorizontal: 16, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, pill]}>
-        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, red]} />
-        <Animated.View style={[{ overflow: 'hidden', alignItems: 'flex-start' }, icon]}><Glyph g="lock" size={14} /></Animated.View>
-        <Swap text={text} style={[{ fontFamily: F.black, fontSize: 15 }, ink]} />
-      </Animated.View>
-      <Animated.View style={[{ zIndex: 1, width: 13, height: 13, borderRadius: 3, marginTop: -9, overflow: 'hidden' }, tail]}>
-        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, redTail]} />
-      </Animated.View>
     </Animated.View>
   );
 }
@@ -382,7 +355,7 @@ export default function Home() {
             <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
           </Pressable>
         </View>
-        <Bubble text={bubble} lock={talking && !call} lift={lift} />
+        <Bubble text={bubble} lock={talking && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </View>
       {call && call.state !== 'outgoing' ? (
         <View style={{ marginBottom: insets.bottom + 6, paddingVertical: 10 }}>
