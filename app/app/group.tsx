@@ -25,7 +25,7 @@ const SPRING = { damping: 18, stiffness: 320, mass: 0.7 };
 /** Collapsible settings section: tap the row, content springs open below it. */
 function Expand({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
-    <Animated.View layout={LinearTransition.springify().damping(26).stiffness(260)} style={{ marginHorizontal: 10, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+    <Animated.View layout={LinearTransition.duration(240).easing(Easing.out(Easing.cubic))} style={{ marginHorizontal: 10, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
       <Pressable onPress={() => { Haptics.selectionAsync(); onToggle(); }} style={({ pressed }) => ({ height: 50, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
         <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{title}</Text>
         <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 18 }}>{open ? '–' : '+'}</Text>
