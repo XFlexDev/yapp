@@ -1,6 +1,6 @@
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track, type LocalVideoTrack, type Participant } from 'livekit-client';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { req } from './api';
 import { setSelfTalking, startBackground } from './background';
 import { get, set } from './store';
@@ -10,6 +10,23 @@ let inbox: Room | null = null;
 let talk: { friendId: string; room: Room; ready: Promise<void> } | null = null;
 let pressed = false;
 let sessionStarted = false;
+let listening = false;
+let joining: Promise<void> | null = null;
+let rejoinTimer: ReturnType<typeof setTimeout> | null = null;
+
+function rejoin(delay: number) {
+  if (!listening || rejoinTimer) return;
+  rejoinTimer = setTimeout(() => {
+    rejoinTimer = null;
+    startListening().catch(() => rejoin(Math.min(delay * 2, 15000)));
+  }, delay);
+}
+
+AppState.addEventListener('change', (st) => {
+  if (st !== 'active' || !listening) return;
+  if (!inbox || inbox.state === 'disconnected') startListening().catch(() => rejoin(1000));
+  if (talk && talk.room.state === 'disconnected' && !pressed) { const id = talk.friendId; talk = null; focusFriend(id); }
+});
 
 async function ensureSession() {
   if (sessionStarted) return;
@@ -23,7 +40,15 @@ async function ensureSession() {
 
 /** Join my own inbox room; anything friends publish there plays automatically. */
 export async function startListening() {
-  if (inbox) return;
+  listening = true;
+  if (inbox && inbox.state !== 'disconnected') return;
+  if (joining) return joining;
+  joining = joinInbox().finally(() => { joining = null; });
+  return joining;
+}
+
+async function joinInbox() {
+  inbox = null;
   await ensureSession();
   const g = await req<Grant>('/v1/rtc/listen', { method: 'POST' });
   const room = new Room({ adaptiveStream: false, dynacast: false });
@@ -37,19 +62,26 @@ export async function startListening() {
     room.on(ev, (...a: any[]) => syncRemote(a.find((x) => x?.identity && x?.getTrackPublication)));
   }
   room.on(RoomEvent.ParticipantDisconnected, (p) => dropRemote(p.identity));
-  room.on(RoomEvent.Disconnected, () => { if (inbox === room) inbox = null; set((s) => ({ cams: { ...s.cams, remote: {} } })); });
+  room.on(RoomEvent.Disconnected, () => {
+    if (inbox !== room) return;
+    inbox = null;
+    set((s) => ({ cams: { ...s.cams, remote: {} }, talkingTo: {} }));
+    rejoin(1000);
+  });
   inbox = room;
   await room.connect(g.url, g.token, { autoSubscribe: true });
 }
 
 export async function stopListening() {
+  listening = false;
+  if (rejoinTimer) { clearTimeout(rejoinTimer); rejoinTimer = null; }
   const r = inbox; inbox = null;
   await r?.disconnect();
 }
 
 /** Pre-connect to the selected friend's inbox so pressing talk is instant. */
 export function focusFriend(friendId: string) {
-  if (talk?.friendId === friendId) return;
+  if (talk?.friendId === friendId && talk.room.state !== 'disconnected') return;
   const prev = talk;
   prev?.room.disconnect();
   const room = new Room();
