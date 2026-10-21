@@ -27,6 +27,8 @@ function Chevron() {
   return <SymbolView name="chevron.right" tintColor="rgba(255,255,255,0.3)" size={14} weight="bold" fallback={<MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.3)" />} />;
 }
 
+type Trophy = { id: string; title: string; sub: string; goal: number; progress: number; done: boolean };
+
 function Section({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <Animated.View layout={MOVE} entering={FadeIn.duration(200)} exiting={FadeOut.duration(160)} style={{ gap: 8 }}>
@@ -111,6 +113,8 @@ export default function Settings() {
   const { me, friends, incoming, outgoing } = useStore();
   const [blocked, setBlocked] = useState<User[]>([]);
   useEffect(() => { loadBlocks().then(setBlocked).catch(() => {}); }, []);
+  const [trophies, setTrophies] = useState<Trophy[]>([]);
+  useEffect(() => { req<Trophy[]>('/v1/me/achievements').then(setTrophies).catch(() => {}); }, []);
   const doUnblock = (u: User) => { setBlocked((b) => b.filter((x) => x.id !== u.id)); unblock(u.id).catch(() => loadBlocks().then(setBlocked).catch(() => {})); };
   const [error, setError] = useState('');
   const [sureDelete, setSureDelete] = useState(false);
@@ -188,6 +192,15 @@ export default function Settings() {
         <Section title={`friends · ${friends.length}`}>
           {friends.length ? friends.map((f, i) => <FriendRow key={f.id} f={f} first={i === 0} />) : <Row first label="no friends yet" sub="add someone by their username" />}
         </Section>
+
+        {trophies.length ? (
+          <Section title={`trophies · ${trophies.filter((t) => t.done).length}/${trophies.length}`}>
+            {trophies.map((t, i) => (
+              <Row key={t.id} first={i === 0} label={t.title} sub={t.sub} color={t.done ? '#fff' : 'rgba(255,255,255,0.55)'}
+                right={<Text style={{ color: t.done ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 14 }}>{t.done ? 'unlocked' : `${t.progress}/${t.goal}`}</Text>} />
+            ))}
+          </Section>
+        ) : null}
 
         <Section>
           <Row first label="do not disturb" sub="friends can’t talk to you" right={<Toggle on={me.dnd} onChange={setDnd} />} />

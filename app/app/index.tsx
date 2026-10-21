@@ -434,6 +434,8 @@ export default function Home() {
     ca.value = withSpring(call && call.state !== 'outgoing' ? 1 : 0, MORPH);
   }, [call?.state]);
   useEffect(() => { if (note) { const t = setTimeout(() => setNote(null), 2200); return () => clearTimeout(t); } }, [note]);
+  const trophy = useStore((s) => s.trophy);
+  useEffect(() => { if (trophy) { setNote(`unlocked: ${trophy}`); set({ trophy: null }); } }, [trophy]);
   useEffect(() => {
     if (call) return;
     if (locked.current) { locked.current = false; setTalking(false); }

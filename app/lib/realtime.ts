@@ -68,6 +68,7 @@ function onEvent(e: any) {
       break;
     }
     case 'talk_clip': onClip(e.clip); break;
+    case 'achievement': haptic.celebrate(); set({ trophy: e.title }); break;
     case 'group_talk_started':
       if (e.from.id !== get().me?.id) { set((s) => ({ groupTalk: { ...s.groupTalk, [e.group_id]: e.from.id } })); haptic.incomingTalk(); }
       break;

@@ -1282,6 +1282,7 @@ async fn ptt_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<Friend
         broadcast_streak(&st, &me, &r.friend_id, current, last_talked_at);
     }
     recorder(&st, "/start", json!({ "from": me, "to": r.friend_id }));
+    bump(&st, &me, "talks", 1);
     let online = st.hub.online(&r.friend_id);
     st.hub.send(&r.friend_id, &json!({ "type": "ptt_started", "from": &u }));
     if !online {
@@ -1297,6 +1298,53 @@ async fn ptt_stop(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendR
     st.hub.send(&r.friend_id, &json!({ "type": "ptt_stopped", "from_id": me }));
     recorder(&st, "/stop", json!({ "from": me, "to": r.friend_id }));
     Ok(Json(json!({ "ok": true })))
+}
+
+/// (id, stat, title, description, goal)
+const TROPHIES: &[(&str, &str, &str, &str, i64)] = &[
+    ("first_words", "talks", "first words", "talk to a friend", 1),
+    ("yapper", "talks", "yapper", "talk 100 times", 100),
+    ("cant_stop", "talks", "can't stop yapping", "talk 1,000 times", 1000),
+    ("on_the_line", "calls", "on the line", "have your first call", 1),
+    ("phone_friend", "calls", "phone friend", "have 25 calls", 25),
+    ("poke_master", "pokes", "poke master", "poke 500 times", 500),
+    ("squad_up", "group_talks", "squad up", "talk to a group", 1),
+    ("the_crew", "friends", "the crew", "have 5 friends", 5),
+    ("on_fire", "streak", "on fire", "3 day streak with someone", 3),
+    ("week_strong", "streak", "week strong", "7 day streak with someone", 7),
+    ("unstoppable", "streak", "unstoppable", "30 day streak with someone", 30),
+];
+
+/// Counts an action and tells the user the moment it unlocks a trophy.
+fn bump(st: &S, uid: &str, col: &'static str, by: i64) {
+    let after: i64 = {
+        let c = st.db();
+        let up = format!("INSERT INTO stats(user_id, {col}) VALUES (?1, ?2) ON CONFLICT(user_id) DO UPDATE SET {col}={col}+?2");
+        if c.execute(&up, params![uid, by]).is_err() { return; }
+        c.query_row(&format!("SELECT {col} FROM stats WHERE user_id=?"), [uid], |r| r.get(0)).unwrap_or(0)
+    };
+    let before = after - by;
+    for t in TROPHIES.iter().filter(|t| t.1 == col && before < t.4 && after >= t.4) {
+        st.hub.send(uid, &json!({ "type": "achievement", "id": t.0, "title": t.2 }));
+    }
+}
+
+async fn achievements(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let c = st.db();
+    let (talks, calls, pokes, group_talks): (i64, i64, i64, i64) = c
+        .query_row("SELECT talks, calls, pokes, group_talks FROM stats WHERE user_id=?", [&me], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .optional()?
+        .unwrap_or_default();
+    let friends = friend_ids(&c, &me)?.len() as i64;
+    let streak: i64 = c.query_row("SELECT COALESCE(MAX(longest), 0) FROM streaks WHERE a=?1 OR b=?1", [&me], |r| r.get(0))?;
+    let list: Vec<Value> = TROPHIES
+        .iter()
+        .map(|t| {
+            let have = match t.1 { "talks" => talks, "calls" => calls, "pokes" => pokes, "group_talks" => group_talks, "friends" => friends, _ => streak };
+            json!({ "id": t.0, "title": t.2, "sub": t.3, "goal": t.4, "progress": have.min(t.4), "done": have >= t.4 })
+        })
+        .collect();
+    Ok(Json(json!(list)))
 }
 
 const CLIP_TTL_MS: i64 = 7 * 24 * 3600 * 1000;
@@ -1450,6 +1498,7 @@ async fn poke(State(st): State<S>, Authed(me): Authed, Json(r): Json<PokeReq>) -
     }
     let online = st.hub.online(&r.friend_id);
     let count = r.count.unwrap_or(1).clamp(1, 9999);
+    bump(&st, &me, "pokes", count as i64);
     st.hub.send(&r.friend_id, &json!({ "type": "poke", "from": &u, "count": count }));
     if !online {
         let body = if count > 1 { format!("poked you {count} times") } else { "poked you".into() };
@@ -1495,6 +1544,8 @@ async fn call_accept(State(st): State<S>, Authed(me): Authed, Json(r): Json<Frie
         touch_streak(&c, &me, &r.friend_id)?
     };
     st.hub.send(&r.friend_id, &json!({ "type": "call_accepted", "from_id": me }));
+    bump(&st, &me, "calls", 1);
+    bump(&st, &r.friend_id, "calls", 1);
     broadcast_streak(&st, &me, &r.friend_id, streak, last_talked_at);
     Ok(Json(json!({ "ok": true })))
 }
@@ -1874,6 +1925,7 @@ async fn group_talk(st: &S, me: &str, g: &str, on: bool) -> R<Json<Value>> {
     if on {
         let name = label(&u);
         recorder(st, "/gstart", json!({ "group": g, "from": me, "to": others, "name": name }));
+        bump(st, me, "group_talks", 1);
         tell_group(st, &ids, &json!({ "type": "group_talk_started", "group_id": g, "from": &u }));
         for m in others.iter().filter(|m| !st.hub.online(m)) {
             push(st, m, format!("{gname} · {name}"), "is talking".into(), json!({ "type": "ptt", "from": me, "group_id": g }));
@@ -2076,6 +2128,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/ptt/start", post(ptt_start))
         .route("/v1/ptt/stop", post(ptt_stop))
         .route("/v1/clips", get(list_clips))
+        .route("/v1/me/achievements", get(achievements))
         .route("/v1/clips/{id}/play", post(play_clip))
         .route("/v1/clips/{id}/seen", post(seen_clip))
         .route("/internal/clips", post(internal_clip))

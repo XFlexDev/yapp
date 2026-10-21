@@ -29,6 +29,7 @@ type State = {
   notif: { prefs: NotifPrefs; muted: string[] } | null;
   clips: Record<string, Clip[]>;
   groupTalk: Record<string, string | null>;
+  trophy: string | null;
   cams: { local: CamRef | null; front: boolean; remote: Record<string, CamRef>; swap: boolean; fit: boolean; bare: boolean };
 };
 
@@ -37,6 +38,7 @@ export const useStore = create<State>(() => ({
   selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, notif: null,
   clips: {},
   groupTalk: {},
+  trophy: null,
   cams: { local: null, front: true, remote: {}, swap: false, fit: false, bare: false },
 }));
 
