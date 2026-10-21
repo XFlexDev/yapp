@@ -1,0 +1,99 @@
+{
+  "expo": {
+    "name": "Yapp",
+    "slug": "yapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.kreatix.yapp",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Yapp uses your microphone while you hold to talk.",
+        "NSPhotoLibraryUsageDescription": "Pick a profile photo your friends see.",
+        "NSCameraUsageDescription": "Take a profile photo your friends see.",
+        "UIBackgroundModes": [
+          "audio",
+          "voip",
+          "remote-notification"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bitcode": false
+    },
+    "android": {
+      "package": "dev.kreatix.yapp",
+      "adaptiveIcon": {
+        "backgroundColor": "#FF1F1F",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "POST_NOTIFICATIONS",
+        "CAMERA",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc",
+      "expo-secure-store",
+      "expo-router",
+      "expo-status-bar",
+      "expo-image",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FF1F1F",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#FF1F1F"
+        }
+      ],
+      "expo-font"
+    ],
+    "scheme": "yapp",
+    "owner": "kreatix",
+    "backgroundColor": "#000000",
+    "newArchEnabled": true,
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "f9fdec44-08e0-4574-b972-04b00bb24cd0"
+      }
+    }
+  }
+}
