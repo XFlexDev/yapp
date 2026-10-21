@@ -1,4 +1,5 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { setPref } from '../lib/notifs';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
@@ -117,6 +118,7 @@ export default function Settings() {
     try { set({ me: await req<Me>('/v1/me', { method: 'PATCH', body }) }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
     catch (e) { setError((e instanceof ApiError ? e.message : 'couldn’t save').toLowerCase()); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); throw e; }
   };
+  const notif = useStore((s) => s.notif);
   const setDnd = (dnd: boolean) => {
     set({ me: { ...me, dnd } });
     req<Me>('/v1/status', { method: 'PUT', body: { dnd } }).then((m) => set({ me: m })).catch(() => set({ me: { ...me, dnd: !dnd } }));
@@ -186,6 +188,15 @@ export default function Settings() {
         <Section>
           <Row first label="do not disturb" sub="friends can’t talk to you" right={<Toggle on={me.dnd} onChange={setDnd} />} />
         </Section>
+
+        {notif ? (
+          <Section title="notifications">
+            <Row first label="messages" sub="chats and groups" right={<Toggle on={notif.prefs.messages} onChange={(v) => setPref('messages', v)} />} />
+            <Row label="talk" sub="when a friend talks to you" right={<Toggle on={notif.prefs.talk} onChange={(v) => setPref('talk', v)} />} />
+            <Row label="calls" right={<Toggle on={notif.prefs.calls} onChange={(v) => setPref('calls', v)} />} />
+            <Row label="friends" sub="requests and new friends" right={<Toggle on={notif.prefs.friends} onChange={(v) => setPref('friends', v)} />} />
+          </Section>
+        ) : null}
 
         <Section title="help">
           <Row first label="contact support" sub="info@kreatix.dev" onPress={() => Linking.openURL('mailto:info@kreatix.dev?subject=Yapp')} />

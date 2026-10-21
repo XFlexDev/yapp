@@ -6,6 +6,7 @@ import { get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './
 import { API } from './theme';
 import { remoteEnded } from './voice';
 import { loadChats, onBackground, onMessage, onRead } from './chat';
+import { loadNotifs } from './notifs';
 import { loadGroups, onGroupMessage, onGroupRead, onGroupUpdated, onLeft } from './groups';
 
 let ws: WebSocket | null = null;
@@ -78,7 +79,7 @@ function connect() {
   if (!t) return;
   const sock = new WebSocket(`${API.replace('https', 'wss')}/v1/stream?access_token=${encodeURIComponent(t)}`);
   ws = sock;
-  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); };
+  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); loadNotifs().catch(() => {}); };
   sock.onmessage = (m) => { try { onEvent(JSON.parse(String(m.data))); } catch {} };
   sock.onclose = () => {
     if (ws === sock) ws = null;

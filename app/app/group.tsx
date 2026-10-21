@@ -13,7 +13,7 @@ import { set, useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, Glyph } from './chat';
+import { Backdrop, Bubble, Glyph, MuteRow } from './chat';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 
@@ -105,6 +105,7 @@ export default function GroupScreen() {
                     <Glyph g="add" size={16} />
                   </Squish>
                 ))}
+                <View style={{ marginTop: 12 }}><MuteRow chat={`g:${id}`} /></View>
                 <Squish onPress={() => { if (!sure) { Haptics.selectionAsync(); setSure(true); return; } leaveGroup(id!).catch(() => {}); }} style={{ marginHorizontal: 18, marginTop: 12, height: 50, borderRadius: 25, backgroundColor: sure ? C.danger : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{sure ? 'tap again to leave' : 'leave group'}</Text>
                 </Squish>

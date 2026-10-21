@@ -86,6 +86,18 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             read_at INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(group_id, user_id)
         );
+        CREATE TABLE IF NOT EXISTS notif_prefs(
+            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            messages INTEGER NOT NULL DEFAULT 1,
+            talk INTEGER NOT NULL DEFAULT 1,
+            calls INTEGER NOT NULL DEFAULT 1,
+            friends INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS mutes(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            chat TEXT NOT NULL,
+            PRIMARY KEY(user_id, chat)
+        );
         CREATE TABLE IF NOT EXISTS chat_reads(
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             friend_id TEXT NOT NULL,

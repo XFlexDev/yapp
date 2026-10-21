@@ -1,5 +1,6 @@
+import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -42,6 +43,14 @@ export default function Root() {
     startListening().catch(() => {});
     startBackground();
     registerPush();
+    const open = (d: any) => {
+      if (d?.type === 'group_message' && d.group_id) router.push({ pathname: '/group', params: { id: d.group_id } });
+      else if (d?.type === 'message' && d.from) router.push({ pathname: '/chat', params: { id: d.from } });
+    };
+    const last = Notifications.getLastNotificationResponse();
+    if (last) open(last.notification.request.content.data);
+    const sub = Notifications.addNotificationResponseReceivedListener((r) => open(r.notification.request.content.data));
+    return () => sub.remove();
   }, [status]);
 
   const ready = fonts && status !== 'loading';

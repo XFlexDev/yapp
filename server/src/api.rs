@@ -200,6 +200,24 @@ fn label(u: &PublicUser) -> String {
 fn push(st: &S, user: &str, title: String, body: String, data: Value) {
     let tokens: Vec<String> = {
         let c = st.db();
+        let kind = data["type"].as_str().unwrap_or("");
+        let col = match kind {
+            "message" | "group_message" => "messages",
+            "ptt" | "poke" => "talk",
+            "call" => "calls",
+            "friend_request" | "friendship_created" => "friends",
+            _ => "",
+        };
+        if !col.is_empty() {
+            let on: i64 = c.query_row(&format!("SELECT {col} FROM notif_prefs WHERE user_id=?"), [user], |r| r.get(0)).unwrap_or(1);
+            if on == 0 { return; }
+        }
+        if matches!(kind, "message" | "group_message" | "ptt" | "poke") {
+            let chat = data["group_id"].as_str().map(|g| format!("g:{g}")).or_else(|| data["from"].as_str().map(String::from));
+            if let Some(ch) = chat {
+                if c.query_row("SELECT 1 FROM mutes WHERE user_id=? AND chat=?", [user, ch.as_str()], |_| Ok(())).is_ok() { return; }
+            }
+        }
         let Ok(mut s) = c.prepare("SELECT token FROM devices WHERE user_id=?") else { return };
         let Ok(rows) = s.query_map([user], |r| r.get(0)) else { return };
         rows.filter_map(Result::ok).collect()
@@ -236,6 +254,55 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
             Err(e) => tracing::warn!(error = %e, "expo push failed"),
         }
     });
+}
+
+// ---------- notification settings ----------
+
+#[derive(Deserialize)]
+struct Prefs {
+    messages: bool,
+    talk: bool,
+    calls: bool,
+    friends: bool,
+}
+
+async fn get_notifs(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let c = st.db();
+    let prefs = c
+        .query_row("SELECT messages, talk, calls, friends FROM notif_prefs WHERE user_id=?", [&me], |r| {
+            Ok(json!({ "messages": r.get::<_, i64>(0)? != 0, "talk": r.get::<_, i64>(1)? != 0, "calls": r.get::<_, i64>(2)? != 0, "friends": r.get::<_, i64>(3)? != 0 }))
+        })
+        .optional()?
+        .unwrap_or_else(|| json!({ "messages": true, "talk": true, "calls": true, "friends": true }));
+    let mut q = c.prepare("SELECT chat FROM mutes WHERE user_id=?")?;
+    let muted: Vec<String> = q.query_map([&me], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(Json(json!({ "prefs": prefs, "muted": muted })))
+}
+
+async fn put_notifs(State(st): State<S>, Authed(me): Authed, Json(p): Json<Prefs>) -> R<Json<Value>> {
+    st.db().execute(
+        "INSERT INTO notif_prefs(user_id, messages, talk, calls, friends) VALUES (?1,?2,?3,?4,?5)
+         ON CONFLICT(user_id) DO UPDATE SET messages=?2, talk=?3, calls=?4, friends=?5",
+        params![me, p.messages, p.talk, p.calls, p.friends],
+    )?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct MuteReq {
+    chat: String,
+    muted: bool,
+}
+
+async fn put_mute(State(st): State<S>, Authed(me): Authed, Json(r): Json<MuteReq>) -> R<Json<Value>> {
+    if r.chat.is_empty() || r.chat.len() > 40 { return Err(bad("Unknown chat")); }
+    let c = st.db();
+    if r.muted {
+        c.execute("INSERT OR IGNORE INTO mutes(user_id, chat) VALUES (?,?)", params![me, r.chat])?;
+    } else {
+        c.execute("DELETE FROM mutes WHERE user_id=? AND chat=?", params![me, r.chat])?;
+    }
+    Ok(Json(json!({ "ok": true })))
 }
 
 // ---------- auth ----------
@@ -1405,6 +1472,8 @@ pub fn router(st: S) -> Router {
         .route("/v1/friends/requests/{id}/accept", post(accept_request))
         .route("/v1/friends/requests/{id}", axum::routing::delete(delete_request))
         .route("/v1/devices", post(add_device).delete(remove_device))
+        .route("/v1/notifications", get(get_notifs).put(put_notifs))
+        .route("/v1/notifications/mute", put(put_mute))
         .route("/v1/rtc/listen", post(rtc_listen))
         .route("/v1/rtc/focus", post(rtc_focus))
         .route("/v1/ptt/start", post(ptt_start))
