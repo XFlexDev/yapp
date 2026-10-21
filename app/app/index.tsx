@@ -144,30 +144,32 @@ function Zzz() {
   );
 }
 
-function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number>; focus?: SharedValue<number> }) {
+function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus, r = 1 }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number>; focus?: SharedValue<number>; r?: number }) {
   const press = useSharedValue(0);
   const ripple = useSharedValue(0);
+  const hear = useSharedValue(hearing ? 1 : 0);
   const bump = useSharedValue(0);
   useEffect(() => { press.value = withSpring(talking ? 1 : 0, SPRING); }, [talking]);
   useEffect(() => {
     if (pokeAt) bump.value = withSequence(withTiming(1, { duration: 110, easing: Easing.out(Easing.quad) }), withSpring(0, SPRING));
   }, [pokeAt]);
   useEffect(() => {
+    hear.value = withTiming(hearing ? 1 : 0, { duration: 200 });
     if (hearing) ripple.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.out(Easing.quad) }), -1, false);
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
   const body = useAnimatedStyle(() => ({ transform: [{ scale: ((1 + press.value * 0.1 + bump.value * 0.07) / GROW) * pokeSquish.value }] }));
   const ring = useAnimatedStyle(() => ({ opacity: focus ? focus.value : 1, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
-  const wave = useAnimatedStyle(() => ({ opacity: (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
-  const size = Math.round((SEL + 14) * GROW);
-  const box = SEL + 14;
+  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: [{ scale: 1 + ripple.value * 0.25 }] }));
+  const size = Math.round((SEL + 14) * GROW * r);
+  const box = Math.round((SEL + 14) * r);
   return (
     <View style={{ width: box, height: box, alignItems: 'center', justifyContent: 'center' }}>
     <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, body]}>
       <Animated.View pointerEvents="none" style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: '#fff' }, wave]} />
-      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: 4 }, ring]} />
-      <Avatar user={friend} size={Math.round(SEL * GROW)} />
-      {friend.dnd ? <Zzz /> : <Dot friend={friend} size={20} />}
+      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, borderWidth: Math.max(2, Math.round(4 * r)) }, ring]} />
+      <Avatar user={friend} size={Math.round(SEL * GROW * r)} />
+      {friend.dnd ? <Zzz /> : <Dot friend={friend} size={Math.round(20 * Math.max(r, 0.8))} />}
     </Animated.View>
     </View>
   );
@@ -177,7 +179,7 @@ function Slot({ i, x, dim, badge, sel, dir, cp, ca, children }: { i: number; x: 
   const focus = useDerivedValue(() => 1 - Math.min(1, Math.abs(x.value - i * SLOT) / SLOT));
   const st = useAnimatedStyle(() => {
     const k = sel ? 1 - 0.4 * ca.value : 1 - 0.3 * cp.value;
-    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, { scale: (MIN + (1 - MIN) * focus.value) * k }] };
+    return { transform: [{ translateX: sel ? 0 : dir * 36 * cp.value }, { scale: ((MIN + (1 - MIN) * focus.value) / (sel ? 1 : MIN)) * k }] };
   });
   const edge = useAnimatedStyle(() => {
     const cx = W / 2 + i * SLOT - x.value;
@@ -570,7 +572,7 @@ export default function Home() {
                 {(focus) => (
                   <GestureDetector gesture={sel ? avatarGesture : Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) jump(i); })}>
                     <View collapsable={false}>
-                      <TalkAvatar friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} />
+                      <TalkAvatar friend={f} talking={sel && (talking || !!call)} hearing={!!talkingTo[f.id]} pokeAt={sel ? pokedAt[f.id] ?? 0 : 0} pokeSquish={sel ? pokeSquish : one} focus={focus} r={sel ? 1 : MIN} />
                     </View>
                   </GestureDetector>
                 )}
