@@ -1,0 +1,25 @@
+build:
+  name: Unsigned iOS IPA
+  steps:
+    - eas/checkout
+    - eas/install_node_modules
+    - eas/prebuild
+    - run:
+        name: Install pods
+        working_directory: ./ios
+        command: pod install
+    - run:
+        name: Build unsigned app
+        working_directory: ./ios
+        command: |
+          set -eo pipefail
+          xcodebuild -workspace Yapp.xcworkspace -scheme Yapp -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Yapp.app Payload/
+          zip -qry ../yapp-unsigned.ipa Payload
+    - eas/upload_artifact:
+        name: Upload IPA
+        inputs:
+          path: yapp-unsigned.ipa

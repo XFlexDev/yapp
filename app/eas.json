@@ -1,9 +1,35 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
-    "base": { "node": "22.14.0", "env": { "NPM_CONFIG_LEGACY_PEER_DEPS": "true" } },
-    "apk": { "extends": "base", "distribution": "internal", "android": { "buildType": "apk" } },
-    "production": { "extends": "base", "autoIncrement": true, "android": { "buildType": "app-bundle" } },
-    "ios-unsigned": { "extends": "base", "distribution": "internal", "ios": { "simulator": false, "withoutCredentials": true } }
+    "base": {
+      "node": "22.14.0",
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      }
+    },
+    "apk": {
+      "extends": "base",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "extends": "base",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
+    "ios-unsigned": {
+      "extends": "base",
+      "ios": {
+        "withoutCredentials": true
+      },
+      "config": "unsigned-ios.yml"
+    }
   }
 }
