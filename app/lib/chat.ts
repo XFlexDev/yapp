@@ -8,7 +8,13 @@ export const chatOf = (id: string) => get().chats[id] ?? EMPTY;
 function patch(id: string, f: (c: Chat) => Partial<Chat>) {
   set((s) => { const c = s.chats[id] ?? EMPTY; return { chats: { ...s.chats, [id]: { ...c, ...f(c) } } }; });
 }
-const add = (list: ChatMsg[], m: ChatMsg) => (list.some((x) => x.id === m.id) ? list : [m, ...list.filter((x) => !(x.pending && x.from === m.from && x.body === m.body))]);
+/** Adds `m`, replacing its optimistic copy; keeps the copy's key (`cid`) so the bubble doesn't re-mount. */
+const add = (list: ChatMsg[], m: ChatMsg) => {
+  if (list.some((x) => x.id === m.id)) return list;
+  const twin = list.find((x) => x.pending && x.from === m.from && x.body === m.body);
+  const next = twin ? { ...m, cid: twin.cid ?? twin.id } : m;
+  return twin ? list.map((x) => (x === twin ? next : x)) : [next, ...list];
+};
 
 export async function loadChats() {
   const r = await req<{ chats: { friend_id: string; last: ChatMsg | null; unread: number; background: string | null }[] }>('/v1/chats');
@@ -32,7 +38,7 @@ export async function sendMessage(id: string, body: string) {
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
     const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body } });
-    patch(id, (c) => ({ messages: add(c.messages.filter((x) => x.id !== tmp.id), m) }));
+    patch(id, (c) => (c.messages.some((x) => x.id === m.id) ? { messages: c.messages.filter((x) => x.id !== tmp.id) } : { messages: c.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (c) => ({ messages: c.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));
   }
