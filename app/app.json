@@ -20,13 +20,19 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bitcode": false
+      "bitcode": false,
+      "entitlements": {
+        "aps-environment": "production",
+        "com.apple.developer.usernotifications.time-sensitive": true,
+        "com.apple.developer.usernotifications.communication": true
+      }
     },
     "android": {
       "package": "dev.kreatix.yapp",
       "adaptiveIcon": {
         "backgroundColor": "#FF1F1F",
-        "foregroundImage": "./assets/android-icon-foreground.png"
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
         "RECORD_AUDIO",
@@ -72,13 +78,14 @@
         {
           "backgroundColor": "#FF1F1F",
           "image": "./assets/splash-icon.png",
-          "imageWidth": 120
+          "imageWidth": 200
         }
       ],
       [
         "expo-notifications",
         {
-          "color": "#FF1F1F"
+          "color": "#FF1F1F",
+          "icon": "./assets/notification-icon.png"
         }
       ],
       "expo-font",
