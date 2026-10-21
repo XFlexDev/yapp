@@ -112,6 +112,63 @@ async function play({ id, from, to, name }) {
   }
 }
 
+// Group walkie-talkie relay: subscribe to the talker in `g_<group>` and re-publish into each member's inbox.
+// Member connections stay warm for a few minutes so back-and-forth talks start instantly.
+const relays = new Map(); // `${group}:${from}` -> relay
+const outs = new Map(); // `${group}:${from}>${member}` -> { room, source, idle }
+
+async function outFor(group, from, member, name) {
+  const key = `${group}:${from}>${member}`;
+  const o = outs.get(key);
+  if (o && o.room.isConnected) { clearTimeout(o.idle); return o; }
+  outs.delete(key);
+  const room = new Room();
+  await room.connect(LK_URL, token(`grp:${group}:${from}`, name || 'friend', `u_${member}`, { canPublish: true, canSubscribe: false, canPublishSources: ['microphone'] }), { autoSubscribe: false, dynacast: false });
+  const source = new AudioSource(RATE, 1);
+  const opts = new TrackPublishOptions();
+  opts.source = TrackSource.SOURCE_MICROPHONE;
+  await room.localParticipant.publishTrack(LocalAudioTrack.createAudioTrack('group', source), opts);
+  const n = { room, source, idle: null };
+  room.on(RoomEvent.Disconnected, () => { if (outs.get(key) === n) outs.delete(key); });
+  outs.set(key, n);
+  return n;
+}
+
+async function gstart({ group, from, to = [], name }) {
+  const key = `${group}:${from}`;
+  if (relays.has(key)) return;
+  const r = { room: new Room(), done: false, members: to };
+  relays.set(key, r);
+  r.cap = setTimeout(() => gstop({ group, from }).catch(() => {}), 5 * 60_000);
+  const ready = Promise.all(to.map((m) => outFor(group, from, m, name).catch((e) => { log('relay out', m, e.message); return null; })));
+  r.room.on(RoomEvent.TrackSubscribed, async (track, _pub, p) => {
+    if (p.identity !== from || track.kind !== TrackKind.KIND_AUDIO) return;
+    const targets = (await ready).filter(Boolean);
+    try {
+      for await (const f of new AudioStream(track, RATE, 1)) {
+        if (r.done) break;
+        await Promise.all(targets.map((o) => o.source.captureFrame(f).catch(() => {})));
+      }
+    } catch {}
+  });
+  await r.room.connect(LK_URL, token(`relay_${crypto.randomUUID()}`, 'relay', `g_${group}`, { canPublish: false, canSubscribe: true, hidden: true }), { autoSubscribe: true, dynacast: false });
+}
+
+async function gstop({ group, from }) {
+  const key = `${group}:${from}`;
+  const r = relays.get(key);
+  if (!r) return;
+  relays.delete(key);
+  clearTimeout(r.cap);
+  await sleep(350);
+  r.done = true;
+  await r.room.disconnect().catch(() => {});
+  for (const m of r.members) {
+    const o = outs.get(`${group}:${from}>${m}`);
+    if (o) o.idle = setTimeout(() => { outs.delete(`${group}:${from}>${m}`); o.room.disconnect().catch(() => {}); }, 3 * 60_000);
+  }
+}
+
 async function sweep() {
   for (const f of await fs.readdir(CLIP_DIR).catch(() => [])) {
     const p = path.join(CLIP_DIR, f);
@@ -124,6 +181,8 @@ const routes = {
   '/start': (b) => start(b.from, b.to),
   '/stop': (b) => stop(b.from, b.to),
   '/play': (b) => play(b),
+  '/gstart': (b) => gstart(b),
+  '/gstop': (b) => gstop(b),
   '/delete': (b) => Promise.all((b.ids ?? []).map((id) => fs.unlink(fileOf(id)).catch(() => {}))),
 };
 

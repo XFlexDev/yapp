@@ -4,7 +4,9 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { haptic } from '../lib/haptic';
+import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, pickBackgroundPhoto } from '../lib/chat';
@@ -17,6 +19,40 @@ import { Backdrop, Bubble, Glyph, MuteRow } from './chat';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 
+const SPRING = { damping: 18, stiffness: 320, mass: 0.7 };
+
+/** Hold to talk to the whole group. */
+function TalkButton({ onState }: { onState: (s: 'idle' | 'connecting' | 'live' | 'hint') => void }) {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const on = useSharedValue(0);
+  const down = useRef(0);
+  const seq = useRef(0);
+  const a = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(on.value, [0, 1], ['rgba(255,255,255,0.12)', C.red]),
+    transform: [{ scaleX: 1 + on.value * 0.18 }, { scaleY: 1 + on.value * 0.18 }],
+  }));
+  const start = () => {
+    down.current = Date.now();
+    const n = ++seq.current;
+    on.value = withSpring(1, SPRING);
+    haptic.press();
+    onState('connecting');
+    pressGroup(id!).then(() => { if (seq.current === n) { haptic.live(); onState('live'); } }).catch(() => onState('idle'));
+  };
+  const end = () => {
+    seq.current++;
+    on.value = withSpring(0, SPRING);
+    releaseGroup(id!).catch(() => {});
+    if (Date.now() - down.current < 250) onState('hint');
+    else { haptic.release(); onState('idle'); }
+  };
+  return (
+    <Pressable onPressIn={start} onPressOut={end} hitSlop={8}>
+      <Animated.View style={[{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }, a]}><Glyph g="mic" size={18} /></Animated.View>
+    </Pressable>
+  );
+}
+
 export default function GroupScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -25,6 +61,8 @@ export default function GroupScreen() {
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
   const [sure, setSure] = useState(false);
+  const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
+  const talker = useStore((s) => s.groupTalk[id!] ?? null);
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom) + 8 }));
@@ -32,8 +70,10 @@ export default function GroupScreen() {
   useEffect(() => {
     set({ openChat: `g:${id}` });
     loadGroupMessages(id!).then(() => markGroupRead(id!)).catch(() => {});
-    return () => set({ openChat: null });
+    focusGroup(id!);
+    return () => { set({ openChat: null }); leaveGroupTalk(); };
   }, [id]);
+  useEffect(() => { if (talk === 'hint') { const t = setTimeout(() => setTalk('idle'), 1600); return () => clearTimeout(t); } }, [talk]);
   useEffect(() => { if (!g) router.back(); }, [!g]);
   if (!g) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
 
@@ -52,7 +92,7 @@ export default function GroupScreen() {
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Pressable style={{ flex: 1 }} onPress={() => setSheet('people')}>
           <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{g.name}</Text>
-          <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 13 }}>{g.members.length} people</Text>
+          <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 13 }}>{talk === 'live' ? 'everyone can hear you' : talk === 'connecting' ? 'connecting…' : talk === 'hint' ? 'hold to talk to everyone' : talker ? `${nameOf(who(talker) ?? ({ display_name: 'someone' } as any)).toLowerCase()} is talking` : `${g.members.length} people`}</Text>
         </Pressable>
         <Squish onPress={() => setSheet('people')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="people" /></Squish>
         <Squish onPress={() => setSheet('bg')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="palette" /></Squish>
@@ -69,7 +109,9 @@ export default function GroupScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <TextInput value={text} onChangeText={setText} placeholder={`message ${g.name}`} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
             style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
-          <Squish onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: text.trim() ? C.red : 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} /></Squish>
+          {text.trim() ? (
+            <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} /></Squish>
+          ) : <TalkButton onState={setTalk} />}
         </View>
       </Animated.View>
       {sheet ? (

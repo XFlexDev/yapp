@@ -59,7 +59,7 @@ async function joinInbox() {
     const on: Record<string, boolean> = {};
     speakers.forEach((p) => {
       if (p.identity === room.localParticipant.identity) return;
-      const id = p.identity.replace(/^clip:/, '');
+      const id = p.identity.replace(/^clip:/, '').replace(/^grp:[^:]+:/, '');
       on[id] = true;
       if (id === p.identity && AppState.currentState === 'active') heardAt[id] = Date.now();
     });
@@ -160,6 +160,49 @@ export async function pressTalk(friendId: string) {
   if (!pressed) return;
   await t.room.localParticipant.setMicrophoneEnabled(true);
   if (!pressed) await t.room.localParticipant.setMicrophoneEnabled(false);
+}
+
+let gtalk: { groupId: string; room: Room; ready: Promise<void> } | null = null;
+let gpressed = false;
+
+/** Pre-connect to a group's talk room while its screen is open. */
+export function focusGroup(groupId: string) {
+  if (gtalk?.groupId === groupId && gtalk.room.state !== 'disconnected') return;
+  gtalk?.room.disconnect();
+  const room = new Room();
+  const ready = (async () => {
+    await ensureSession();
+    const g = await req<Grant>('/v1/rtc/group', { method: 'POST', body: { group_id: groupId } });
+    await room.connect(g.url, g.token, { autoSubscribe: false });
+  })();
+  gtalk = { groupId, room, ready };
+  ready.catch(() => { if (gtalk?.room === room) gtalk = null; });
+}
+
+export function leaveGroupTalk() {
+  gpressed = false;
+  gtalk?.room.disconnect();
+  gtalk = null;
+}
+
+export async function pressGroup(groupId: string) {
+  gpressed = true;
+  if (!(await micPermission())) throw new Error('Yapp needs your microphone to talk');
+  startBackground();
+  setSelfTalking(true);
+  focusGroup(groupId);
+  const t = gtalk!;
+  await Promise.all([t.ready, req(`/v1/groups/${groupId}/talk/start`, { method: 'POST' })]);
+  if (!gpressed) return;
+  await t.room.localParticipant.setMicrophoneEnabled(true);
+  if (!gpressed) await t.room.localParticipant.setMicrophoneEnabled(false);
+}
+
+export async function releaseGroup(groupId: string) {
+  gpressed = false;
+  setSelfTalking(false);
+  await gtalk?.room.localParticipant.setMicrophoneEnabled(false).catch(() => {});
+  await req(`/v1/groups/${groupId}/talk/stop`, { method: 'POST' }).catch(() => {});
 }
 
 export async function releaseTalk(friendId: string) {

@@ -17,7 +17,7 @@ import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
-export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'] } as const;
+export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'] } as const;
 export function MuteRow({ chat }: { chat: string }) {
   const muted = useStore((s) => !!s.notif?.muted.includes(chat));
   return (

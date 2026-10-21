@@ -68,6 +68,12 @@ function onEvent(e: any) {
       break;
     }
     case 'talk_clip': onClip(e.clip); break;
+    case 'group_talk_started':
+      if (e.from.id !== get().me?.id) { set((s) => ({ groupTalk: { ...s.groupTalk, [e.group_id]: e.from.id } })); haptic.incomingTalk(); }
+      break;
+    case 'group_talk_stopped':
+      set((s) => ({ groupTalk: { ...s.groupTalk, [e.group_id]: null }, talkingTo: { ...s.talkingTo, [e.from_id]: false } }));
+      break;
     case 'message': onMessage(e.message); break;
     case 'group_updated': onGroupUpdated(e.group); break;
     case 'group_message': onGroupMessage(e.group_id, e.message); break;

@@ -1846,6 +1846,53 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
     Ok(Json(m))
 }
 
+#[derive(Deserialize)]
+struct GroupReq {
+    group_id: String,
+}
+
+/// Group walkie-talkie: I publish into `g_<id>`; the recorder relays it into every member's inbox.
+async fn rtc_group(State(st): State<S>, Authed(me): Authed, Json(r): Json<GroupReq>) -> R<Json<Value>> {
+    let u = {
+        let c = st.db();
+        if !is_member(&c, &r.group_id, &me)? { return Err(not_found("Group not found")); }
+        public_user(&c, &me)?
+    };
+    let room = format!("g_{}", r.group_id);
+    let token = st.lk_token(&me, &label(&u), &room, true, 3600);
+    Ok(Json(json!({ "url": st.cfg.lk_url, "room": room, "token": token })))
+}
+
+async fn group_talk(st: &S, me: &str, g: &str, on: bool) -> R<Json<Value>> {
+    let (ids, u, gname) = {
+        let c = st.db();
+        if !is_member(&c, g, me)? { return Err(not_found("Group not found")); }
+        let gname: String = c.query_row("SELECT name FROM groups WHERE id=?", [g], |r| r.get(0))?;
+        (member_ids(&c, g)?, public_user(&c, me)?, gname)
+    };
+    let others: Vec<&String> = ids.iter().filter(|u| u.as_str() != me).collect();
+    if on {
+        let name = label(&u);
+        recorder(st, "/gstart", json!({ "group": g, "from": me, "to": others, "name": name }));
+        tell_group(st, &ids, &json!({ "type": "group_talk_started", "group_id": g, "from": &u }));
+        for m in others.iter().filter(|m| !st.hub.online(m)) {
+            push(st, m, format!("{gname} · {name}"), "is talking".into(), json!({ "type": "ptt", "from": me, "group_id": g }));
+        }
+    } else {
+        recorder(st, "/gstop", json!({ "group": g, "from": me }));
+        tell_group(st, &ids, &json!({ "type": "group_talk_stopped", "group_id": g, "from_id": me }));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn group_talk_start(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>) -> R<Json<Value>> {
+    group_talk(&st, &me, &g, true).await
+}
+
+async fn group_talk_stop(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>) -> R<Json<Value>> {
+    group_talk(&st, &me, &g, false).await
+}
+
 async fn group_read(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Json(r): Json<ReadReq>) -> R<Json<Value>> {
     let at = r.at.min(now_ms() + 60_000);
     let ids = {
@@ -2041,6 +2088,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups/{id}", axum::routing::patch(group_patch))
         .route("/v1/groups/{id}/messages", get(group_messages).post(group_send))
         .route("/v1/groups/{id}/read", post(group_read))
+        .route("/v1/groups/{id}/talk/start", post(group_talk_start))
+        .route("/v1/groups/{id}/talk/stop", post(group_talk_stop))
+        .route("/v1/rtc/group", post(rtc_group))
         .route("/v1/groups/{id}/background/photo", put(group_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
         .route("/v1/groups/{id}/members", post(group_add))
         .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
