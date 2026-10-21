@@ -604,7 +604,18 @@ async fn google_cb(State(st): State<S>, headers: HeaderMap, uri: axum::http::Uri
         .flat_map(|h| h.split(';'))
         .find_map(|c| c.trim().strip_prefix("yg=").map(String::from));
     let Some(sid) = sid else { return fail("that sign in expired, try again") };
-    let request_uri = format!("{GOOGLE_CB}?{}", uri.query().unwrap_or(""));
+    let query = uri.query().unwrap_or("");
+    if !query.contains("id_token=") && !query.contains("code=") {
+        // Google returns the token in the URL fragment, which never reaches the server: hop it into the query.
+        let page = r#"<!doctype html><meta name="viewport" content="width=device-width"><body style="background:#000"><script>
+location.hash.length > 1 ? location.replace("/auth/google/cb?" + location.hash.slice(1)) : location.replace("/auth/google/cb?error=none")
+</script>"#;
+        if !query.contains("error=") {
+            return ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response();
+        }
+        return fail("google sign in was canceled, try again");
+    }
+    let request_uri = format!("{GOOGLE_CB}#{query}");
     let res = st
         .http
         .post(format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={key}"))
