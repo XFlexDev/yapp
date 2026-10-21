@@ -966,13 +966,19 @@ fn is_banned(c: &Connection, email: &str) -> rusqlite::Result<bool> {
 
 struct Admin;
 
+fn is_admin(email: &str) -> bool {
+    std::env::var("YAP_ADMINS")
+        .unwrap_or_else(|_| "info@kreatix.dev".into())
+        .split(',')
+        .any(|a| a.trim().eq_ignore_ascii_case(email))
+}
+
 impl FromRequestParts<S> for Admin {
     type Rejection = ApiError;
     async fn from_request_parts(parts: &mut Parts, st: &S) -> R<Self> {
         let Authed(uid) = Authed::from_request_parts(parts, st).await?;
         let email: String = st.db().query_row("SELECT email FROM users WHERE id=?", [&uid], |r| r.get(0))?;
-        let admins = std::env::var("YAP_ADMINS").unwrap_or_else(|_| "info@kreatix.dev".into());
-        if admins.split(',').any(|a| a.trim().eq_ignore_ascii_case(&email)) {
+        if is_admin(&email) {
             Ok(Admin)
         } else {
             Err(err(StatusCode::FORBIDDEN, "Forbidden", "Not an admin"))
@@ -1058,6 +1064,9 @@ async fn admin_ban(State(st): State<S>, _: Admin, Path(uid): Path<String>, Json(
         .query_row("SELECT email FROM users WHERE id=?", [&uid], |r| r.get(0))
         .optional()?
         .ok_or_else(|| not_found("No such user"))?;
+    if is_admin(&email) {
+        return Err(err(StatusCode::BAD_REQUEST, "Admin", "Admins can't be banned"));
+    }
     {
         let c = st.db();
         c.execute(
