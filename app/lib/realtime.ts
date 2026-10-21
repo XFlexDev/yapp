@@ -5,10 +5,10 @@ import { clearPokeCount, get, patchFriend, patchUser, removeFriend, set, upsertF
 import { API } from './theme';
 import { remoteEnded } from './voice';
 import { haptic } from './haptic';
-import { loadChats, onBackground, onMessage, onRead, onCleared } from './chat';
+import { loadChats, onBackground, onMessage, onRead, onCleared, onMessageDeleted } from './chat';
 import { loadNotifs } from './notifs';
 import { loadClips, onClip } from './clips';
-import { loadGroups, loadInvites, onGroupMessage, onGroupRead, onGroupUpdated, onInvite, onLeft } from './groups';
+import { loadGroups, loadInvites, onGroupMessage, onGroupRead, onGroupUpdated, onInvite, onLeft, onGroupMessageDeleted } from './groups';
 
 let ws: WebSocket | null = null;
 let stopped = true;
@@ -82,6 +82,8 @@ function onEvent(e: any) {
     case 'group_read': onGroupRead(e.group_id, e.user_id, e.at); break;
     case 'group_left': onLeft(e.group_id); break;
     case 'chat_read': onRead(e.user_id, e.at); break;
+    case 'message_deleted': onMessageDeleted(e.friend_id, e.id); break;
+    case 'group_message_deleted': onGroupMessageDeleted(e.group_id, e.id); break;
     case 'chat_cleared': onCleared(e.friend_id); break;
     case 'chat_background': onBackground(e.user_id === get().me?.id ? e.friend_id : e.user_id, e.background); break;
     case 'call_ringing':

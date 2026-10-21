@@ -43,6 +43,11 @@ async function groupPhotoTo(id: string, p: Photo) {
   } catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
 }
 export async function sendGroupPhoto(id: string) { const p = await pickPhoto(); if (p) await groupPhotoTo(id, p); }
+export async function deleteGroupMessage(id: string, m: ChatMsg) {
+  patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== m.id) }));
+  if (!m.id.startsWith('tmp-')) await req(`/v1/groups/${id}/messages/${m.id}`, { method: 'DELETE' });
+}
+export const onGroupMessageDeleted = (id: string, mid: string) => patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== mid) }));
 export async function retryGroup(id: string, m: ChatMsg) {
   patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== m.id) }));
   if (m.kind === 'image') return groupPhotoTo(id, await photoFromMsg(m));

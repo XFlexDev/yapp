@@ -1898,6 +1898,42 @@ async fn delete_chat(State(st): State<S>, Authed(me): Authed, Path(other): Path<
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Unsend: removes one of my own messages for both of us (and its photo once nothing else uses it).
+async fn delete_dm_message(State(st): State<S>, Authed(me): Authed, Path((other, mid)): Path<(String, String)>) -> R<Json<Value>> {
+    let photo = {
+        let c = st.db();
+        let (a, b) = db::pair(&me, &other);
+        let row: Option<(String, String, String)> = c
+            .query_row("SELECT sender, kind, body FROM messages WHERE id=?1 AND a=?2 AND b=?3", params![mid, a, b], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .optional()?;
+        let Some((sender, kind, body)) = row else { return Err(not_found("Message not found")) };
+        if sender != me { return Err(err(StatusCode::FORBIDDEN, "Forbidden", "You can only delete your own messages")); }
+        c.execute("DELETE FROM messages WHERE id=?", [&mid])?;
+        (kind == "image").then_some(body)
+    };
+    if let Some(k) = photo { drop_media(&st, k).await; }
+    st.hub.send(&other, &json!({ "type": "message_deleted", "friend_id": me, "id": mid }));
+    st.hub.send(&me, &json!({ "type": "message_deleted", "friend_id": other, "id": mid }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn delete_group_message(State(st): State<S>, Authed(me): Authed, Path((g, mid)): Path<(String, String)>) -> R<Json<Value>> {
+    let (photo, ids) = {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        let row: Option<(String, String, String)> = c
+            .query_row("SELECT sender, kind, body FROM messages WHERE id=?1 AND a=?2 AND b='#'", params![mid, g], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .optional()?;
+        let Some((sender, kind, body)) = row else { return Err(not_found("Message not found")) };
+        if sender != me { return Err(err(StatusCode::FORBIDDEN, "Forbidden", "You can only delete your own messages")); }
+        c.execute("DELETE FROM messages WHERE id=?", [&mid])?;
+        ((kind == "image").then_some(body), member_ids(&c, &g)?)
+    };
+    if let Some(k) = photo { drop_media(&st, k).await; }
+    tell_group(&st, &ids, &json!({ "type": "group_message_deleted", "group_id": g, "id": mid }));
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn chat_photos(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>) -> R<Json<Vec<ChatMsg>>> {
     let c = st.db();
     if !are_friends(&c, &me, &other)? { return Err(not_friends()); }
@@ -2509,6 +2545,8 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
         .route("/v1/chats/{id}", axum::routing::delete(delete_chat))
+        .route("/v1/chats/{id}/messages/{mid}", axum::routing::delete(delete_dm_message))
+        .route("/v1/groups/{id}/messages/{mid}", axum::routing::delete(delete_group_message))
         .route("/v1/chats/{id}/photos", get(chat_photos))
         .route("/v1/chats/{id}/photo", post(send_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/v1/chats/{id}/read", post(mark_read))

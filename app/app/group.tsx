@@ -10,7 +10,7 @@ import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, pickBackgroundPhoto } from '../lib/chat';
-import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto } from '../lib/groups';
+import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto, deleteGroupMessage } from '../lib/groups';
 import { set, useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
@@ -117,7 +117,7 @@ export default function GroupScreen() {
           renderItem={({ item, index }) => {
             const mine = item.from === me?.id;
             return <Bubble m={item} mine={mine} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
-              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView} />;
+              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView} onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />;
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />

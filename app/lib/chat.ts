@@ -95,6 +95,11 @@ export async function deleteChat(id: string) {
   patch(id, () => ({ messages: [], unread: 0, more: false }));
   await req(`/v1/chats/${id}`, { method: 'DELETE' });
 }
+export async function deleteMessage(id: string, m: ChatMsg) {
+  patch(id, (c) => ({ messages: c.messages.filter((x) => x.id !== m.id) }));
+  if (!m.id.startsWith('tmp-')) await req(`/v1/chats/${id}/messages/${m.id}`, { method: 'DELETE' });
+}
+export const onMessageDeleted = (id: string, mid: string) => patch(id, (c) => ({ messages: c.messages.filter((x) => x.id !== mid) }));
 export const onCleared = (id: string) => patch(id, () => ({ messages: [], unread: 0, more: false }));
 export const loadChatPhotos = (id: string) => req<ChatMsg[]>(`/v1/chats/${id}/photos`);
 

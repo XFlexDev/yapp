@@ -79,7 +79,7 @@ export default function SignIn() {
           <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, paddingHorizontal: 16 }}>
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             {step === 'welcome' ? (
-              <Squish onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}><Logo /></Squish>
+              <Squish onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}><Logo ch="yapp" size={104} /></Squish>
             ) : step === 'age' ? (
               <View style={{ alignItems: 'center', gap: 28 }}>
                 <Heading>how old are you?</Heading>

@@ -11,7 +11,7 @@ import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideI
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
-import { BACKGROUNDS, chatOf, deleteChat, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, setBackground } from '../lib/chat';
+import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, setBackground } from '../lib/chat';
 import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
@@ -72,12 +72,12 @@ const AV = 38;
 const MORPH = { damping: 24, stiffness: 260, mass: 0.8 };
 
 /** Photo bubble: exact aspect from the start, blurred preview until the WebP arrives from the CDN. */
-function PhotoBubble({ m, onOpen, onRetry }: { m: ChatMsg; onOpen?: (uri: string) => void; onRetry: () => void }) {
+function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?: (uri: string) => void; onRetry: () => void; onLongPress?: () => void }) {
   const [w, h, thumb] = (m.meta ?? '').split(',');
   const ratio = +w && +h ? Math.min(1.5, Math.max(0.6, +h / +w)) : 1;
   const src = m.body.startsWith('c-') ? mediaUrl(m.body) : m.body;
   return (
-    <Pressable onPress={() => (m.failed ? onRetry() : onOpen?.(src))} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.98 : 1 }, { scaleY: pressed ? 0.98 : 1 }] })}>
+    <Pressable onPress={() => (m.failed ? onRetry() : onOpen?.(src))} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.98 : 1 }, { scaleY: pressed ? 0.98 : 1 }] })}>
       <Image source={src} placeholder={thumb ? { uri: `data:image/webp;base64,${thumb}` } : undefined} placeholderContentFit="cover" contentFit="cover" transition={200} cachePolicy="memory-disk" recyclingKey={m.cid ?? m.id}
         style={{ width: 230, height: 230 * ratio, borderRadius: 20, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.08)', opacity: m.pending ? 0.6 : 1 }} />
     </Pressable>
@@ -93,13 +93,21 @@ export function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () 
   );
 }
 
-export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; author?: string }) {
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; author?: string }) {
+  const [armed, setArmed] = useState(false);
+  const hold = onDelete && !m.pending ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setArmed(true); } : undefined;
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
       {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
-      {m.kind === 'image' ? <PhotoBubble m={m} onOpen={onOpen} onRetry={onRetry} /> : <Pressable disabled={!m.failed} onPress={onRetry} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
+      {m.kind === 'image' ? <PhotoBubble m={m} onOpen={armed ? () => setArmed(false) : onOpen} onRetry={onRetry} onLongPress={hold} /> : <Pressable onPress={m.failed ? onRetry : armed ? () => setArmed(false) : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
         <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 21 }}>{m.body}</Text>
       </Pressable>}
+      {armed ? (
+        <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+          <Squish onPress={() => setArmed(false)} style={{ height: 32, paddingHorizontal: 14, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>cancel</Text></Squish>
+          <Squish onPress={() => { setArmed(false); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); onDelete?.(); }} style={{ height: 32, paddingHorizontal: 14, borderRadius: 16, backgroundColor: C.danger, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>delete</Text></Squish>
+        </Animated.View>
+      ) : null}
       {m.failed ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>not sent · tap to retry</Text> : seen ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>{typeof seen === 'string' ? seen : 'seen'}</Text> : null}
     </Animated.View>
   );
@@ -193,7 +201,7 @@ export default function ChatScreen() {
           keyExtractor={(m) => m.cid ?? m.id}
           renderItem={({ item, index }) => (
             <Bubble m={item} mine={item.from === meId} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current}
-              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView} />
+              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView} onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
           )}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
