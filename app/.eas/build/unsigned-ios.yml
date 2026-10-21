@@ -16,12 +16,12 @@ build:
           xcodebuild -workspace Yapp.xcworkspace -scheme Yapp -configuration Release -sdk iphoneos \
             -destination 'generic/platform=iOS' -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
-          rm -rf Payload && mkdir Payload
-          cp -R build/Build/Products/Release-iphoneos/Yapp.app Payload/
-          zip -qry yapp-unsigned.ipa Payload
-          ls -la "$PWD/yapp-unsigned.ipa"
+          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" -type d | head -1)
+          echo "built app: $APP"
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          zip -qry /Users/expo/workingdir/build/yapp-unsigned.ipa Payload
+          ls -la /Users/expo/workingdir/build/yapp-unsigned.ipa
     - eas/upload_artifact:
         name: Upload IPA
-        working_directory: ./ios
         inputs:
-          path: yapp-unsigned.ipa
+          path: /Users/expo/workingdir/build/yapp-unsigned.ipa
