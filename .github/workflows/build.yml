@@ -1,0 +1,101 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to build
+        type: choice
+        default: all
+        options: [all, apk, aab, ipa]
+
+concurrency:
+  group: build-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    if: inputs.target != 'ipa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: apk
+            profile: apk
+          - kind: aab
+            profile: production
+    defaults:
+      run:
+        working-directory: app
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
+    steps:
+      - name: Skip unrequested format
+        id: want
+        working-directory: .
+        run: echo "go=${{ inputs.target == 'all' || inputs.target == matrix.kind }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.want.outputs.go == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.want.outputs.go == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        if: steps.want.outputs.go == 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.want.outputs.go == 'true'
+      - run: npm ci
+        if: steps.want.outputs.go == 'true'
+      - name: Build ${{ matrix.kind }}
+        if: steps.want.outputs.go == 'true'
+        run: npx eas-cli@latest build --local -p android --profile ${{ matrix.profile }} --non-interactive --output "$GITHUB_WORKSPACE/yapp.${{ matrix.kind }}"
+      - uses: actions/upload-artifact@v4
+        if: steps.want.outputs.go == 'true'
+        with:
+          name: yapp-${{ matrix.kind }}
+          path: yapp.${{ matrix.kind }}
+          retention-days: 30
+
+  ios:
+    if: inputs.target == 'all' || inputs.target == 'ipa'
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    env:
+      NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx expo prebuild -p ios --no-install
+      - run: pod install
+        working-directory: app/ios
+      - name: Build unsigned IPA
+        working-directory: app/ios
+        run: |
+          set -eo pipefail
+          xcodebuild -workspace Yapp.xcworkspace -scheme Yapp -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
+          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" -type d | head -1)
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          zip -qry "$GITHUB_WORKSPACE/yapp-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yapp-ipa
+          path: yapp-unsigned.ipa
+          retention-days: 30
