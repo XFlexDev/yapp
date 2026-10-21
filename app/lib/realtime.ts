@@ -1,6 +1,7 @@
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { AppState } from 'react-native';
-import { accessToken, req, type Friend, type FriendRequest, type Me } from './api';
+import { accessToken, avatarUrl, req, type Friend, type FriendRequest, type Me } from './api';
 import { get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './store';
 import { API } from './theme';
 
@@ -15,6 +16,7 @@ export async function syncAll() {
     req<Friend[]>('/v1/friends'),
     req<{ incoming: FriendRequest[]; outgoing: FriendRequest[] }>('/v1/friends/requests'),
   ]);
+  Image.prefetch([me, ...friends].map(avatarUrl).filter((u): u is string => !!u), 'memory-disk').catch(() => {});
   set((s) => ({
     me, friends, incoming: rq.incoming, outgoing: rq.outgoing,
     selectedId: friends.some((f) => f.id === s.selectedId) ? s.selectedId : friends[0]?.id ?? null,

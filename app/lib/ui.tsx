@@ -13,7 +13,7 @@ export function Avatar({ user, size, ring }: { user: User; size: number; ring?: 
   const inner = (
     <View style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: SWATCH[user.color] ?? C.red, alignItems: 'center', justifyContent: 'center' }}>
       {url ? (
-        <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} recyclingKey={user.id} />
+        <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} cachePolicy="memory-disk" recyclingKey={user.id} />
       ) : (
         <Text style={{ color: '#fff', fontFamily: F.black, fontSize: size * 0.42 }}>{nameOf(user).slice(0, 1).toUpperCase()}</Text>
       )}

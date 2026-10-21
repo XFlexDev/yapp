@@ -9,6 +9,7 @@ import { registerPush } from '../lib/push';
 import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
 import { C } from '../lib/theme';
+import { RED } from '../lib/tt';
 import { startUpdates } from '../lib/updates';
 import { startListening, stopVoice } from '../lib/voice';
 
@@ -45,10 +46,11 @@ export default function Root() {
   if (!ready) return null;
 
   const onboarded = !!me?.username && !!me?.display_name;
+  const base = status === 'in' && onboarded ? C.bg : RED;
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bg }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: base }}>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg }, animation: 'fade' }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: base }, animation: 'fade' }}>
         <Stack.Protected guard={status === 'out'}>
           <Stack.Screen name="sign-in" />
         </Stack.Protected>

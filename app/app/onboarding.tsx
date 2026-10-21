@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { ApiError, req, type Me } from '../lib/api';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { set, useStore } from '../lib/store';
@@ -43,6 +43,7 @@ export default function Onboarding() {
   return (
     <RedScreen onBack={step === 'name' ? undefined : () => go(step === 'photo' ? 'username' : 'name', -1)}>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
+        <LayoutAnimationConfig skipEntering>
         <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 28 }}>
           {step === 'name' ? (
             <>
@@ -72,6 +73,7 @@ export default function Onboarding() {
             </>
           )}
         </Animated.View>
+        </LayoutAnimationConfig>
         <Pill {...pill} />
         <Collapse open={step === 'photo' && !me.avatar} height={56}>
           <Pressable onPress={finish} hitSlop={10} style={({ pressed }) => ({ height: 56, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>

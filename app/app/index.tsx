@@ -55,7 +55,7 @@ function Backdrop({ friend, talking }: { friend: Friend; talking: boolean }) {
   const red = useAnimatedStyle(() => ({ opacity: tint.value * 0.42 }));
   return (
     <Animated.View key={friend.id} entering={FadeIn.duration(260)} style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}>
-      {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={220} /> : (
+      {url ? <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={160} cachePolicy="memory-disk" priority="high" /> : (
         <LinearGradient colors={[hue, hue + 'B3', hue + '33', '#000']} locations={[0, 0.38, 0.68, 0.9]} style={StyleSheet.absoluteFill} />
       )}
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.red }, red]} />

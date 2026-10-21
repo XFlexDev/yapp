@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { LayoutAnimationConfig, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { ApiError, confirmLogin, startLogin } from '../lib/api';
 import { set } from '../lib/store';
 import { F } from '../lib/theme';
@@ -65,6 +65,7 @@ export default function SignIn() {
     <View style={{ flex: 1 }}>
       <RedScreen onBack={back} help={step === 'email' || step === 'code'} bar={step !== 'welcome'}>
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
+          <LayoutAnimationConfig skipEntering>
           <Animated.View key={step} entering={slide(dir) as any} exiting={slideOut(dir) as any} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             {step === 'welcome' ? (
               <Animated.View entering={pop() as any}>
@@ -108,6 +109,7 @@ export default function SignIn() {
               </View>
             )}
           </Animated.View>
+          </LayoutAnimationConfig>
           <Animated.View style={insetStyle}><Pill {...pill} /></Animated.View>
           <Collapse open={step === 'welcome'} height={60}>
             <Pressable onPress={() => { setCreating(false); go('email'); }} hitSlop={10} style={({ pressed }) => ({ height: 60, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
