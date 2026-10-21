@@ -1415,7 +1415,7 @@ struct StreamQ {
 
 async fn stream(State(st): State<S>, Query(q): Query<StreamQ>, ws: WebSocketUpgrade) -> R<Response> {
     let uid = st.verify_access(&q.access_token).ok_or_else(unauthorized)?;
-    Ok(ws.on_upgrade(move |sock| run_ws(st, uid, sock)))
+    Ok(ws.read_buffer_size(4096).write_buffer_size(0).max_message_size(64 * 1024).on_upgrade(move |sock| run_ws(st, uid, sock)))
 }
 
 async fn run_ws(st: S, uid: String, mut sock: WebSocket) {

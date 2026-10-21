@@ -142,7 +142,7 @@ export default function Settings() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: 22, paddingBottom: insets.bottom + 40, paddingHorizontal: 14, gap: 22 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+      <ScrollView contentContainerStyle={{ paddingTop: 22, paddingBottom: insets.bottom + 40, paddingHorizontal: 14, gap: 22 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 8 }}>
           <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 34, letterSpacing: -0.5 }}>settings</Text>
           <Squish onPress={() => router.back()} style={{ height: 36, paddingHorizontal: 16, borderRadius: 18, backgroundColor: '#fff', justifyContent: 'center' }}>

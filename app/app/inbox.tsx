@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { nameOf } from '../lib/api';
 import { createGroup } from '../lib/groups';
@@ -45,6 +45,8 @@ export default function Inbox() {
   const [name, setName] = useState('');
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const kb = useAnimatedKeyboard();
+  const lift = useAnimatedStyle(() => ({ bottom: Math.max(kb.height.value, insets.bottom) + 8 }));
   const items = [
     ...Object.values(groups).map((g) => ({ key: `g:${g.id}`, at: g.last?.created_at ?? 0, node: (
       <Row key={`g:${g.id}`} title={g.name} sub={preview(g.last, me?.id)} unread={g.unread} left={<Stack3 users={g.members.filter((u) => u.id !== me?.id)} />} onPress={() => router.push({ pathname: '/group', params: { id: g.id } })} />
@@ -73,9 +75,9 @@ export default function Inbox() {
       {make ? (
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]}><Pressable style={{ flex: 1 }} onPress={() => setMake(false)} /></Animated.View>
-          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, maxHeight: '75%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 20, paddingBottom: 14 }}>
+          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={[lift, { position: 'absolute', left: 8, right: 8, maxHeight: '75%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 20, paddingBottom: 14 }]}>
             <TextInput value={name} onChangeText={setName} placeholder="group name" placeholderTextColor="rgba(255,255,255,0.35)" maxLength={40} keyboardAppearance="dark" selectionColor={C.red} style={{ marginHorizontal: 18, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: F.black, fontSize: 17, paddingHorizontal: 18 }} />
-            <ScrollView style={{ marginTop: 10 }}>
+            <ScrollView style={{ marginTop: 10 }} keyboardShouldPersistTaps="handled">
               {friends.map((f) => { const on = pick.includes(f.id); return (
                 <Squish key={f.id} onPress={() => { Haptics.selectionAsync(); setPick((p) => (on ? p.filter((x) => x !== f.id) : [...p, f.id])); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 8 }}>
                   <Avatar user={f} size={40} />
