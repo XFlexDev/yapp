@@ -326,7 +326,7 @@ export default function Settings() {
   });
 
   const borderStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, 20], [0, 1], 'clamp'),
+    opacity: interpolate(scrollY.value, [0, 16], [0, 1], 'clamp'),
   }));
 
   const tabs: TabItem[] = [
@@ -366,19 +366,21 @@ export default function Settings() {
               left: 0,
               right: 0,
               height: headerHeight,
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
               overflow: 'hidden',
             },
             borderStyle,
           ]}>
           <BlurView
             tint="systemUltraThinMaterialDark"
-            intensity={95}
+            intensity={85}
             style={StyleSheet.absoluteFill}
           />
           <View
             style={[
               StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.5)' },
+              { backgroundColor: 'rgba(0,0,0,0.15)' },
             ]}
           />
           {/* Hairline bottom border */}
@@ -403,12 +405,12 @@ export default function Settings() {
               top: headerHeight,
               left: 0,
               right: 0,
-              height: 24,
+              height: 20,
             },
             borderStyle,
           ]}>
           <LinearGradient
-            colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.18)', 'transparent']}
+            colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0.08)', 'transparent']}
             locations={[0, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />

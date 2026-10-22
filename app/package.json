@@ -49,7 +49,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy": "EAS_SKIP_AUTO_FINGERPRINT=1 CI=1 eas update --channel production --environment production --auto"
   },
   "private": true,
   "license": "SEE LICENSE IN ../LICENSE"
