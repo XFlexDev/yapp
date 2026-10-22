@@ -17,6 +17,7 @@ pub struct AppState {
     pub hub: hub::Hub,
     pub http: reqwest::Client,
     pub pokes: DashMap<(String, String), Instant>,
+    pub waves: DashMap<(String, String), Instant>,
 }
 
 impl AppState {
@@ -45,6 +46,7 @@ async fn main() {
             .build()
             .expect("http client"),
         pokes: DashMap::new(),
+        waves: DashMap::new(),
     });
     let listener = tokio::net::TcpListener::bind(&bind).await.expect("bind");
     tracing::info!("yap-server listening on {bind}");

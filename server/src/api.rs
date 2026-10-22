@@ -229,7 +229,7 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
         let kind = data["type"].as_str().unwrap_or("");
         let col = match kind {
             "message" | "group_message" => "messages",
-            "ptt" | "poke" => "talk",
+            "ptt" | "poke" | "wave" => "talk",
             "call" => "calls",
             "friend_request" | "friendship_created" => "friends",
             _ => "",
@@ -238,7 +238,7 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
             let on: i64 = c.query_row(&format!("SELECT {col} FROM notif_prefs WHERE user_id=?"), [user], |r| r.get(0)).unwrap_or(1);
             if on == 0 { return; }
         }
-        if matches!(kind, "message" | "group_message" | "ptt" | "poke") {
+        if matches!(kind, "message" | "group_message" | "ptt" | "poke" | "wave") {
             let chat = data["group_id"].as_str().map(|g| format!("g:{g}")).or_else(|| data["from"].as_str().map(String::from));
             if let Some(ch) = chat {
                 if c.query_row("SELECT 1 FROM mutes WHERE user_id=? AND chat=?", [user, ch.as_str()], |_| Ok(())).is_ok() { return; }
@@ -1746,6 +1746,49 @@ async fn poke(State(st): State<S>, Authed(me): Authed, Json(r): Json<PokeReq>) -
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+struct WaveReq {
+    friend_id: String,
+    #[serde(default)]
+    count: Option<u32>,
+    /// Set to true only on the first wave of a burst or manual single tap
+    #[serde(default)]
+    notify: Option<bool>,
+}
+
+async fn wave(State(st): State<S>, Authed(me): Authed, Json(r): Json<WaveReq>) -> R<Json<Value>> {
+    let u = {
+        let c = st.db();
+        if !are_friends(&c, &me, &r.friend_id)? {
+            return Err(not_friends());
+        }
+        public_user(&c, &me)?
+    };
+    let count = r.count.unwrap_or(1).clamp(1, 9999);
+    let should_notify = r.notify.unwrap_or(true);
+    let key = (me.clone(), r.friend_id.clone());
+
+    // Send realtime event for live wave animation & counter
+    st.hub.send(&r.friend_id, &json!({ "type": "wave", "from": &u, "count": count }));
+
+    // Only push if notify is true AND not throttled within 10s window to avoid notification spamming
+    if should_notify {
+        let throttled = st.waves.get(&key).is_some_and(|t| t.elapsed() < Duration::from_secs(10));
+        if !throttled {
+            st.waves.insert(key, Instant::now());
+            if st.waves.len() > 10_000 {
+                st.waves.retain(|_, t| t.elapsed() < Duration::from_secs(30));
+            }
+            let online = st.hub.online(&r.friend_id);
+            if !online {
+                push(&st, &r.friend_id, label(&u), "waved at you 👋".into(), json!({ "type": "wave", "from": u.id }));
+            }
+        }
+    }
+
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn call_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
     let (u, dnd) = {
         let c = st.db();
@@ -2895,6 +2938,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/stickers/recent", get(list_recent_stickers))
         .route("/v1/stickers/recent/{sid}", post(use_recent_sticker))
         .route("/v1/poke", post(poke))
+        .route("/v1/wave", post(wave))
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(st)

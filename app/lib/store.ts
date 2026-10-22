@@ -22,6 +22,7 @@ type State = {
   pokedAt: Record<string, number>;
   pokedCount: Record<string, number>;
   pokeCount: Record<string, number>;
+  incomingWave: { friendId: string; count: number; at: number } | null;
   call: { friendId: string; state: 'outgoing' | 'incoming' | 'active'; since: number } | null;
   connected: boolean;
   chats: Record<string, Chat>;
@@ -37,7 +38,7 @@ type State = {
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, call: null, connected: false, chats: {}, openChat: null, groups: {}, groupInvites: [], notif: null,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, incomingWave: null, call: null, connected: false, chats: {}, openChat: null, groups: {}, groupInvites: [], notif: null,
   clips: {},
   groupTalk: {},
   trophy: null,

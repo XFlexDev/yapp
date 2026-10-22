@@ -20,6 +20,7 @@ import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { haptic } from '../lib/haptic';
 import { playClip } from '../lib/clips';
+import { WaveStream, WaveTrigger } from '../lib/wave';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
 /** iOS renders a uniform `scale` transform pixelated (facebook/react-native#48673); separate X/Y scales stay sharp. */
@@ -365,7 +366,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups, pokedAt, pokedCount, pokeCount, clips } = useStore();
+  const { friends, selectedId, talkingTo, incoming, incomingWave, me, call, chats, groups, pokedAt, pokedCount, pokeCount, clips } = useStore();
   const cam = useStore((s) => !!s.cams.local);
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
@@ -392,6 +393,7 @@ export default function Home() {
   const [sheet, setSheet] = useState(false);
   const [muted, setMutedState] = useState(false);
   const [incomingPoke, setIncomingPoke] = useState<{ friendId: string; count: number; at: number } | null>(null);
+  const [activeWave, setActiveWave] = useState<{ count: number; active: boolean } | null>(null);
   const [pendingPokeCounts, setPendingPokeCounts] = useState<Record<string, number>>({});
   const pendingPokes = useRef<Record<string, { count: number; timer: ReturnType<typeof setTimeout> }>>({});
   const locked = useRef(false);
@@ -454,6 +456,14 @@ export default function Home() {
     const timer = setTimeout(() => setIncomingPoke((current) => current?.at === at ? null : current), at + 2500 - Date.now());
     return () => clearTimeout(timer);
   }, [friend?.id, pokedAt[friend?.id ?? ''], pokedCount[friend?.id ?? '']]);
+  useEffect(() => {
+    if (!friend || !incomingWave || incomingWave.friendId !== friend.id) return;
+    const diff = Date.now() - incomingWave.at;
+    if (diff > 3000) return;
+    setActiveWave({ count: incomingWave.count, active: false });
+  }, [friend?.id, incomingWave?.friendId, incomingWave?.count, incomingWave?.at]);
+  const onWaveTick = (c: number) => { setActiveWave({ count: c, active: true }); };
+  const onWaveEnd = () => { setActiveWave((curr) => curr ? { ...curr, active: false } : null); };
   useEffect(() => { back.value = withSpring(talking && !call ? 1 : 0, SPRING); }, [talking, !!call]);
   useEffect(() => { if (call?.state === 'incoming') haptic.ring(); else haptic.stopRing(); return haptic.stopRing; }, [call?.state]);
   useEffect(() => {
@@ -549,17 +559,6 @@ export default function Home() {
     req<Me>('/v1/status', { method: 'PUT', body: { dnd: next } }).then((m) => set({ me: m })).catch(() => set((s) => ({ me: s.me ? { ...s.me, dnd: !next } : s.me })));
   };
 
-  const plus = (
-    <Squish onPress={() => router.push('/add')} style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2, backgroundColor: 'rgba(44,44,46,0.9)', alignItems: 'center', justifyContent: 'center' }}>
-      <Glyph g="plus" size={34} />
-      {incoming.length ? (
-        <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', top: 2, right: 2, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
-          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{incoming.length}</Text>
-        </Animated.View>
-      ) : null}
-    </Squish>
-  );
-
   if (!friend) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top + 2, paddingBottom: insets.bottom + 16, paddingHorizontal: 24 }}>
@@ -609,7 +608,8 @@ export default function Home() {
       {friend.dnd ? <View style={{ marginTop: 6 }}><DndPill /></View> : null}
       <View pointerEvents="none" style={{ flex: 1 }} />
       <Animated.View pointerEvents={bare ? 'none' : 'box-none'} style={[{ alignItems: 'center', gap: 12, paddingHorizontal: 24, marginBottom: bottomH + 12, opacity: bottomH ? 1 : 0 }, chrome]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <WaveTrigger friendId={friend.id} onWaveTick={onWaveTick} onWaveEnd={onWaveEnd} />
           <Pressable onPress={() => { Haptics.selectionAsync(); setSheet(true); }} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, opacity: pressed ? 0.6 : 1 })}>
             <Fresh text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
             <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
@@ -631,13 +631,18 @@ export default function Home() {
       </Pressable>
         <GestureDetector gesture={swipe}>
         <View style={{ marginBottom: insets.bottom + 8, height: RING + 16 }}>
-        <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2, top: 8, flexDirection: 'row' }, track]}>
+        <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2 - SLOT, top: 8, flexDirection: 'row' }, track]}>
           {/* Slot -1: Plus button seamlessly integrated into the carousel track */}
           <Slot i={-1} x={sx} sel={false} dir={-1} cp={cp} ca={ca} dim={false} badge={0}>
             {() => (
-              <GestureDetector gesture={Gesture.Tap().runOnJS(true).onEnd(() => router.push('/add'))}>
-                <View collapsable={false}>
-                  {plus}
+              <GestureDetector gesture={Gesture.Tap().runOnJS(true).onEnd((_e, ok) => { if (ok) { Haptics.selectionAsync(); router.push('/add'); } })}>
+                <View collapsable={false} style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2, backgroundColor: 'rgba(44,44,46,0.9)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Glyph g="plus" size={34} />
+                  {incoming.length ? (
+                    <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', top: 2, right: 2, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
+                      <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{incoming.length}</Text>
+                    </Animated.View>
+                  ) : null}
                 </View>
               </GestureDetector>
             )}
@@ -662,6 +667,13 @@ export default function Home() {
         </View>
         </GestureDetector>
       </View>
+      {activeWave ? (
+        <WaveStream
+          count={activeWave.count}
+          active={activeWave.active}
+          onDone={() => setActiveWave(null)}
+        />
+      ) : null}
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}
     </View>
   );

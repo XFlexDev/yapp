@@ -67,6 +67,11 @@ function onEvent(e: any) {
       if (selected) haptic.poked();
       break;
     }
+    case 'wave': {
+      set({ incomingWave: { friendId: e.from.id, count: e.count || 1, at: Date.now() } });
+      haptic.poked();
+      break;
+    }
     case 'talk_clip': onClip(e.clip); break;
     case 'achievement': haptic.celebrate(); set({ trophy: e.title }); break;
     case 'group_talk_started':
