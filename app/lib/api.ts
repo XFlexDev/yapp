@@ -22,8 +22,8 @@ export let onSignedOut: () => void = () => {};
 export const setSignedOutHandler = (f: () => void) => { onSignedOut = f; };
 
 export const CDN = 'https://cdn.kreatix.dev/file/Yapp-Data';
-/** B2-hosted keys (p-/q-/b-/c-) load straight from the Cloudflare CDN; older files still come from the API. */
-export const mediaUrl = (key: string) => (/^[pqbc]-/.test(key) ? `${CDN}/${key}` : `${API}/avatars/${key}`);
+/** B2-hosted keys (p-/q-/b-/c-/s-) load straight from the Cloudflare CDN; older files still come from the API. */
+export const mediaUrl = (key: string) => (/^[pqbcs]-/.test(key) ? `${CDN}/${key}` : `${API}/avatars/${key}`);
 export const avatarUrl = (u: Pick<User, 'avatar'>) => (u.avatar ? mediaUrl(u.avatar) : null);
 /** Square profile picture; falls back to the full photo for accounts that never cropped one. */
 export const pfpUrl = (u: Pick<User, 'avatar' | 'pfp'>) => (u.pfp ? mediaUrl(u.pfp) : avatarUrl(u));
