@@ -78,8 +78,22 @@ export function Bubble({ text, lock, lift, icon, loading = false }: { text: stri
   const red = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, lift.value * m.value)) }));
   const redTail = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, lift.value * m.value)) }));
   const lockIn = useAnimatedStyle(() => ({ width: Math.max(0, m.value) * ICON, opacity: Math.min(1, Math.max(0, m.value)), transform: [...sxy(0.4 + Math.min(1, Math.max(0, m.value)) * 0.6)] }));
-  const inText = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']), opacity: x.value, transform: [{ translateX: -Math.max(0, ld.value) * DOTS / 2 }, { translateY: (1 - x.value) * 7 }, ...sxy(0.86 + x.value * 0.14)] }));
-  const outText = useAnimatedStyle(() => ({ color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']), opacity: 1 - Math.min(1, x.value * 1.6), transform: [{ translateX: -Math.max(0, ld.value) * DOTS / 2 }, { translateY: -x.value * 7 }, ...sxy(1 - x.value * 0.14)] }));
+  const inText = useAnimatedStyle(() => ({
+    color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']),
+    opacity: x.value,
+    transform: [
+      { translateX: -Math.max(0, ld.value) * DOTS / 2 },
+      { translateY: (1 - x.value) * 4 },
+    ],
+  }));
+  const outText = useAnimatedStyle(() => ({
+    color: interpolateColor(m.value, [0, 1], ['#000000', '#ffffff']),
+    opacity: 1 - Math.min(1, x.value * 1.6),
+    transform: [
+      { translateX: -Math.max(0, ld.value) * DOTS / 2 },
+      { translateY: -x.value * 4 },
+    ],
+  }));
 
   const dots = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, ld.value)) }));
   const band = useAnimatedStyle(() => {

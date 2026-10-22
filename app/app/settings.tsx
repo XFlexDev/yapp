@@ -24,8 +24,7 @@ import { signOutLocal } from './_layout';
 const CARD = '#121212';
 const SEP = 'rgba(255,255,255,0.07)';
 const MOVE = LinearTransition.duration(240);
-const LEAD_SPRING = { damping: 22, stiffness: 360, mass: 0.65 };
-const TRAIL_SPRING = { damping: 26, stiffness: 220, mass: 0.95 };
+const PILL_SPRING = { damping: 28, stiffness: 320, mass: 0.8 };
 
 function Chevron() {
   return <SymbolView name="chevron.right" tintColor="rgba(255,255,255,0.3)" size={14} weight="bold" fallback={<MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.3)" />} />;
@@ -120,51 +119,6 @@ type TabItem = {
   badge?: number;
 };
 
-function TabLabel({ active, label, badge }: { active: boolean; label: string; badge?: number }) {
-  const bump = useSharedValue(1);
-  useEffect(() => {
-    if (active) {
-      bump.value = withSequence(
-        withTiming(1.08, { duration: 90, easing: Easing.out(Easing.quad) }),
-        withSpring(1, { damping: 12, stiffness: 300 })
-      );
-    } else {
-      bump.value = withTiming(1, { duration: 120 });
-    }
-  }, [active]);
-
-  const style = useAnimatedStyle(() => ({
-    transform: [{ scaleX: bump.value }, { scaleY: bump.value }],
-  }));
-
-  return (
-    <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', gap: 6 }, style]}>
-      <Text
-        style={{
-          color: active ? '#fff' : 'rgba(255,255,255,0.4)',
-          fontFamily: active ? F.black : F.bold,
-          fontSize: 13,
-        }}>
-        {label}
-      </Text>
-      {badge ? (
-        <View
-          style={{
-            minWidth: 16,
-            height: 16,
-            paddingHorizontal: 4,
-            borderRadius: 8,
-            backgroundColor: C.red,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{badge}</Text>
-        </View>
-      ) : null}
-    </Animated.View>
-  );
-}
-
 function SegmentedTabs({
   tabs,
   activeTab,
@@ -175,11 +129,9 @@ function SegmentedTabs({
   onSelect: (k: TabKey) => void;
 }) {
   const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
-  const pillLeft = useSharedValue(0);
-  const pillRight = useSharedValue(0);
-  const squishY = useSharedValue(1);
+  const pillX = useSharedValue(0);
+  const pillWidth = useSharedValue(0);
   const ready = useSharedValue(0);
-  const prevCenter = useRef(0);
 
   const onItemLayout = (key: TabKey, e: LayoutChangeEvent) => {
     const { x, width } = e.nativeEvent.layout;
@@ -189,53 +141,26 @@ function SegmentedTabs({
   useEffect(() => {
     const current = layouts[activeTab];
     if (current) {
-      const targetL = current.x;
-      const targetR = current.x + current.width;
-      const targetCenter = (targetL + targetR) / 2;
-
       if (ready.value === 0) {
-        pillLeft.value = targetL;
-        pillRight.value = targetR;
-        prevCenter.current = targetCenter;
+        pillX.value = current.x;
+        pillWidth.value = current.width;
         ready.value = 1;
       } else {
-        const movingRight = targetCenter >= prevCenter.current;
-        prevCenter.current = targetCenter;
-
-        // Jelly squish vertically during morph
-        squishY.value = withSequence(
-          withTiming(0.82, { duration: 90, easing: Easing.out(Easing.quad) }),
-          withSpring(1, { damping: 10, stiffness: 280 })
-        );
-
-        if (movingRight) {
-          // Right edge shoots forward fast, left edge trails behind -> stretches horizontally!
-          pillRight.value = withSpring(targetR, LEAD_SPRING);
-          pillLeft.value = withSpring(targetL, TRAIL_SPRING);
-        } else {
-          // Left edge shoots backward fast, right edge trails behind -> stretches horizontally!
-          pillLeft.value = withSpring(targetL, LEAD_SPRING);
-          pillRight.value = withSpring(targetR, TRAIL_SPRING);
-        }
+        pillX.value = withSpring(current.x, PILL_SPRING);
+        pillWidth.value = withSpring(current.width, PILL_SPRING);
       }
     }
   }, [activeTab, layouts]);
 
-  const pillStyle = useAnimatedStyle(() => {
-    const l = pillLeft.value;
-    const r = pillRight.value;
-    const w = Math.max(0, r - l);
-    return {
-      opacity: ready.value,
-      left: l,
-      width: w,
-      transform: [{ scaleY: squishY.value }],
-    };
-  });
+  const pillStyle = useAnimatedStyle(() => ({
+    opacity: ready.value,
+    transform: [{ translateX: pillX.value }],
+    width: pillWidth.value,
+  }));
 
   return (
     <View style={{ position: 'relative', backgroundColor: CARD, borderRadius: 22, padding: 4, height: 46, justifyContent: 'center' }}>
-      {/* Morphing Liquid Pill */}
+      {/* Smooth non-liquidy sliding pill */}
       <Animated.View
         style={[
           {
@@ -266,9 +191,32 @@ function SegmentedTabs({
                 paddingVertical: 9,
                 alignItems: 'center',
                 justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 6,
                 zIndex: 1,
               }}>
-              <TabLabel active={active} label={t.label} badge={t.badge} />
+              <Text
+                style={{
+                  color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                  fontFamily: F.bold,
+                  fontSize: 13,
+                }}>
+                {t.label}
+              </Text>
+              {t.badge ? (
+                <View
+                  style={{
+                    minWidth: 16,
+                    height: 16,
+                    paddingHorizontal: 4,
+                    borderRadius: 8,
+                    backgroundColor: C.red,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                  <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{t.badge}</Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -422,14 +370,9 @@ export default function Settings() {
             paddingTop: insets.top + 8,
             paddingBottom: 10,
             paddingHorizontal: 20,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            justifyContent: 'center',
           }}>
           <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }}>settings</Text>
-          <Squish onPress={() => router.back()} style={{ height: 34, paddingHorizontal: 16, borderRadius: 17, backgroundColor: '#fff', justifyContent: 'center' }}>
-            <Text style={{ color: '#000', fontFamily: F.black, fontSize: 14 }}>done</Text>
-          </Squish>
         </View>
       </View>
 
