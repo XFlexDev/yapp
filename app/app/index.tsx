@@ -414,23 +414,26 @@ export default function Home() {
   const chrome = useAnimatedStyle(() => ({ opacity: 1 - bareV.value }));
 
   const isConnecting = (talking && connecting) || call?.state === 'outgoing';
+  const isIncomingCall = call?.state === 'incoming';
   const wiggleRot = useSharedValue(0);
   const wiggleX = useSharedValue(0);
+  const wiggleScale = useSharedValue(1);
 
   useEffect(() => {
-    if (isConnecting) {
+    if (isIncomingCall) {
+      wiggleScale.value = withSpring(1.035, { damping: 18, stiffness: 280 });
       wiggleRot.value = withRepeat(
         withSequence(
-          withTiming(-1.2, { duration: 75, easing: Easing.inOut(Easing.quad) }),
-          withTiming(1.2, { duration: 75, easing: Easing.inOut(Easing.quad) })
+          withTiming(-1.5, { duration: 75, easing: Easing.inOut(Easing.quad) }),
+          withTiming(1.5, { duration: 75, easing: Easing.inOut(Easing.quad) })
         ),
         -1,
         true
       );
       wiggleX.value = withRepeat(
         withSequence(
-          withTiming(-1.5, { duration: 65, easing: Easing.inOut(Easing.quad) }),
-          withTiming(1.5, { duration: 65, easing: Easing.inOut(Easing.quad) })
+          withTiming(-1.8, { duration: 65, easing: Easing.inOut(Easing.quad) }),
+          withTiming(1.8, { duration: 65, easing: Easing.inOut(Easing.quad) })
         ),
         -1,
         true
@@ -438,15 +441,16 @@ export default function Home() {
     } else {
       cancelAnimation(wiggleRot);
       cancelAnimation(wiggleX);
+      wiggleScale.value = withSpring(1, { damping: 18, stiffness: 300 });
       wiggleRot.value = withSpring(0, { damping: 16, stiffness: 300 });
       wiggleX.value = withSpring(0, { damping: 16, stiffness: 300 });
     }
-  }, [isConnecting]);
+  }, [isIncomingCall]);
 
   const stage = useAnimatedStyle(() => ({
     borderRadius: back.value * 44,
     transform: [
-      ...sxy(1 - back.value * 0.08),
+      ...sxy((1 - back.value * 0.08) * wiggleScale.value),
       { rotate: `${wiggleRot.value}deg` },
       { translateX: wiggleX.value },
     ],
