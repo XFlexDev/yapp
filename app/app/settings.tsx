@@ -2,11 +2,11 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { setPref } from '../lib/notifs';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Updates from 'expo-updates';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Linking, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Share, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition, interpolateColor, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
@@ -22,6 +22,7 @@ import { signOutLocal } from './_layout';
 const CARD = '#121212';
 const SEP = 'rgba(255,255,255,0.07)';
 const MOVE = LinearTransition.duration(240);
+const PILL_SPRING = { damping: 30, stiffness: 380, mass: 0.8 };
 
 function Chevron() {
   return <SymbolView name="chevron.right" tintColor="rgba(255,255,255,0.3)" size={14} weight="bold" fallback={<MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.3)" />} />;
@@ -110,6 +111,118 @@ function Inline({ value, onSave, prefix, placeholder, max, clean }: { value: str
 
 type TabKey = 'profile' | 'friends' | 'prefs';
 
+type TabItem = {
+  key: TabKey;
+  label: string;
+  badge?: number;
+};
+
+function SegmentedTabs({
+  tabs,
+  activeTab,
+  onSelect,
+}: {
+  tabs: TabItem[];
+  activeTab: TabKey;
+  onSelect: (k: TabKey) => void;
+}) {
+  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
+  const pillX = useSharedValue(0);
+  const pillWidth = useSharedValue(0);
+  const ready = useSharedValue(0);
+
+  const onItemLayout = (key: TabKey, e: LayoutChangeEvent) => {
+    const { x, width } = e.nativeEvent.layout;
+    setLayouts((prev) => ({ ...prev, [key]: { x, width } }));
+  };
+
+  useEffect(() => {
+    const current = layouts[activeTab];
+    if (current) {
+      if (ready.value === 0) {
+        pillX.value = current.x;
+        pillWidth.value = current.width;
+        ready.value = 1;
+      } else {
+        pillX.value = withSpring(current.x, PILL_SPRING);
+        pillWidth.value = withSpring(current.width, PILL_SPRING);
+      }
+    }
+  }, [activeTab, layouts]);
+
+  const pillStyle = useAnimatedStyle(() => ({
+    opacity: ready.value,
+    transform: [{ translateX: pillX.value }],
+    width: pillWidth.value,
+  }));
+
+  return (
+    <View style={{ position: 'relative', backgroundColor: CARD, borderRadius: 22, padding: 4, height: 46, justifyContent: 'center' }}>
+      {/* Morphing Pill */}
+      <Animated.View
+        style={[
+          {
+            position: 'absolute',
+            top: 4,
+            bottom: 4,
+            borderRadius: 18,
+            backgroundColor: 'rgba(255,255,255,0.14)',
+          },
+          pillStyle,
+        ]}
+      />
+
+      {/* Tabs */}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {tabs.map((t) => {
+          const active = activeTab === t.key;
+          return (
+            <Pressable
+              key={t.key}
+              onLayout={(e) => onItemLayout(t.key, e)}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onSelect(t.key);
+              }}
+              style={{
+                flex: 1,
+                paddingVertical: 9,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 6,
+                zIndex: 1,
+              }}>
+              <Text
+                style={{
+                  color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                  fontFamily: F.bold,
+                  fontSize: 13,
+                }}>
+                {t.label}
+              </Text>
+              {t.badge ? (
+                <View
+                  style={{
+                    minWidth: 16,
+                    height: 16,
+                    paddingHorizontal: 4,
+                    borderRadius: 8,
+                    backgroundColor: C.red,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                  <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{t.badge}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export default function Settings() {
   const insets = useSafeAreaInsets();
   const { me, friends, incoming, outgoing } = useStore();
@@ -151,7 +264,7 @@ export default function Settings() {
   };
   const version = `${Constants.expoConfig?.version ?? '1.0.0'}${Updates.updateId ? ` · ${Updates.updateId.slice(0, 7)}` : ''}`;
 
-  const tabs: { key: TabKey; label: string; badge?: number }[] = [
+  const tabs: TabItem[] = [
     { key: 'profile', label: 'profile' },
     { key: 'friends', label: `friends (${friends.length})`, badge: incoming.length || undefined },
     { key: 'prefs', label: 'settings' },
@@ -169,36 +282,8 @@ export default function Settings() {
           </Squish>
         </View>
 
-        {/* Clean Segmented Tab Bar */}
-        <View style={{ flexDirection: 'row', backgroundColor: CARD, borderRadius: 20, padding: 4, gap: 4 }}>
-          {tabs.map((t) => {
-            const active = tab === t.key;
-            return (
-              <Pressable
-                key={t.key}
-                onPress={() => { Haptics.selectionAsync(); setTab(t.key); }}
-                style={{
-                  flex: 1,
-                  paddingVertical: 9,
-                  borderRadius: 16,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: active ? 'rgba(255,255,255,0.12)' : 'transparent',
-                  flexDirection: 'row',
-                  gap: 6,
-                }}>
-                <Text style={{ color: active ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 13 }}>
-                  {t.label}
-                </Text>
-                {t.badge ? (
-                  <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{t.badge}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
+        {/* Morphing Animated Segmented Tab Bar */}
+        <SegmentedTabs tabs={tabs} activeTab={tab} onSelect={setTab} />
 
         {/* TAB 1: PROFILE */}
         {tab === 'profile' && (
