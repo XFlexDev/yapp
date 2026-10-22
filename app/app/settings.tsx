@@ -284,7 +284,11 @@ export default function Settings() {
   ];
 
   const headerHeight = insets.top + 56;
-  const blurHeight = headerHeight + 24;
+  const blurHeight = headerHeight + 28;
+
+  // 12 contiguous vertical slices transitioning blur intensity progressively from 80 at top to 4 at the bottom
+  const SLICES = [80, 72, 64, 56, 48, 40, 32, 24, 18, 12, 7, 3];
+  const sliceHeight = blurHeight / SLICES.length;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -298,24 +302,33 @@ export default function Settings() {
           right: 0,
           zIndex: 100,
         }}>
-        {/* Progressive Blur Container (feathered slices from max blur to transparent) */}
+        {/* Progressive Blur: Non-overlapping vertical slices from high blur at top to near zero at bottom */}
         <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight, overflow: 'hidden' }, borderStyle]}>
-          <BlurView tint="dark" intensity={22} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight }} />
-          <BlurView tint="dark" intensity={25} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight * 0.88 }} />
-          <BlurView tint="dark" intensity={28} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight * 0.74 }} />
-          <BlurView tint="dark" intensity={32} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight * 0.58 }} />
-          <BlurView tint="dark" intensity={35} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight * 0.42 }} />
+          {SLICES.map((intensity, idx) => (
+            <BlurView
+              key={idx}
+              tint="dark"
+              intensity={intensity}
+              style={{
+                position: 'absolute',
+                top: idx * sliceHeight,
+                left: 0,
+                right: 0,
+                height: sliceHeight + 1, // +1px overlap to prevent any subpixel gaps
+              }}
+            />
+          ))}
 
-          {/* Smooth progressive dark gradient feather */}
+          {/* Smooth matching gradient fade */}
           <LinearGradient
             colors={[
               'rgba(0,0,0,0.85)',
-              'rgba(0,0,0,0.65)',
-              'rgba(0,0,0,0.35)',
-              'rgba(0,0,0,0.12)',
+              'rgba(0,0,0,0.6)',
+              'rgba(0,0,0,0.3)',
+              'rgba(0,0,0,0.08)',
               'rgba(0,0,0,0)',
             ]}
-            locations={[0, 0.45, 0.7, 0.88, 1]}
+            locations={[0, 0.45, 0.72, 0.9, 1]}
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
