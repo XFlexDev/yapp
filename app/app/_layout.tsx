@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
+import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { router, Stack, type ErrorBoundaryProps } from 'expo-router';
 import { requireOptionalNativeModule } from 'expo';
 import { Appearance, Pressable, Text, View } from 'react-native';
@@ -25,6 +26,15 @@ startUpdates();
 Appearance.setColorScheme('dark');
 // Black window behind screens (needs a build with expo-system-ui; older builds skip it).
 if (requireOptionalNativeModule('ExpoSystemUI')) import('expo-system-ui').then((m) => m.setBackgroundColorAsync('#000')).catch(() => {});
+
+const darkNavTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: '#000000',
+    card: '#000000',
+  },
+};
 
 export function signOutLocal() {
   stopRealtime();
@@ -81,30 +91,32 @@ export default function Root() {
   const onboarded = !!me?.username && !!me?.display_name;
   const base = status === 'in' && onboarded ? C.bg : RED;
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: base }}>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: base }, animation: 'fade' }}>
-        <Stack.Protected guard={status === 'out'}>
-          <Stack.Screen name="sign-in" />
-          <Stack.Screen name="auth" />
-        </Stack.Protected>
-        <Stack.Protected guard={status === 'in' && !onboarded}>
-          <Stack.Screen name="onboarding" />
-        </Stack.Protected>
-        <Stack.Protected guard={status === 'in' && onboarded}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: 'fitToContents', sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
-          <Stack.Screen name="order" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
-          <Stack.Screen name="chat" options={({ route }) => ({ animation: (route.params as any)?.ax ? 'fade' : 'ios_from_right', animationDuration: 220, fullScreenGestureEnabled: true })} />
-          <Stack.Screen name="group" options={{ animation: 'ios_from_right' }} />
-          <Stack.Screen name="inbox" options={{ animation: 'ios_from_right' }} />
-          <Stack.Screen name="settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-        </Stack.Protected>
-        <Stack.Protected guard={status === 'in'}>
-          <Stack.Screen name="crop" options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: '#000' } }} />
-        </Stack.Protected>
-      </Stack>
-      <Intro />
-    </GestureHandlerRootView>
+    <ThemeProvider value={darkNavTheme}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: base }}>
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: base }, animation: 'fade' }}>
+          <Stack.Protected guard={status === 'out'}>
+            <Stack.Screen name="sign-in" />
+            <Stack.Screen name="auth" />
+          </Stack.Protected>
+          <Stack.Protected guard={status === 'in' && !onboarded}>
+            <Stack.Screen name="onboarding" />
+          </Stack.Protected>
+          <Stack.Protected guard={status === 'in' && onboarded}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: 'fitToContents', sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
+            <Stack.Screen name="order" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
+            <Stack.Screen name="chat" options={({ route }) => ({ animation: (route.params as any)?.ax ? 'fade' : 'default', animationDuration: 220, fullScreenGestureEnabled: true, fullScreenGestureShadowEnabled: false })} />
+            <Stack.Screen name="group" options={{ animation: 'default', fullScreenGestureEnabled: true, fullScreenGestureShadowEnabled: false }} />
+            <Stack.Screen name="inbox" options={{ animation: 'default', fullScreenGestureEnabled: true, fullScreenGestureShadowEnabled: false }} />
+            <Stack.Screen name="settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          </Stack.Protected>
+          <Stack.Protected guard={status === 'in'}>
+            <Stack.Screen name="crop" options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: '#000' } }} />
+          </Stack.Protected>
+        </Stack>
+        <Intro />
+      </GestureHandlerRootView>
+    </ThemeProvider>
   );
 }
