@@ -19,8 +19,8 @@ import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { haptic } from '../lib/haptic';
+import { BlurView } from 'expo-blur';
 import { playClip } from '../lib/clips';
-import { WaveStream, WaveTrigger } from '../lib/wave';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
 /** iOS renders a uniform `scale` transform pixelated (facebook/react-native#48673); separate X/Y scales stay sharp. */
@@ -87,7 +87,7 @@ function TopButton({ g, onPress }: { g: keyof typeof GLYPHS; onPress: () => void
   );
 }
 
-function Backdrop({ friend }: { friend: Friend }) {
+function Backdrop({ friend, connecting }: { friend: Friend; connecting: boolean }) {
   const seq = useRef(0);
   const [layers, setLayers] = useState<{ f: Friend; k: number }[]>([{ f: friend, k: 0 }]);
   useEffect(() => {
@@ -98,10 +98,34 @@ function Backdrop({ friend }: { friend: Friend }) {
     });
   }, [friend]);
   const settle = (k: number) => setLayers((l) => { const i = l.findIndex((x) => x.k === k); return i > 0 ? l.slice(i) : l; });
+
+  const blurV = useSharedValue(0);
+  useEffect(() => {
+    if (connecting) {
+      blurV.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.quad) });
+    } else {
+      blurV.value = withTiming(0, { duration: 420, easing: Easing.out(Easing.quad) });
+    }
+  }, [connecting]);
+
+  const blurStyle = useAnimatedStyle(() => ({
+    opacity: blurV.value,
+  }));
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {layers.map((x, i) => <Layer key={x.k} friend={x.f} fade={i > 0} onIn={() => settle(x.k)} />)}
       <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
+
+      {/* 9:16 background photo connection blur overlay */}
+      <Animated.View style={[StyleSheet.absoluteFill, blurStyle]}>
+        <BlurView
+          tint="systemUltraThinMaterialDark"
+          intensity={70}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.22)' }]} />
+      </Animated.View>
     </View>
   );
 }
@@ -366,7 +390,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { friends, selectedId, talkingTo, incoming, incomingWave, me, call, chats, groups, pokedAt, pokedCount, pokeCount, clips } = useStore();
+  const { friends, selectedId, talkingTo, incoming, me, call, chats, groups, pokedAt, pokedCount, pokeCount, clips } = useStore();
   const cam = useStore((s) => !!s.cams.local);
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
@@ -388,12 +412,49 @@ export default function Home() {
   const bareV = useSharedValue(0);
   useEffect(() => { bareV.value = withTiming(bare ? 1 : 0, { duration: 220 }); }, [bare]);
   const chrome = useAnimatedStyle(() => ({ opacity: 1 - bareV.value }));
-  const stage = useAnimatedStyle(() => ({ borderRadius: back.value * 44, transform: [...sxy(1 - back.value * 0.08)] }));
+
+  const isConnecting = (talking && connecting) || call?.state === 'outgoing';
+  const wiggleRot = useSharedValue(0);
+  const wiggleX = useSharedValue(0);
+
+  useEffect(() => {
+    if (isConnecting) {
+      wiggleRot.value = withRepeat(
+        withSequence(
+          withTiming(-1.2, { duration: 75, easing: Easing.inOut(Easing.quad) }),
+          withTiming(1.2, { duration: 75, easing: Easing.inOut(Easing.quad) })
+        ),
+        -1,
+        true
+      );
+      wiggleX.value = withRepeat(
+        withSequence(
+          withTiming(-1.5, { duration: 65, easing: Easing.inOut(Easing.quad) }),
+          withTiming(1.5, { duration: 65, easing: Easing.inOut(Easing.quad) })
+        ),
+        -1,
+        true
+      );
+    } else {
+      cancelAnimation(wiggleRot);
+      cancelAnimation(wiggleX);
+      wiggleRot.value = withSpring(0, { damping: 16, stiffness: 300 });
+      wiggleX.value = withSpring(0, { damping: 16, stiffness: 300 });
+    }
+  }, [isConnecting]);
+
+  const stage = useAnimatedStyle(() => ({
+    borderRadius: back.value * 44,
+    transform: [
+      ...sxy(1 - back.value * 0.08),
+      { rotate: `${wiggleRot.value}deg` },
+      { translateX: wiggleX.value },
+    ],
+  }));
   const [note, setNote] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const [muted, setMutedState] = useState(false);
   const [incomingPoke, setIncomingPoke] = useState<{ friendId: string; count: number; at: number } | null>(null);
-  const [activeWave, setActiveWave] = useState<{ count: number; active: boolean } | null>(null);
   const [pendingPokeCounts, setPendingPokeCounts] = useState<Record<string, number>>({});
   const pendingPokes = useRef<Record<string, { count: number; timer: ReturnType<typeof setTimeout> }>>({});
   const locked = useRef(false);
@@ -456,14 +517,6 @@ export default function Home() {
     const timer = setTimeout(() => setIncomingPoke((current) => current?.at === at ? null : current), at + 2500 - Date.now());
     return () => clearTimeout(timer);
   }, [friend?.id, pokedAt[friend?.id ?? ''], pokedCount[friend?.id ?? '']]);
-  useEffect(() => {
-    if (!friend || !incomingWave || incomingWave.friendId !== friend.id) return;
-    const diff = Date.now() - incomingWave.at;
-    if (diff > 3000) return;
-    setActiveWave({ count: incomingWave.count, active: false });
-  }, [friend?.id, incomingWave?.friendId, incomingWave?.count, incomingWave?.at]);
-  const onWaveTick = (c: number) => { setActiveWave({ count: c, active: true }); };
-  const onWaveEnd = () => { setActiveWave((curr) => curr ? { ...curr, active: false } : null); };
   useEffect(() => { back.value = withSpring(talking && !call ? 1 : 0, SPRING); }, [talking, !!call]);
   useEffect(() => { if (call?.state === 'incoming') haptic.ring(); else haptic.stopRing(); return haptic.stopRing; }, [call?.state]);
   useEffect(() => {
@@ -589,7 +642,7 @@ export default function Home() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, stage]}>
-      <Backdrop friend={friend} />
+      <Backdrop friend={friend} connecting={isConnecting} />
       {call?.state === 'active' ? <RemoteVideo id={friend.id} /> : null}
       <Animated.View pointerEvents={bare ? 'none' : 'box-none'} style={[{ paddingTop: insets.top + 4, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between' }, chrome]}>
         <TopButton g="settings" onPress={() => router.push('/settings')} />
@@ -608,13 +661,10 @@ export default function Home() {
       {friend.dnd ? <View style={{ marginTop: 6 }}><DndPill /></View> : null}
       <View pointerEvents="none" style={{ flex: 1 }} />
       <Animated.View pointerEvents={bare ? 'none' : 'box-none'} style={[{ alignItems: 'center', gap: 12, paddingHorizontal: 24, marginBottom: bottomH + 12, opacity: bottomH ? 1 : 0 }, chrome]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <WaveTrigger friendId={friend.id} onWaveTick={onWaveTick} onWaveEnd={onWaveEnd} />
-          <Pressable onPress={() => { Haptics.selectionAsync(); setSheet(true); }} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, opacity: pressed ? 0.6 : 1 })}>
-            <Fresh text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
-            <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
-          </Pressable>
-        </View>
+        <Pressable onPress={() => { Haptics.selectionAsync(); setSheet(true); }} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, opacity: pressed ? 0.6 : 1 })}>
+          <Fresh text={nameOf(friend)} style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }} />
+          <View style={{ opacity: 0.85, marginTop: 4 }}><Glyph g="down" size={16} /></View>
+        </Pressable>
         {friendActivity ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             {friend.streak > 0 && <Image source={require('../assets/fire.png')} style={{ width: 17, height: 17 }} />}
@@ -667,13 +717,6 @@ export default function Home() {
         </View>
         </GestureDetector>
       </View>
-      {activeWave ? (
-        <WaveStream
-          count={activeWave.count}
-          active={activeWave.active}
-          onDone={() => setActiveWave(null)}
-        />
-      ) : null}
       {sheet ? <FriendSheet friend={friend} onClose={() => setSheet(false)} /> : null}
     </View>
   );
