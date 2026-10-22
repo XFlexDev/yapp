@@ -2477,6 +2477,318 @@ async fn run_ws(st: S, uid: String, mut sock: WebSocket) {
     }
 }
 
+// Sticker & Custom Emoji Data Models and Handlers
+
+#[derive(Serialize, Deserialize)]
+pub struct StickerItem {
+    pub id: String,
+    pub url: String,
+    pub is_animated: bool,
+    pub is_emoji: bool,
+    pub width: u32,
+    pub height: u32,
+    pub size_bytes: u32,
+    pub alt_emoji: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct StickerPackView {
+    pub id: String,
+    pub slug: String,
+    pub title: String,
+    pub owner_id: Option<String>,
+    pub is_emoji_pack: bool,
+    pub thumbnail_url: Option<String>,
+    pub stickers: Vec<StickerItem>,
+}
+
+#[derive(Deserialize)]
+pub struct CreatePackReq {
+    pub slug: String,
+    pub title: String,
+    pub is_emoji_pack: Option<bool>,
+    pub sticker_ids: Vec<String>,
+    pub alt_emojis: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+pub struct UploadStickerQuery {
+    pub is_emoji: Option<bool>,
+    pub alt_emoji: Option<String>,
+}
+
+async fn upload_sticker(
+    State(st): State<S>,
+    Authed(_me): Authed,
+    Query(q): Query<UploadStickerQuery>,
+    body: axum::body::Bytes,
+) -> R<Json<StickerItem>> {
+    if body.is_empty() {
+        return Err(bad("Upload file is empty"));
+    }
+    let is_emoji = q.is_emoji.unwrap_or(false);
+
+    // Convert (and compress/scale) using ffmpeg pipeline
+    let converted = crate::converter::convert_to_optimized_webp(&body, is_emoji)
+        .await
+        .map_err(|e| bad(e))?;
+
+    let store = crate::storage::get().ok_or_else(|| bad("Sticker storage is currently unavailable"))?;
+    let key = crate::storage::key_for("s", &converted.webp_bytes, "webp");
+
+    let known: Option<(u32, u32, i64, u32)> = {
+        let c = st.db();
+        c.query_row(
+            "SELECT width, height, is_animated, size_bytes FROM stickers WHERE id=?",
+            [&key],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?
+    };
+
+    let (width, height, is_anim, size_bytes) = if let Some((w, h, a, s)) = known {
+        (w, h, a != 0, s)
+    } else {
+        // Upload to B2
+        store
+            .put(&key, converted.webp_bytes.clone(), "image/webp")
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "b2 sticker put");
+                bad("Couldn't save sticker")
+            })?;
+
+        let now = now_ms();
+        let size = converted.webp_bytes.len() as u32;
+        st.db().execute(
+            "INSERT OR IGNORE INTO stickers(id, hash, mime, is_animated, is_emoji, width, height, size_bytes, created_at)
+             VALUES (?1, ?1, 'image/webp', ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![key, converted.is_animated as i64, is_emoji as i64, converted.width, converted.height, size, now],
+        )?;
+        (converted.width, converted.height, converted.is_animated, size)
+    };
+
+    Ok(Json(StickerItem {
+        id: key.clone(),
+        url: store.url(&key),
+        is_animated: is_anim,
+        is_emoji,
+        width,
+        height,
+        size_bytes,
+        alt_emoji: q.alt_emoji,
+    }))
+}
+
+async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<Vec<StickerPackView>>> {
+    let c = st.db();
+    let mut q = c.prepare(
+        "SELECT id, slug, title, owner_id, is_emoji_pack, thumbnail_id FROM sticker_packs
+         WHERE owner_id IS NULL OR owner_id = ?
+         ORDER BY created_at DESC LIMIT 50",
+    )?;
+
+    let store = crate::storage::get();
+    let pack_rows = q.query_map([&me], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, i64>(4)? != 0,
+            r.get::<_, Option<String>>(5)?,
+        ))
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut out = Vec::new();
+    for (id, slug, title, owner_id, is_emoji_pack, thumb) in pack_rows {
+        let mut sq = c.prepare(
+            "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji
+             FROM sticker_pack_items i
+             JOIN stickers s ON s.id = i.sticker_id
+             WHERE i.pack_id = ?
+             ORDER BY i.position ASC",
+        )?;
+        let stickers = sq.query_map([&id], |r| {
+            let sid: String = r.get(0)?;
+            let url = store.map(|s| s.url(&sid)).unwrap_or_default();
+            Ok(StickerItem {
+                id: sid,
+                url,
+                is_animated: r.get::<_, i64>(1)? != 0,
+                is_emoji: r.get::<_, i64>(2)? != 0,
+                width: r.get(3)?,
+                height: r.get(4)?,
+                size_bytes: r.get(5)?,
+                alt_emoji: r.get(6)?,
+            })
+        })?.collect::<rusqlite::Result<Vec<_>>>()?;
+
+        let thumbnail_url = thumb.as_deref().and_then(|t| store.map(|s| s.url(t)));
+        out.push(StickerPackView {
+            id,
+            slug,
+            title,
+            owner_id,
+            is_emoji_pack,
+            thumbnail_url,
+            stickers,
+        });
+    }
+
+    Ok(Json(out))
+}
+
+async fn create_sticker_pack(
+    State(st): State<S>,
+    Authed(me): Authed,
+    Json(r): Json<CreatePackReq>,
+) -> R<Json<StickerPackView>> {
+    let slug = r.slug.trim().to_lowercase();
+    if slug.len() < 3 || slug.len() > 32 || !slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(bad("Slug must be 3-32 alphanumeric characters"));
+    }
+    let title = r.title.trim();
+    if title.is_empty() || title.len() > 64 {
+        return Err(bad("Title must be 1-64 characters"));
+    }
+    if r.sticker_ids.is_empty() || r.sticker_ids.len() > 100 {
+        return Err(bad("Pack must have between 1 and 100 stickers"));
+    }
+
+    let is_emoji_pack = r.is_emoji_pack.unwrap_or(false);
+    let pack_id = random_token()[..16].to_string();
+    let now = now_ms();
+    let thumb = r.sticker_ids.first().cloned();
+
+    {
+        let c = st.db();
+        c.execute(
+            "INSERT INTO sticker_packs(id, slug, title, owner_id, is_emoji_pack, thumbnail_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![pack_id, slug, title, me, is_emoji_pack as i64, thumb, now],
+        ).map_err(|e| {
+            if let rusqlite::Error::SqliteFailure(err, _) = &e {
+                if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE {
+                    return bad("A pack with this slug already exists");
+                }
+            }
+            e.into()
+        })?;
+
+        for (pos, sid) in r.sticker_ids.iter().enumerate() {
+            let alt = r.alt_emojis.as_ref().and_then(|a| a.get(pos)).cloned().unwrap_or_default();
+            c.execute(
+                "INSERT OR REPLACE INTO sticker_pack_items(pack_id, sticker_id, position, alt_emoji)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![pack_id, sid, pos as i64, alt],
+            )?;
+        }
+    }
+
+    let store = crate::storage::get();
+    let thumbnail_url = thumb.as_deref().and_then(|t| store.map(|s| s.url(t)));
+
+    Ok(Json(StickerPackView {
+        id: pack_id,
+        slug,
+        title: title.into(),
+        owner_id: Some(me),
+        is_emoji_pack,
+        thumbnail_url,
+        stickers: Vec::new(),
+    }))
+}
+
+async fn get_sticker_pack(
+    State(st): State<S>,
+    Path(slug): Path<String>,
+) -> R<Json<StickerPackView>> {
+    let c = st.db();
+    let (id, slug, title, owner_id, is_emoji_pack, thumb): (String, String, String, Option<String>, bool, Option<String>) = c.query_row(
+        "SELECT id, slug, title, owner_id, is_emoji_pack, thumbnail_id FROM sticker_packs WHERE slug = ? OR id = ?",
+        [&slug, &slug],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, i64>(4)? != 0, r.get(5)?)),
+    ).optional()?.ok_or_else(|| not_found("Sticker pack not found"))?;
+
+    let store = crate::storage::get();
+    let mut sq = c.prepare(
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji
+         FROM sticker_pack_items i
+         JOIN stickers s ON s.id = i.sticker_id
+         WHERE i.pack_id = ?
+         ORDER BY i.position ASC",
+    )?;
+    let stickers = sq.query_map([&id], |r| {
+        let sid: String = r.get(0)?;
+        let url = store.map(|s| s.url(&sid)).unwrap_or_default();
+        Ok(StickerItem {
+            id: sid,
+            url,
+            is_animated: r.get::<_, i64>(1)? != 0,
+            is_emoji: r.get::<_, i64>(2)? != 0,
+            width: r.get(3)?,
+            height: r.get(4)?,
+            size_bytes: r.get(5)?,
+            alt_emoji: r.get(6)?,
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let thumbnail_url = thumb.as_deref().and_then(|t| store.map(|s| s.url(t)));
+    Ok(Json(StickerPackView {
+        id,
+        slug,
+        title,
+        owner_id,
+        is_emoji_pack,
+        thumbnail_url,
+        stickers,
+    }))
+}
+
+async fn use_recent_sticker(
+    State(st): State<S>,
+    Authed(me): Authed,
+    Path(sid): Path<String>,
+) -> R<Json<Value>> {
+    let now = now_ms();
+    st.db().execute(
+        "INSERT INTO user_recent_stickers(user_id, sticker_id, used_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(user_id, sticker_id) DO UPDATE SET used_at=excluded.used_at",
+        params![me, sid, now],
+    )?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn list_recent_stickers(
+    State(st): State<S>,
+    Authed(me): Authed,
+) -> R<Json<Vec<StickerItem>>> {
+    let c = st.db();
+    let store = crate::storage::get();
+    let mut q = c.prepare(
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes
+         FROM user_recent_stickers r
+         JOIN stickers s ON s.id = r.sticker_id
+         WHERE r.user_id = ?
+         ORDER BY r.used_at DESC LIMIT 30",
+    )?;
+    let items = q.query_map([&me], |r| {
+        let sid: String = r.get(0)?;
+        let url = store.map(|s| s.url(&sid)).unwrap_or_default();
+        Ok(StickerItem {
+            id: sid,
+            url,
+            is_animated: r.get::<_, i64>(1)? != 0,
+            is_emoji: r.get::<_, i64>(2)? != 0,
+            width: r.get(3)?,
+            height: r.get(4)?,
+            size_bytes: r.get(5)?,
+            alt_emoji: None,
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(items))
+}
+
 pub fn router(st: S) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
@@ -2552,6 +2864,11 @@ pub fn router(st: S) -> Router {
         .route("/v1/chats/{id}/read", post(mark_read))
         .route("/v1/chats/{id}/background", put(set_chat_background))
         .route("/v1/chats/{id}/background/photo", put(put_chat_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
+        .route("/v1/stickers/upload", post(upload_sticker).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
+        .route("/v1/sticker-packs", get(list_sticker_packs).post(create_sticker_pack))
+        .route("/v1/sticker-packs/{slug}", get(get_sticker_pack))
+        .route("/v1/stickers/recent", get(list_recent_stickers))
+        .route("/v1/stickers/recent/{sid}", post(use_recent_sticker))
         .route("/v1/poke", post(poke))
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))

@@ -182,6 +182,47 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             read_at INTEGER NOT NULL,
             PRIMARY KEY(user_id, friend_id)
         );
+        CREATE TABLE IF NOT EXISTS stickers(
+            id TEXT PRIMARY KEY,
+            hash TEXT NOT NULL UNIQUE,
+            mime TEXT NOT NULL,
+            is_animated INTEGER NOT NULL DEFAULT 0,
+            is_emoji INTEGER NOT NULL DEFAULT 0,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sticker_packs(
+            id TEXT PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            owner_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+            is_emoji_pack INTEGER NOT NULL DEFAULT 0,
+            thumbnail_id TEXT REFERENCES stickers(id) ON DELETE SET NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sticker_pack_items(
+            pack_id TEXT NOT NULL REFERENCES sticker_packs(id) ON DELETE CASCADE,
+            sticker_id TEXT NOT NULL REFERENCES stickers(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            alt_emoji TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(pack_id, sticker_id)
+        );
+        CREATE INDEX IF NOT EXISTS sticker_pack_items_pack ON sticker_pack_items(pack_id, position);
+        CREATE TABLE IF NOT EXISTS user_installed_packs(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            pack_id TEXT NOT NULL REFERENCES sticker_packs(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            installed_at INTEGER NOT NULL,
+            PRIMARY KEY(user_id, pack_id)
+        );
+        CREATE TABLE IF NOT EXISTS user_recent_stickers(
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sticker_id TEXT NOT NULL REFERENCES stickers(id) ON DELETE CASCADE,
+            used_at INTEGER NOT NULL,
+            PRIMARY KEY(user_id, sticker_id)
+        );
         "#,
     )?;
     Ok(c)
