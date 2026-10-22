@@ -31,16 +31,15 @@ function sxy(v: number) {
 
 const ZZ = require('../assets/tt/zz.png');
 const { width: W, height: H } = Dimensions.get('window');
-const AV = 54;
-const SEL = 76;
-const PLUS = 48;
+const AV = 88;
+const SEL = 104;
+const RING = 132;
+const PLUS = 88;
 const GAP = 14;
 const LOCK_AT = 90;
-const SLOT = 80;
+const SLOT = 118;
 const MIN = AV / SEL;
 const SNAP = { damping: 34, stiffness: 260, mass: 1 };
-const PLUS_X = 16;
-const FADE_AT = PLUS_X + PLUS + 14;
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 const DND = '#FF9F0A';
 const MOON = '#5E5CE6';
@@ -152,8 +151,6 @@ function Zzz() {
   );
 }
 
-const RING = SEL + 14;
-
 /** Every size here is real layout driven by `focus` on the UI thread, never a scale transform, so iOS always draws it at native resolution. */
 function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { friend: Friend; talking: boolean; hearing: boolean; pokeAt: number; pokeSquish: SharedValue<number>; focus: SharedValue<number> }) {
   const press = useSharedValue(0);
@@ -170,22 +167,54 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { f
     else { cancelAnimation(ripple); ripple.value = withTiming(0, { duration: 200 }); }
   }, [hearing]);
   const url = pfpUrl(friend);
-  const k = useDerivedValue(() => MIN + (1 - MIN) * focus.value);
   const body = useAnimatedStyle(() => {
-    const s = RING * k.value;
-    return { width: s, height: s, transform: sxy((1 + press.value * 0.1 + bump.value * 0.07) * pokeSquish.value) };
+    return { width: RING, height: RING, transform: sxy((1 + press.value * 0.08 + bump.value * 0.06) * pokeSquish.value) };
   });
-  const round = useAnimatedStyle(() => ({ borderRadius: (RING * k.value) / 2 }));
-  const ring = useAnimatedStyle(() => ({ opacity: focus.value, borderWidth: 3 + focus.value, borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]) }));
-  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: sxy(1 + ripple.value * 0.25) }));
-  const face = useAnimatedStyle(() => { const s = SEL * k.value; return { width: s, height: s, borderRadius: s / 2 }; });
-  const letter = useAnimatedStyle(() => ({ fontSize: SEL * k.value * 0.42 }));
-  const dot = useAnimatedStyle(() => { const s = 16 + 4 * focus.value; return { width: s, height: s, borderRadius: s / 2 }; });
+  const round = { borderRadius: RING / 2 };
+  const ring = useAnimatedStyle(() => ({
+    opacity: focus.value,
+    borderWidth: 5.5,
+    borderColor: interpolateColor(press.value, [0, 1], ['#ffffff', C.red]),
+  }));
+  const wave = useAnimatedStyle(() => ({ opacity: hear.value * (1 - ripple.value) * 0.6, transform: sxy(1 + ripple.value * 0.22) }));
+  const face = useAnimatedStyle(() => {
+    const s = AV + (SEL - AV) * focus.value;
+    return { width: s, height: s, borderRadius: s / 2 };
+  });
+  const letter = useAnimatedStyle(() => ({ fontSize: (AV + (SEL - AV) * focus.value) * 0.42 }));
+  const activeDotStyle = useAnimatedStyle(() => ({
+    opacity: focus.value,
+  }));
+
   return (
     <View style={{ width: RING, height: RING, alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View style={[{ alignItems: 'center', justifyContent: 'center' }, body]}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderWidth: 2, borderColor: '#fff' }, round, wave]} />
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, round, ring]} />
+
+        {/* Active online dot sitting on the top-right of the white ring with dark collar gap */}
+        {friend.online && !friend.dnd ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                left: 91,
+                top: 2,
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                backgroundColor: '#000',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 3,
+              },
+              activeDotStyle,
+            ]}>
+            <View style={{ width: 17, height: 17, borderRadius: 8.5, backgroundColor: '#ACFC69' }} />
+          </Animated.View>
+        ) : null}
+
         <Animated.View style={[{ overflow: 'hidden', backgroundColor: SWATCH[friend.color] ?? C.red, alignItems: 'center', justifyContent: 'center' }, face]}>
           {url ? (
             <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} cachePolicy="memory-disk" recyclingKey={friend.id} />
@@ -193,11 +222,7 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { f
             <Animated.Text style={[{ color: '#fff', fontFamily: F.black }, letter]}>{nameOf(friend).slice(0, 1).toUpperCase()}</Animated.Text>
           )}
         </Animated.View>
-        {friend.dnd ? <Zzz /> : friend.online ? (
-          <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={[{ position: 'absolute', right: 1, top: 1, backgroundColor: '#000', padding: 3 }, dot]}>
-            <View style={{ flex: 1, borderRadius: 99, backgroundColor: C.online }} />
-          </Animated.View>
-        ) : null}
+        {friend.dnd ? <Zzz /> : null}
       </Animated.View>
     </View>
   );
@@ -212,13 +237,15 @@ function Slot({ i, x, dim, badge, sel, dir, cp, ca, children }: { i: number; x: 
   const edge = useAnimatedStyle(() => {
     const cx = W / 2 + i * SLOT - x.value;
     const gone = sel ? ca.value : cp.value;
-    return { opacity: Math.max(0, Math.min(1, (cx - FADE_AT) / 34)) * (dim ? 0.75 : 1) * Math.max(0, 1 - gone * 1.4) };
+    const fadeLeft = Math.max(0, Math.min(1, (cx + SLOT / 2 - 12) / 36));
+    const fadeRight = Math.max(0, Math.min(1, (W - (cx - SLOT / 2) - 12) / 36));
+    return { opacity: fadeLeft * fadeRight * (dim ? 0.75 : 1) * Math.max(0, 1 - gone * 1.4) };
   });
-  const r = Math.round(((SEL + 14) * MIN) / 2);
+  const r = Math.round(AV / 2);
   return (
-    <Animated.View style={[{ width: SLOT, height: SEL + 14, alignItems: 'center', justifyContent: 'center' }, edge]}>
+    <Animated.View style={[{ width: SLOT, height: RING, alignItems: 'center', justifyContent: 'center' }, edge]}>
       <Animated.View style={st}>{children(focus)}</Animated.View>
-      <View pointerEvents="none" style={{ position: 'absolute', top: (SEL + 14) / 2 - r, left: SLOT / 2 - r, width: r * 2, height: r * 2 }}>
+      <View pointerEvents="none" style={{ position: 'absolute', top: RING / 2 - r, left: SLOT / 2 - r, width: r * 2, height: r * 2 }}>
         <PokeBadge count={badge} />
       </View>
     </Animated.View>
@@ -522,12 +549,11 @@ export default function Home() {
     req<Me>('/v1/status', { method: 'PUT', body: { dnd: next } }).then((m) => set({ me: m })).catch(() => set((s) => ({ me: s.me ? { ...s.me, dnd: !next } : s.me })));
   };
 
-  const plusSt = useAnimatedStyle(() => ({ opacity: Math.max(0, 1 - cp.value * 1.4), transform: [...sxy(1 - 0.3 * cp.value)] }));
   const plus = (
-    <Squish onPress={() => router.push('/add')} style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
-      <Glyph g="plus" size={22} />
+    <Squish onPress={() => router.push('/add')} style={{ width: PLUS, height: PLUS, borderRadius: PLUS / 2, backgroundColor: 'rgba(44,44,46,0.9)', alignItems: 'center', justifyContent: 'center' }}>
+      <Glyph g="plus" size={34} />
       {incoming.length ? (
-        <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+        <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ position: 'absolute', top: 2, right: 2, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
           <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>{incoming.length}</Text>
         </Animated.View>
       ) : null}
@@ -604,8 +630,19 @@ export default function Home() {
         <Bubble text={bubble} lock={talking && !connecting && !call} loading={talking && showConnecting && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </Pressable>
         <GestureDetector gesture={swipe}>
-        <View style={{ marginBottom: insets.bottom + 6, height: SEL + 34 }}>
-        <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2, top: 10, flexDirection: 'row' }, track]}>
+        <View style={{ marginBottom: insets.bottom + 8, height: RING + 16 }}>
+        <Animated.View style={[{ position: 'absolute', left: W / 2 - SLOT / 2, top: 8, flexDirection: 'row' }, track]}>
+          {/* Slot -1: Plus button seamlessly integrated into the carousel track */}
+          <Slot i={-1} x={sx} sel={false} dir={-1} cp={cp} ca={ca} dim={false} badge={0}>
+            {() => (
+              <GestureDetector gesture={Gesture.Tap().runOnJS(true).onEnd(() => router.push('/add'))}>
+                <View collapsable={false}>
+                  {plus}
+                </View>
+              </GestureDetector>
+            )}
+          </Slot>
+
           {friends.map((f, i) => {
             const sel = f.id === friend.id;
             return (
@@ -621,7 +658,6 @@ export default function Home() {
             );
           })}
         </Animated.View>
-        <Animated.View pointerEvents={call ? 'none' : 'box-none'} style={[{ position: 'absolute', left: PLUS_X, top: 0, bottom: 0, justifyContent: 'center' }, plusSt]}>{plus}</Animated.View>
         <CallControls cp={cp} ca={ca} on={!!call} incoming={(call ?? lastCall.current)?.state === 'incoming'} muted={muted} cam={cam} onCam={toggleCam} onMute={toggleMute} onEnd={() => { haptic.hangup(); endCall(); }} onAccept={accept} />
         </View>
         </GestureDetector>

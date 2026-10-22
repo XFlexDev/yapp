@@ -14,11 +14,11 @@ function sxy(v: number) {
 const DARK = '#1a1a1a';
 const MORPH = { damping: 17, stiffness: 260, mass: 1 };
 const JELLY = { damping: 8, stiffness: 220, mass: 1 };
-const PAD = 16;
-const ICON = 21;
-const DOTS = 20;
-const BAND = 46;
-const label = { fontFamily: F.black, fontSize: 15 } as const;
+const PAD = 22;
+const ICON = 22;
+const DOTS = 22;
+const BAND = 52;
+const label = { fontFamily: F.black, fontSize: 17, letterSpacing: -0.2 } as const;
 
 /** One liquid pill: white "hold to talk" -> dark "slide up to lock" -> red as you slide. Width stretches past its target and settles, the body wobbles like a drop, labels melt into each other and the tail gets sucked back in. */
 export function Bubble({ text, lock, lift, icon, loading = false }: { text: string; lock: boolean; lift: { value: number }; icon: ReactNode; loading?: boolean }) {
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
   dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#000' },
   band: { position: 'absolute', left: 0, top: -6, bottom: -6, width: BAND },
   measure: { position: 'absolute', opacity: 0, left: -9999, top: 0 },
-  pill: { zIndex: 2, height: 34, paddingHorizontal: PAD, borderRadius: 17, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
-  layer: { position: 'absolute', width: 300, left: '50%', marginLeft: -150, textAlign: 'center' },
-  tail: { zIndex: 1, width: 13, height: 13, borderRadius: 3, marginTop: -9, overflow: 'hidden' },
+  pill: { zIndex: 2, height: 44, paddingHorizontal: PAD, borderRadius: 22, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
+  layer: { position: 'absolute', width: 320, left: '50%', marginLeft: -160, textAlign: 'center' },
+  tail: { zIndex: 1, width: 14, height: 14, borderRadius: 3, marginTop: -8, overflow: 'hidden' },
 });

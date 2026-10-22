@@ -7,7 +7,7 @@ export const C = {
   dim: '#9A9A9A',
   faint: '#5C5C5C',
   red: '#FF1F1F',
-  online: '#34D058',
+  online: '#ACFC69',
   danger: '#FF453A',
 };
 // Avatar fallbacks when a friend has no photo (index == user.color).
