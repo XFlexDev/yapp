@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = function withFixIosBuild(config) {
-  // 1. Xcode project build settings: disable user script sandboxing
+  // 1. Disable user script sandboxing in the main Xcode project
   config = withXcodeProject(config, (c) => {
     const xcodeProject = c.modResults;
     const configurations = xcodeProject.pbxXCBuildConfigurationSection();
@@ -15,35 +15,38 @@ module.exports = function withFixIosBuild(config) {
     return c;
   });
 
-  // 2. Modify Podfile and build-xcframework.sh
+  // 2. Podfile post_install:
+  // - Disable sandboxing across all CocoaPods targets
+  // - Ensure ExpoModulesJSI is properly built by its build script for iphoneos
   config = withDangerousMod(config, [
     'ios',
     (c) => {
       const iosDir = c.modRequest.platformProjectRoot;
       const podfilePath = path.join(iosDir, 'Podfile');
 
-      // Hook in Podfile post_install
       if (fs.existsSync(podfilePath)) {
         let podfile = fs.readFileSync(podfilePath, 'utf8');
 
-        // We also want to replace the Script phase of ExpoModulesJSI in Pods project
-        // so that instead of failing silently inside `tail -40`, it builds using standard Xcode paths
         const hook = `
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
       end
-      if target.name == 'ExpoModulesJSI'
-        target.build_phases.each do |phase|
-          if phase.respond_to?(:shell_script) && phase.shell_script&.include?('build-xcframework.sh')
-            # Patch the script execution to run with DERIVED_DATA_PATH pointing to CocoaPods build dir
-            phase.shell_script = 'bash -c "set -x; cd \\"\${PODS_TARGET_SRCROOT}\\" && ./scripts/build-xcframework.sh || true"'
-          end
-        end
+    end
+
+    # Explicitly invoke ExpoModulesJSI's build-xcframework.sh during pod install
+    # so the real arm64 slice is built ahead of time and present before xcodebuild runs.
+    jsi_target = installer.pod_targets.find { |t| t.name == 'ExpoModulesJSI' }
+    if jsi_target
+      pod_dir = jsi_target.sandbox.pod_dir('ExpoModulesJSI')
+      build_script = File.join(pod_dir, 'scripts', 'build-xcframework.sh')
+      if File.exist?(build_script)
+        Pod::UI.puts "[Expo] Pre-building ExpoModulesJSI.xcframework for iphoneos...".green
+        system("PLATFORM_NAME=iphoneos bash #{build_script}", chdir: pod_dir.to_s)
       end
     end
 `;
-        if (!podfile.includes('ExpoModulesJSI')) {
+        if (!podfile.includes('Pre-building ExpoModulesJSI')) {
           if (podfile.includes('post_install do |installer|')) {
             podfile = podfile.replace('post_install do |installer|', `post_install do |installer|\n${hook}`);
           } else {
