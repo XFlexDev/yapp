@@ -8,7 +8,7 @@ import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Linking, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { Dimensions, Linking, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInLeft, FadeInRight, FadeOut, LinearTransition, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
@@ -119,6 +119,8 @@ type TabItem = {
   badge?: number;
 };
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 function SegmentedTabs({
   tabs,
   activeTab,
@@ -128,67 +130,82 @@ function SegmentedTabs({
   activeTab: TabKey;
   onSelect: (k: TabKey) => void;
 }) {
-  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
-  const pillX = useSharedValue(0);
-  const pillWidth = useSharedValue(0);
-  const ready = useSharedValue(0);
+  const count = Math.max(tabs.length, 1);
+  const initialWidth = Math.max(0, SCREEN_WIDTH - 32 - 8);
+  const [rowWidth, setRowWidth] = useState(initialWidth);
+  const tabWidth = rowWidth / count;
+  const activeIndex = Math.max(0, tabs.findIndex((t) => t.key === activeTab));
 
-  const onItemLayout = (key: TabKey, e: LayoutChangeEvent) => {
-    const { x, width } = e.nativeEvent.layout;
-    setLayouts((prev) => ({ ...prev, [key]: { x, width } }));
-  };
+  const pillX = useSharedValue(activeIndex * (initialWidth / count));
+  const pillWidth = useSharedValue(initialWidth / count);
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
-    const current = layouts[activeTab];
-    if (current) {
-      if (ready.value === 0) {
-        pillX.value = current.x;
-        pillWidth.value = current.width;
-        ready.value = 1;
-      } else {
-        pillX.value = withSpring(current.x, PILL_SPRING);
-        pillWidth.value = withSpring(current.width, PILL_SPRING);
-      }
+    const targetX = activeIndex * tabWidth;
+    if (isFirstMount.current) {
+      pillX.value = targetX;
+      pillWidth.value = tabWidth;
+      isFirstMount.current = false;
+    } else {
+      pillX.value = withSpring(targetX, PILL_SPRING);
+      pillWidth.value = withSpring(tabWidth, PILL_SPRING);
     }
-  }, [activeTab, layouts]);
+  }, [activeIndex, tabWidth]);
 
   const pillStyle = useAnimatedStyle(() => ({
-    opacity: ready.value,
     transform: [{ translateX: pillX.value }],
     width: pillWidth.value,
   }));
 
   return (
-    <View style={{ position: 'relative', backgroundColor: CARD, borderRadius: 22, padding: 4, height: 46, justifyContent: 'center' }}>
-      {/* Smooth non-liquidy sliding pill */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            top: 4,
-            bottom: 4,
-            borderRadius: 18,
-            backgroundColor: 'rgba(255,255,255,0.14)',
-          },
-          pillStyle,
-        ]}
-      />
+    <View
+      style={{
+        backgroundColor: CARD,
+        borderRadius: 22,
+        padding: 4,
+        height: 46,
+      }}>
+      <View
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0 && Math.abs(w - rowWidth) > 0.5) {
+            setRowWidth(w);
+          }
+        }}
+        style={{
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'stretch',
+          position: 'relative',
+        }}>
+        {/* Sliding Pill */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              borderRadius: 18,
+              backgroundColor: 'rgba(255,255,255,0.14)',
+            },
+            pillStyle,
+          ]}
+        />
 
-      {/* Tabs */}
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {/* Tab Items */}
         {tabs.map((t) => {
           const active = activeTab === t.key;
           return (
             <Pressable
               key={t.key}
-              onLayout={(e) => onItemLayout(t.key, e)}
               onPress={() => {
                 Haptics.selectionAsync();
                 onSelect(t.key);
               }}
               style={{
                 flex: 1,
-                paddingVertical: 9,
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexDirection: 'row',
