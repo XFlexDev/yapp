@@ -7,9 +7,9 @@ import * as Haptics from 'expo-haptics';
 import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Updates from 'expo-updates';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Linking, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInLeft, FadeInRight, FadeOut, LinearTransition, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
 import { pickAndUploadPhoto } from '../lib/photo';
@@ -24,7 +24,8 @@ import { signOutLocal } from './_layout';
 const CARD = '#121212';
 const SEP = 'rgba(255,255,255,0.07)';
 const MOVE = LinearTransition.duration(240);
-const PILL_SPRING = { damping: 30, stiffness: 380, mass: 0.8 };
+const LEAD_SPRING = { damping: 22, stiffness: 360, mass: 0.65 };
+const TRAIL_SPRING = { damping: 26, stiffness: 220, mass: 0.95 };
 
 function Chevron() {
   return <SymbolView name="chevron.right" tintColor="rgba(255,255,255,0.3)" size={14} weight="bold" fallback={<MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.3)" />} />;
@@ -119,6 +120,51 @@ type TabItem = {
   badge?: number;
 };
 
+function TabLabel({ active, label, badge }: { active: boolean; label: string; badge?: number }) {
+  const bump = useSharedValue(1);
+  useEffect(() => {
+    if (active) {
+      bump.value = withSequence(
+        withTiming(1.08, { duration: 90, easing: Easing.out(Easing.quad) }),
+        withSpring(1, { damping: 12, stiffness: 300 })
+      );
+    } else {
+      bump.value = withTiming(1, { duration: 120 });
+    }
+  }, [active]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scaleX: bump.value }, { scaleY: bump.value }],
+  }));
+
+  return (
+    <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', gap: 6 }, style]}>
+      <Text
+        style={{
+          color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+          fontFamily: active ? F.black : F.bold,
+          fontSize: 13,
+        }}>
+        {label}
+      </Text>
+      {badge ? (
+        <View
+          style={{
+            minWidth: 16,
+            height: 16,
+            paddingHorizontal: 4,
+            borderRadius: 8,
+            backgroundColor: C.red,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{badge}</Text>
+        </View>
+      ) : null}
+    </Animated.View>
+  );
+}
+
 function SegmentedTabs({
   tabs,
   activeTab,
@@ -129,9 +175,11 @@ function SegmentedTabs({
   onSelect: (k: TabKey) => void;
 }) {
   const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
-  const pillX = useSharedValue(0);
-  const pillWidth = useSharedValue(0);
+  const pillLeft = useSharedValue(0);
+  const pillRight = useSharedValue(0);
+  const squishY = useSharedValue(1);
   const ready = useSharedValue(0);
+  const prevCenter = useRef(0);
 
   const onItemLayout = (key: TabKey, e: LayoutChangeEvent) => {
     const { x, width } = e.nativeEvent.layout;
@@ -141,26 +189,53 @@ function SegmentedTabs({
   useEffect(() => {
     const current = layouts[activeTab];
     if (current) {
+      const targetL = current.x;
+      const targetR = current.x + current.width;
+      const targetCenter = (targetL + targetR) / 2;
+
       if (ready.value === 0) {
-        pillX.value = current.x;
-        pillWidth.value = current.width;
+        pillLeft.value = targetL;
+        pillRight.value = targetR;
+        prevCenter.current = targetCenter;
         ready.value = 1;
       } else {
-        pillX.value = withSpring(current.x, PILL_SPRING);
-        pillWidth.value = withSpring(current.width, PILL_SPRING);
+        const movingRight = targetCenter >= prevCenter.current;
+        prevCenter.current = targetCenter;
+
+        // Jelly squish vertically during morph
+        squishY.value = withSequence(
+          withTiming(0.82, { duration: 90, easing: Easing.out(Easing.quad) }),
+          withSpring(1, { damping: 10, stiffness: 280 })
+        );
+
+        if (movingRight) {
+          // Right edge shoots forward fast, left edge trails behind -> stretches horizontally!
+          pillRight.value = withSpring(targetR, LEAD_SPRING);
+          pillLeft.value = withSpring(targetL, TRAIL_SPRING);
+        } else {
+          // Left edge shoots backward fast, right edge trails behind -> stretches horizontally!
+          pillLeft.value = withSpring(targetL, LEAD_SPRING);
+          pillRight.value = withSpring(targetR, TRAIL_SPRING);
+        }
       }
     }
   }, [activeTab, layouts]);
 
-  const pillStyle = useAnimatedStyle(() => ({
-    opacity: ready.value,
-    transform: [{ translateX: pillX.value }],
-    width: pillWidth.value,
-  }));
+  const pillStyle = useAnimatedStyle(() => {
+    const l = pillLeft.value;
+    const r = pillRight.value;
+    const w = Math.max(0, r - l);
+    return {
+      opacity: ready.value,
+      left: l,
+      width: w,
+      transform: [{ scaleY: squishY.value }],
+    };
+  });
 
   return (
     <View style={{ position: 'relative', backgroundColor: CARD, borderRadius: 22, padding: 4, height: 46, justifyContent: 'center' }}>
-      {/* Morphing Pill */}
+      {/* Morphing Liquid Pill */}
       <Animated.View
         style={[
           {
@@ -191,32 +266,9 @@ function SegmentedTabs({
                 paddingVertical: 9,
                 alignItems: 'center',
                 justifyContent: 'center',
-                flexDirection: 'row',
-                gap: 6,
                 zIndex: 1,
               }}>
-              <Text
-                style={{
-                  color: active ? '#fff' : 'rgba(255,255,255,0.4)',
-                  fontFamily: F.bold,
-                  fontSize: 13,
-                }}>
-                {t.label}
-              </Text>
-              {t.badge ? (
-                <View
-                  style={{
-                    minWidth: 16,
-                    height: 16,
-                    paddingHorizontal: 4,
-                    borderRadius: 8,
-                    backgroundColor: C.red,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                  <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{t.badge}</Text>
-                </View>
-              ) : null}
+              <TabLabel active={active} label={t.label} badge={t.badge} />
             </Pressable>
           );
         })}
@@ -283,16 +335,18 @@ export default function Settings() {
     { key: 'prefs', label: 'settings' },
   ];
 
-  const headerHeight = insets.top + 56;
-  const blurHeight = headerHeight + 28;
+  const TAB_ORDER: TabKey[] = ['profile', 'friends', 'prefs'];
+  const prevTab = useRef<TabKey>(tab);
+  const tabDir = TAB_ORDER.indexOf(tab) >= TAB_ORDER.indexOf(prevTab.current) ? 1 : -1;
+  useEffect(() => {
+    prevTab.current = tab;
+  }, [tab]);
 
-  // 12 contiguous vertical slices transitioning blur intensity progressively from 80 at top to 4 at the bottom
-  const SLICES = [80, 72, 64, 56, 48, 40, 32, 24, 18, 12, 7, 3];
-  const sliceHeight = blurHeight / SLICES.length;
+  const headerHeight = insets.top + 56;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      {/* Sticky Header with Progressive Blur Backdrop */}
+      {/* Sticky Header with Real Native Frost Backdrop */}
       <View
         pointerEvents="box-none"
         style={{
@@ -302,33 +356,60 @@ export default function Settings() {
           right: 0,
           zIndex: 100,
         }}>
-        {/* Progressive Blur: Non-overlapping vertical slices from high blur at top to near zero at bottom */}
-        <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: blurHeight, overflow: 'hidden' }, borderStyle]}>
-          {SLICES.map((intensity, idx) => (
-            <BlurView
-              key={idx}
-              tint="dark"
-              intensity={intensity}
-              style={{
-                position: 'absolute',
-                top: idx * sliceHeight,
-                left: 0,
-                right: 0,
-                height: sliceHeight + 1, // +1px overlap to prevent any subpixel gaps
-              }}
-            />
-          ))}
-
-          {/* Smooth matching gradient fade */}
-          <LinearGradient
-            colors={[
-              'rgba(0,0,0,0.85)',
-              'rgba(0,0,0,0.6)',
-              'rgba(0,0,0,0.3)',
-              'rgba(0,0,0,0.08)',
-              'rgba(0,0,0,0)',
+        {/* Real Native iOS frosted glass backdrop (reveals cleanly on scroll) */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: headerHeight,
+              overflow: 'hidden',
+            },
+            borderStyle,
+          ]}>
+          <BlurView
+            tint="systemUltraThinMaterialDark"
+            intensity={95}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: 'rgba(0,0,0,0.5)' },
             ]}
-            locations={[0, 0.45, 0.72, 0.9, 1]}
+          />
+          {/* Hairline bottom border */}
+          <View
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: StyleSheet.hairlineWidth,
+              backgroundColor: SEP,
+            }}
+          />
+        </Animated.View>
+
+        {/* Soft bottom gradient feather to melt smoothly into content */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              top: headerHeight,
+              left: 0,
+              right: 0,
+              height: 24,
+            },
+            borderStyle,
+          ]}>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.18)', 'transparent']}
+            locations={[0, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
@@ -367,7 +448,7 @@ export default function Settings() {
 
         {/* TAB 1: PROFILE */}
         {tab === 'profile' && (
-          <Animated.View entering={FadeIn.duration(180)} style={{ gap: 16 }}>
+          <Animated.View key="profile" entering={tabDir > 0 ? FadeInRight.duration(220) : FadeInLeft.duration(220)} style={{ gap: 16 }}>
             {/* Avatar block */}
             <View style={{ alignItems: 'center', paddingVertical: 6, gap: 10 }}>
               <Squish onPress={() => pickAndUploadPhoto().catch((e) => setError(String(e?.message ?? 'upload failed').toLowerCase()))} style={{ alignItems: 'center', gap: 10 }}>
@@ -406,7 +487,7 @@ export default function Settings() {
 
         {/* TAB 2: FRIENDS & REQUESTS */}
         {tab === 'friends' && (
-          <Animated.View entering={FadeIn.duration(180)} style={{ gap: 16 }}>
+          <Animated.View key="friends" entering={tabDir > 0 ? FadeInRight.duration(220) : FadeInLeft.duration(220)} style={{ gap: 16 }}>
             {/* Add friend action banner */}
             <Section>
               <Row first label="add friends by username" sub="find friends and invite them to chat" onPress={() => { router.back(); setTimeout(() => router.push('/add'), 250); }} />
@@ -457,7 +538,7 @@ export default function Settings() {
 
         {/* TAB 3: PREFERENCES & SETTINGS */}
         {tab === 'prefs' && (
-          <Animated.View entering={FadeIn.duration(180)} style={{ gap: 16 }}>
+          <Animated.View key="prefs" entering={tabDir > 0 ? FadeInRight.duration(220) : FadeInLeft.duration(220)} style={{ gap: 16 }}>
             {/* Status */}
             <Section title="status">
               <Row first label="do not disturb" sub="friends can’t talk or call you" right={<Toggle on={me.dnd} onChange={setDnd} />} />
