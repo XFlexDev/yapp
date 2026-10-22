@@ -93,7 +93,7 @@
       "./plugins/with-pinning",
       "expo-web-browser",
       "./plugins/with-black-window",
-      "./plugins/with-disable-sandboxing"
+      "./plugins/with-fix-ios-build"
     ],
     "scheme": "yapp",
     "owner": "kreatix",
