@@ -11,14 +11,16 @@ import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideI
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
-import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, setBackground } from '../lib/chat';
+import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, sendSticker, setBackground } from '../lib/chat';
 import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
+import { StickerPicker } from '../components/StickerPicker';
+import { type Sticker } from '../lib/stickers';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
-export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'], photo: ['photo.fill', 'image'] } as const;
+export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'], photo: ['photo.fill', 'image'], sticker: ['face.smiling.inverse', 'sticker-emoji'] } as const;
 export function MuteRow({ chat }: { chat: string }) {
   const muted = useStore((s) => !!s.notif?.muted.includes(chat));
   return (
@@ -84,6 +86,20 @@ function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?:
   );
 }
 
+function StickerBubble({ m, onLongPress }: { m: ChatMsg; onLongPress?: () => void }) {
+  const src = m.body.startsWith('s-') ? mediaUrl(m.body) : m.body;
+  return (
+    <Pressable onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.94 : 1 }, { scaleY: pressed ? 0.94 : 1 }] })}>
+      <Image
+        source={src}
+        style={{ width: 160, height: 160, opacity: m.pending ? 0.6 : 1 }}
+        contentFit="contain"
+        cachePolicy="memory-disk"
+      />
+    </Pressable>
+  );
+}
+
 export function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void }) {
   if (!uri) return null;
   return (
@@ -99,9 +115,15 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
       {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
-      {m.kind === 'image' ? <PhotoBubble m={m} onOpen={armed ? () => setArmed(false) : onOpen} onRetry={onRetry} onLongPress={hold} /> : <Pressable onPress={m.failed ? onRetry : armed ? () => setArmed(false) : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
-        <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 21 }}>{m.body}</Text>
-      </Pressable>}
+      {m.kind === 'image' ? (
+        <PhotoBubble m={m} onOpen={armed ? () => setArmed(false) : onOpen} onRetry={onRetry} onLongPress={hold} />
+      ) : m.kind === 'sticker' ? (
+        <StickerBubble m={m} onLongPress={hold} />
+      ) : (
+        <Pressable onPress={m.failed ? onRetry : armed ? () => setArmed(false) : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
+          <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 21 }}>{m.body}</Text>
+        </Pressable>
+      )}
       {armed ? (
         <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
           <Squish onPress={() => setArmed(false)} style={{ height: 32, paddingHorizontal: 14, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>cancel</Text></Squish>
@@ -144,6 +166,7 @@ export default function ChatScreen() {
   const meId = useStore((s) => s.me?.id);
   const [text, setText] = useState('');
   const [picker, setPicker] = useState(false);
+  const [stickersVisible, setStickersVisible] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [page, setPage] = useState<null | 'bg' | 'photos' | 'report'>(null);
   const [photos, setPhotos] = useState<ChatMsg[] | null>(null);
@@ -212,12 +235,23 @@ export default function ChatScreen() {
         />
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
+          <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
           <TextInput value={text} onChangeText={setText} placeholder="message" placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
             style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
           <Squish onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: text.trim() ? C.red : 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} /></Squish>
         </View>
       </Animated.View>
       </View>
+      <StickerPicker
+        visible={stickersVisible}
+        onClose={() => setStickersVisible(false)}
+        bottomInset={insets.bottom + 8}
+        onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
+        onPickSticker={(stk) => {
+          setStickersVisible(false);
+          sendSticker(id!, stk.id).catch(() => {});
+        }}
+      />
       {picker ? (
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>

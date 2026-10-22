@@ -10,13 +10,14 @@ import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, pickBackgroundPhoto } from '../lib/chat';
-import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto, deleteGroupMessage } from '../lib/groups';
+import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
 import { set, useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { Backdrop, Bubble, Glyph, MuteRow, PhotoViewer, SectionLabel } from './chat';
 import { req } from '../lib/api';
+import { StickerPicker } from '../components/StickerPicker';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 
@@ -76,6 +77,7 @@ export default function GroupScreen() {
   const [view, setView] = useState<string | null>(null);
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
+  const [stickersVisible, setStickersVisible] = useState(false);
   const talker = useStore((s) => s.groupTalk[id!] ?? null);
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
@@ -123,6 +125,7 @@ export default function GroupScreen() {
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
+          <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
           <TextInput value={text} onChangeText={setText} placeholder={`message ${g.name}`} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
             style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
           {text.trim() ? (
@@ -130,6 +133,16 @@ export default function GroupScreen() {
           ) : <TalkButton onState={setTalk} />}
         </View>
       </Animated.View>
+      <StickerPicker
+        visible={stickersVisible}
+        onClose={() => setStickersVisible(false)}
+        bottomInset={insets.bottom + 8}
+        onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
+        onPickSticker={(stk) => {
+          setStickersVisible(false);
+          sendGroupSticker(id!, stk.id).catch(() => {});
+        }}
+      />
       {sheet ? (
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
