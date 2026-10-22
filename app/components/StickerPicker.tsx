@@ -1,4 +1,5 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import * as ImagePicker from 'expo-image-picker';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
@@ -91,6 +92,13 @@ export function StickerPicker({
   const [recent, setRecent] = useState<Sticker[]>([]);
   const [packs, setPacks] = useState<StickerPack[]>([]);
   const [busy, setBusy] = useState(false);
+  const [namingDialog, setNamingDialog] = useState<{
+    uri: string;
+    mimeType?: string;
+    isEmoji: boolean;
+  } | null>(null);
+  const [assignedId, setAssignedId] = useState('');
+  const [namingError, setNamingError] = useState('');
 
   useEffect(() => {
     if (!visible) return;
@@ -98,21 +106,52 @@ export function StickerPicker({
     loadStickerPacks().then(setPacks).catch(() => {});
   }, [visible]);
 
-  const handleUploadSticker = async (isEmoji = false) => {
-    if (busy) return;
-    setBusy(true);
+  const handleStartPick = async (isEmoji: boolean) => {
     try {
-      const stk = await uploadCustomSticker(isEmoji);
+      const r = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        quality: 1,
+      });
+      const a = r.assets?.[0];
+      if (r.canceled || !a) return;
+      const base = (a.fileName || '').replace(/\.[^/.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]/g, '') || (isEmoji ? 'emoji' : 'sticker');
+      setAssignedId(base.slice(0, 24));
+      setNamingError('');
+      setNamingDialog({
+        uri: a.uri,
+        mimeType: a.mimeType,
+        isEmoji,
+      });
+    } catch {}
+  };
+
+  const handleConfirmNaming = async () => {
+    if (!namingDialog || busy) return;
+    const clean = assignedId.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
+    if (clean.length < 2) {
+      setNamingError('ID must be at least 2 characters (letters, numbers, _ -)');
+      return;
+    }
+    setBusy(true);
+    setNamingError('');
+    try {
+      const stk = await uploadCustomSticker(
+        namingDialog.isEmoji,
+        clean,
+        { uri: namingDialog.uri, mimeType: namingDialog.mimeType }
+      );
       if (stk) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setRecent((prev) => [stk, ...prev.filter((x) => x.id !== stk.id)]);
-        if (isEmoji) {
-          onPickEmoji(`:${stk.alt_emoji || 'custom'}:`);
+        setNamingDialog(null);
+        if (namingDialog.isEmoji) {
+          onPickEmoji(`:${stk.name || clean}:`);
         } else {
           onPickSticker(stk);
         }
       }
-    } catch (e) {
+    } catch (e: any) {
+      setNamingError(e?.message || 'Failed to upload. Try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setBusy(false);
@@ -138,6 +177,20 @@ export function StickerPicker({
       emojis: sec.emojis.filter((e) => e.includes(q)),
     })).filter((sec) => sec.emojis.length > 0);
   }, [search]);
+
+  const filteredCustomEmojis = useMemo(() => {
+    const list = recent.filter((s) => s.is_emoji);
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
+    return list.filter((s) => s.name?.toLowerCase().includes(q) || s.alt_emoji?.toLowerCase().includes(q));
+  }, [recent, search]);
+
+  const filteredCustomStickers = useMemo(() => {
+    const list = recent.filter((s) => !s.is_emoji);
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
+    return list.filter((s) => s.name?.toLowerCase().includes(q));
+  }, [recent, search]);
 
   if (!visible) return null;
 
@@ -276,7 +329,7 @@ export function StickerPicker({
                     Custom Emojis
                   </Text>
                   <Squish
-                    onPress={() => handleUploadSticker(true)}
+                    onPress={() => handleStartPick(true)}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -298,17 +351,18 @@ export function StickerPicker({
 
                 {/* Custom emojis grid */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  {recent.filter((s) => s.is_emoji).map((stk) => (
+                  {filteredCustomEmojis.map((stk) => (
                     <Pressable
                       key={stk.id}
-                      onPress={() => handleSelectSticker(stk)}
+                      onPress={() => onPickEmoji(`:${stk.name || 'custom'}:`)}
                       style={({ pressed }) => ({
-                        width: 44,
-                        height: 44,
+                        minWidth: 48,
+                        paddingVertical: 4,
+                        paddingHorizontal: 6,
                         alignItems: 'center',
                         justifyContent: 'center',
                         borderRadius: 12,
-                        backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent',
+                        backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)',
                       })}>
                       <Image
                         source={stk.url || mediaUrl(stk.id)}
@@ -316,11 +370,16 @@ export function StickerPicker({
                         contentFit="contain"
                         cachePolicy="memory-disk"
                       />
+                      {stk.name ? (
+                        <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 10, marginTop: 2, maxWidth: 52, textAlign: 'center' }}>
+                          :{stk.name}:
+                        </Text>
+                      ) : null}
                     </Pressable>
                   ))}
-                  {recent.filter((s) => s.is_emoji).length === 0 && (
+                  {filteredCustomEmojis.length === 0 && (
                     <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.bold, fontSize: 13, paddingVertical: 4 }}>
-                      Tap "+ Add" to upload custom emojis from your photos
+                      Tap "+ Add" to upload custom emojis with a custom ID
                     </Text>
                   )}
                 </View>
@@ -363,7 +422,7 @@ export function StickerPicker({
                   My Stickers & Recents
                 </Text>
                 <Squish
-                  onPress={() => handleUploadSticker(false)}
+                  onPress={() => handleStartPick(false)}
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -385,16 +444,16 @@ export function StickerPicker({
 
               {/* Recent / Custom Stickers Grid */}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                {recent.filter((s) => !s.is_emoji).map((stk) => (
+                {filteredCustomStickers.map((stk) => (
                   <Pressable
                     key={stk.id}
                     onPress={() => handleSelectSticker(stk)}
                     style={({ pressed }) => ({
-                      width: 78,
-                      height: 78,
+                      minWidth: 78,
                       alignItems: 'center',
                       justifyContent: 'center',
                       borderRadius: 16,
+                      padding: 6,
                       backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
                     })}>
                     <Image
@@ -403,15 +462,20 @@ export function StickerPicker({
                       contentFit="contain"
                       cachePolicy="memory-disk"
                     />
+                    {stk.name ? (
+                      <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 10, marginTop: 4, maxWidth: 70, textAlign: 'center' }}>
+                        :{stk.name}:
+                      </Text>
+                    ) : null}
                   </Pressable>
                 ))}
-                {recent.filter((s) => !s.is_emoji).length === 0 && (
+                {filteredCustomStickers.length === 0 && (
                   <View style={{ paddingVertical: 18, alignItems: 'center', width: '100%', gap: 6 }}>
                     <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 14 }}>
                       No stickers yet
                     </Text>
                     <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.regular, fontSize: 12, textAlign: 'center' }}>
-                      Tap "+ New Sticker" to upload custom animated or static stickers
+                      Tap "+ New Sticker" to upload custom stickers with an ID
                     </Text>
                   </View>
                 )}
@@ -523,6 +587,117 @@ export function StickerPicker({
           </Pressable>
         </View>
       </Animated.View>
+
+      {/* ID Assignment Dialog for custom emojis & stickers */}
+      {namingDialog ? (
+        <Animated.View
+          entering={FadeIn.duration(160)}
+          exiting={FadeOut.duration(140)}
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: 'rgba(0,0,0,0.82)',
+              zIndex: 100,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 24,
+            },
+          ]}>
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 320,
+              backgroundColor: '#1E1E20',
+              borderRadius: 24,
+              borderCurve: 'continuous',
+              padding: 20,
+              alignItems: 'center',
+              gap: 14,
+            }}>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>
+              {namingDialog.isEmoji ? 'Assign Emoji ID' : 'Assign Sticker ID'}
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 13, textAlign: 'center' }}>
+              Type :{assignedId || 'name'}: in chat to use it
+            </Text>
+
+            <Image
+              source={namingDialog.uri}
+              style={{
+                width: namingDialog.isEmoji ? 48 : 88,
+                height: namingDialog.isEmoji ? 48 : 88,
+                borderRadius: namingDialog.isEmoji ? 12 : 8,
+              }}
+              contentFit="contain"
+            />
+
+            <View
+              style={{
+                width: '100%',
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: 'rgba(255,255,255,0.08)',
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 14,
+              }}>
+              <Text style={{ color: C.red, fontFamily: F.black, fontSize: 16 }}>:</Text>
+              <TextInput
+                value={assignedId}
+                onChangeText={(t) => {
+                  setAssignedId(t.toLowerCase().replace(/[^a-z0-9_-]/g, ''));
+                  setNamingError('');
+                }}
+                placeholder="custom_id"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardAppearance="dark"
+                maxLength={32}
+                style={{ flex: 1, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 4, paddingVertical: 0 }}
+              />
+              <Text style={{ color: C.red, fontFamily: F.black, fontSize: 16 }}>:</Text>
+            </View>
+
+            {namingError ? (
+              <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, textAlign: 'center' }}>
+                {namingError}
+              </Text>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 4 }}>
+              <Squish
+                onPress={() => setNamingDialog(null)}
+                style={{
+                  flex: 1,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: 'rgba(255,255,255,0.1)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 15 }}>Cancel</Text>
+              </Squish>
+              <Squish
+                onPress={handleConfirmNaming}
+                disabled={busy}
+                style={{
+                  flex: 1,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: C.red,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: busy ? 0.6 : 1,
+                }}>
+                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>
+                  {busy ? 'Saving…' : 'Save'}
+                </Text>
+              </Squish>
+            </View>
+          </View>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }

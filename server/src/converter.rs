@@ -36,6 +36,25 @@ pub fn parse_webp_info(b: &[u8]) -> Option<(u32, u32, bool)> {
     }
 }
 
+async fn probe_dimensions(path: &str) -> Option<(u32, u32)> {
+    let out = Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            path,
+        ])
+        .output()
+        .await
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    let mut parts = s.trim().split('x');
+    let w: u32 = parts.next()?.parse().ok()?;
+    let h: u32 = parts.next()?.parse().ok()?;
+    Some((w, h))
+}
+
 pub async fn convert_to_optimized_webp(input_bytes: &[u8], is_emoji: bool) -> Result<ConvertedSticker, String> {
     let tmp_in = format!("/tmp/stk_in_{}.bin", uuid::Uuid::new_v4());
     let tmp_out = format!("/tmp/stk_out_{}.webp", uuid::Uuid::new_v4());
@@ -43,7 +62,7 @@ pub async fn convert_to_optimized_webp(input_bytes: &[u8], is_emoji: bool) -> Re
     tokio::fs::write(&tmp_in, input_bytes).await.map_err(|e| e.to_string())?;
 
     let filter = if is_emoji {
-        "fps=24,scale=128:128"
+        "fps=24,scale='min(128,iw)':'min(128,ih)':force_original_aspect_ratio=decrease"
     } else {
         "fps=24,scale='min(512,iw)':'min(512,ih)':force_original_aspect_ratio=decrease"
     };
@@ -84,19 +103,24 @@ pub async fn convert_to_optimized_webp(input_bytes: &[u8], is_emoji: bool) -> Re
     }
 
     let webp_bytes = match tokio::fs::read(&tmp_out).await {
-        Ok(b) => {
-            let _ = tokio::fs::remove_file(&tmp_out).await;
-            b
-        }
+        Ok(b) => b,
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp_out).await;
             return Err(e.to_string());
         }
     };
 
-    let (width, height, is_animated) = parse_webp_info(&webp_bytes).unwrap_or_else(|| {
-        if is_emoji { (128, 128, false) } else { (512, 512, false) }
-    });
+    let (mut width, mut height, is_animated) = parse_webp_info(&webp_bytes).unwrap_or((0, 0, false));
+    if width == 0 || height == 0 {
+        if let Some((pw, ph)) = probe_dimensions(&tmp_out).await {
+            width = pw;
+            height = ph;
+        } else {
+            width = if is_emoji { 128 } else { 512 };
+            height = width;
+        }
+    }
+    let _ = tokio::fs::remove_file(&tmp_out).await;
 
     Ok(ConvertedSticker {
         webp_bytes,

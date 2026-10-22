@@ -2013,6 +2013,7 @@ async fn chat_photos(State(st): State<S>, Authed(me): Authed, Path(other): Path<
 struct SendMsg {
     body: String,
     kind: Option<String>,
+    meta: Option<String>,
 }
 
 async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<SendMsg>) -> R<Json<ChatMsg>> {
@@ -2024,7 +2025,7 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
         return Err(bad("That message is too long"));
     }
     let kind = r.kind.unwrap_or_else(|| "text".into());
-    post_dm(&st, me, other, &kind, body, None).await
+    post_dm(&st, me, other, &kind, body, r.meta).await
 }
 
 #[derive(Deserialize)]
@@ -2060,6 +2061,22 @@ async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<S
 }
 
 async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
+    let meta = meta.or_else(|| {
+        if kind == "sticker" {
+            st.db().query_row(
+                "SELECT width, height, name FROM stickers WHERE id=?",
+                [&body],
+                |r| {
+                    let w: u32 = r.get(0)?;
+                    let h: u32 = r.get(1)?;
+                    let name: Option<String> = r.get(2)?;
+                    Ok(format!("{}:{}:{}", w, h, name.unwrap_or_default()))
+                },
+            ).ok()
+        } else {
+            None
+        }
+    });
     let (m, u) = {
         let c = st.db();
         if !are_friends(&c, &me, &other)? {
@@ -2322,7 +2339,7 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
     if body.is_empty() { return Err(bad("Say something")); }
     if body.chars().count() > 2000 { return Err(bad("That message is too long")); }
     let kind = r.kind.unwrap_or_else(|| "text".into());
-    post_group(&st, me, g, &kind, body, None).await
+    post_group(&st, me, g, &kind, body, r.meta).await
 }
 
 async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
@@ -2332,6 +2349,22 @@ async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<Stri
 }
 
 async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
+    let meta = meta.or_else(|| {
+        if kind == "sticker" {
+            st.db().query_row(
+                "SELECT width, height, name FROM stickers WHERE id=?",
+                [&body],
+                |r| {
+                    let w: u32 = r.get(0)?;
+                    let h: u32 = r.get(1)?;
+                    let name: Option<String> = r.get(2)?;
+                    Ok(format!("{}:{}:{}", w, h, name.unwrap_or_default()))
+                },
+            ).ok()
+        } else {
+            None
+        }
+    });
     let (m, ids, title) = {
         let c = st.db();
         if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
@@ -2557,6 +2590,8 @@ pub struct StickerItem {
     pub height: u32,
     pub size_bytes: u32,
     pub alt_emoji: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2583,6 +2618,7 @@ pub struct CreatePackReq {
 pub struct UploadStickerQuery {
     pub is_emoji: Option<bool>,
     pub alt_emoji: Option<String>,
+    pub name: Option<String>,
 }
 
 async fn upload_sticker(
@@ -2595,6 +2631,7 @@ async fn upload_sticker(
         return Err(bad("Upload file is empty"));
     }
     let is_emoji = q.is_emoji.unwrap_or(false);
+    let name = q.name.as_deref().map(|s| s.trim().to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-', "")).filter(|s| !s.is_empty());
 
     // Convert (and compress/scale) using ffmpeg pipeline
     let converted = crate::converter::convert_to_optimized_webp(&body, is_emoji)
@@ -2604,17 +2641,23 @@ async fn upload_sticker(
     let store = crate::storage::get().ok_or_else(|| bad("Sticker storage is currently unavailable"))?;
     let key = crate::storage::key_for("s", &converted.webp_bytes, "webp");
 
-    let known: Option<(u32, u32, i64, u32)> = {
+    let known: Option<(u32, u32, i64, u32, Option<String>)> = {
         let c = st.db();
         c.query_row(
-            "SELECT width, height, is_animated, size_bytes FROM stickers WHERE id=?",
+            "SELECT width, height, is_animated, size_bytes, name FROM stickers WHERE id=?",
             [&key],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         ).optional()?
     };
 
-    let (width, height, is_anim, size_bytes) = if let Some((w, h, a, s)) = known {
-        (w, h, a != 0, s)
+    let (width, height, is_anim, size_bytes, final_name) = if let Some((w, h, a, s, existing_name)) = known {
+        let n = if name.is_some() {
+            let _ = st.db().execute("UPDATE stickers SET name=? WHERE id=?", params![&name, &key]);
+            name
+        } else {
+            existing_name
+        };
+        (w, h, a != 0, s, n)
     } else {
         // Upload to B2
         store
@@ -2628,11 +2671,11 @@ async fn upload_sticker(
         let now = now_ms();
         let size = converted.webp_bytes.len() as u32;
         st.db().execute(
-            "INSERT OR IGNORE INTO stickers(id, hash, mime, is_animated, is_emoji, width, height, size_bytes, created_at)
-             VALUES (?1, ?1, 'image/webp', ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![key, converted.is_animated as i64, is_emoji as i64, converted.width, converted.height, size, now],
+            "INSERT OR IGNORE INTO stickers(id, hash, mime, is_animated, is_emoji, width, height, size_bytes, name, created_at)
+             VALUES (?1, ?1, 'image/webp', ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![key, converted.is_animated as i64, is_emoji as i64, converted.width, converted.height, size, &name, now],
         )?;
-        (converted.width, converted.height, converted.is_animated, size)
+        (converted.width, converted.height, converted.is_animated, size, name)
     };
 
     Ok(Json(StickerItem {
@@ -2644,6 +2687,7 @@ async fn upload_sticker(
         height,
         size_bytes,
         alt_emoji: q.alt_emoji,
+        name: final_name,
     }))
 }
 
@@ -2670,7 +2714,7 @@ async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<V
     let mut out = Vec::new();
     for (id, slug, title, owner_id, is_emoji_pack, thumb) in pack_rows {
         let mut sq = c.prepare(
-            "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji
+            "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name
              FROM sticker_pack_items i
              JOIN stickers s ON s.id = i.sticker_id
              WHERE i.pack_id = ?
@@ -2688,6 +2732,7 @@ async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<V
                 height: r.get(4)?,
                 size_bytes: r.get(5)?,
                 alt_emoji: r.get(6)?,
+                name: r.get(7)?,
             })
         })?.collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -2780,7 +2825,7 @@ async fn get_sticker_pack(
 
     let store = crate::storage::get();
     let mut sq = c.prepare(
-        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name
          FROM sticker_pack_items i
          JOIN stickers s ON s.id = i.sticker_id
          WHERE i.pack_id = ?
@@ -2798,6 +2843,7 @@ async fn get_sticker_pack(
             height: r.get(4)?,
             size_bytes: r.get(5)?,
             alt_emoji: r.get(6)?,
+            name: r.get(7)?,
         })
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -2834,11 +2880,11 @@ async fn list_recent_stickers(
     let c = st.db();
     let store = crate::storage::get();
     let mut q = c.prepare(
-        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, s.name
          FROM user_recent_stickers r
          JOIN stickers s ON s.id = r.sticker_id
          WHERE r.user_id = ?
-         ORDER BY r.used_at DESC LIMIT 30",
+         ORDER BY r.used_at DESC LIMIT 50",
     )?;
     let items = q.query_map([&me], |r| {
         let sid: String = r.get(0)?;
@@ -2852,6 +2898,64 @@ async fn list_recent_stickers(
             height: r.get(4)?,
             size_bytes: r.get(5)?,
             alt_emoji: None,
+            name: r.get(6)?,
+        })
+    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(items))
+}
+
+async fn resolve_sticker(
+    State(st): State<S>,
+    Path(name): Path<String>,
+) -> R<Json<StickerItem>> {
+    let c = st.db();
+    let store = crate::storage::get();
+    let clean = name.trim().to_lowercase();
+    let item = c.query_row(
+        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name FROM stickers WHERE name = ?1 OR id = ?1 LIMIT 1",
+        [&clean],
+        |r| {
+            let sid: String = r.get(0)?;
+            let url = store.map(|s| s.url(&sid)).unwrap_or_default();
+            Ok(StickerItem {
+                id: sid,
+                url,
+                is_animated: r.get::<_, i64>(1)? != 0,
+                is_emoji: r.get::<_, i64>(2)? != 0,
+                width: r.get(3)?,
+                height: r.get(4)?,
+                size_bytes: r.get(5)?,
+                alt_emoji: None,
+                name: r.get(6)?,
+            })
+        },
+    ).optional()?;
+
+    item.map(Json).ok_or_else(|| not_found("Sticker not found"))
+}
+
+async fn list_all_stickers(
+    State(st): State<S>,
+    Authed(_me): Authed,
+) -> R<Json<Vec<StickerItem>>> {
+    let c = st.db();
+    let store = crate::storage::get();
+    let mut q = c.prepare(
+        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name FROM stickers WHERE name IS NOT NULL AND name != '' ORDER BY created_at DESC LIMIT 200",
+    )?;
+    let items = q.query_map([], |r| {
+        let sid: String = r.get(0)?;
+        let url = store.map(|s| s.url(&sid)).unwrap_or_default();
+        Ok(StickerItem {
+            id: sid,
+            url,
+            is_animated: r.get::<_, i64>(1)? != 0,
+            is_emoji: r.get::<_, i64>(2)? != 0,
+            width: r.get(3)?,
+            height: r.get(4)?,
+            size_bytes: r.get(5)?,
+            alt_emoji: None,
+            name: r.get(6)?,
         })
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Json(items))
@@ -2932,6 +3036,8 @@ pub fn router(st: S) -> Router {
         .route("/v1/chats/{id}/read", post(mark_read))
         .route("/v1/chats/{id}/background", put(set_chat_background))
         .route("/v1/chats/{id}/background/photo", put(put_chat_background_photo).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
+        .route("/v1/stickers", get(list_all_stickers))
+        .route("/v1/stickers/resolve/{name}", get(resolve_sticker))
         .route("/v1/stickers/upload", post(upload_sticker).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
         .route("/v1/sticker-packs", get(list_sticker_packs).post(create_sticker_pack))
         .route("/v1/sticker-packs/{slug}", get(get_sticker_pack))

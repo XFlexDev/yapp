@@ -191,6 +191,7 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             width INTEGER NOT NULL,
             height INTEGER NOT NULL,
             size_bytes INTEGER NOT NULL,
+            name TEXT,
             created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS sticker_packs(
@@ -225,6 +226,8 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
         );
         "#,
     )?;
+    let _ = c.execute("ALTER TABLE stickers ADD COLUMN name TEXT", []);
+    let _ = c.execute("CREATE INDEX IF NOT EXISTS stickers_name ON stickers(name)", []);
     Ok(c)
 }
 

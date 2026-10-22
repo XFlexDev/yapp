@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +17,7 @@ import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { StickerPicker } from '../components/StickerPicker';
-import { type Sticker } from '../lib/stickers';
+import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, type Sticker } from '../lib/stickers';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'], photo: ['photo.fill', 'image'], sticker: ['face.smiling.inverse', 'sticker-emoji'] } as const;
@@ -87,16 +87,173 @@ function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?:
 }
 
 function StickerBubble({ m, onLongPress }: { m: ChatMsg; onLongPress?: () => void }) {
+  const [wStr, hStr] = m.meta ? m.meta.split(':') : [];
+  const metaW = wStr ? parseFloat(wStr) : 0;
+  const metaH = hStr ? parseFloat(hStr) : 0;
+  const ratio = metaW > 0 && metaH > 0 ? metaH / metaW : 1;
+
+  // Preserve natural aspect ratio without forcing 1:1
+  const maxW = 180;
+  const maxH = 220;
+  let w = 150;
+  let h = Math.round(w * ratio);
+  if (h > maxH) {
+    h = maxH;
+    w = Math.round(h / ratio);
+  } else if (w > maxW) {
+    w = maxW;
+    h = Math.round(w * ratio);
+  }
+
   const src = m.body.startsWith('s-') ? mediaUrl(m.body) : m.body;
   return (
     <Pressable onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.94 : 1 }, { scaleY: pressed ? 0.94 : 1 }] })}>
       <Image
         source={src}
-        style={{ width: 160, height: 160, opacity: m.pending ? 0.6 : 1 }}
+        style={{ width: w, height: h, opacity: m.pending ? 0.6 : 1 }}
         contentFit="contain"
         cachePolicy="memory-disk"
       />
     </Pressable>
+  );
+}
+
+export function FormattedMessageText({ text }: { text: string }) {
+  const [resolved, setResolved] = useState<Record<string, Sticker>>({});
+
+  const tokens = useMemo(() => {
+    const list: string[] = [];
+    const re = /:([a-zA-Z0-9_-]{2,32}):/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      list.push(m[1].toLowerCase());
+    }
+    return list;
+  }, [text]);
+
+  useEffect(() => {
+    for (const name of tokens) {
+      if (!resolved[name]) {
+        const c = getCachedSticker(name);
+        if (c) {
+          setResolved((prev) => ({ ...prev, [name]: c }));
+        } else {
+          resolveSticker(name).then((s) => {
+            if (s) setResolved((prev) => ({ ...prev, [name]: s }));
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [tokens]);
+
+  // Check if message is purely 1-4 custom emojis
+  const isOnlyEmojis = useMemo(() => {
+    const trimmed = text.trim();
+    const parts = trimmed.split(/\s+/);
+    return parts.length > 0 && parts.length <= 4 && parts.every((p) => {
+      const match = p.match(/^:([a-zA-Z0-9_-]{2,32}):$/);
+      return match && resolved[match[1].toLowerCase()]?.is_emoji;
+    });
+  }, [text, resolved]);
+
+  // Check if message is a single standalone sticker
+  const singleSticker = useMemo(() => {
+    const m = text.trim().match(/^:([a-zA-Z0-9_-]{2,32}):$/);
+    if (!m) return null;
+    const stk = resolved[m[1].toLowerCase()];
+    return stk && !stk.is_emoji ? stk : null;
+  }, [text, resolved]);
+
+  if (singleSticker) {
+    const ratio = singleSticker.width && singleSticker.height ? singleSticker.height / singleSticker.width : 1;
+    const maxW = 180;
+    const maxH = 220;
+    let w = 150;
+    let h = Math.round(w * ratio);
+    if (h > maxH) {
+      h = maxH;
+      w = Math.round(h / ratio);
+    } else if (w > maxW) {
+      w = maxW;
+      h = Math.round(w * ratio);
+    }
+    return (
+      <Image
+        source={singleSticker.url || mediaUrl(singleSticker.id)}
+        style={{ width: w, height: h }}
+        contentFit="contain"
+        cachePolicy="memory-disk"
+      />
+    );
+  }
+
+  if (isOnlyEmojis) {
+    const parts = text.trim().split(/\s+/);
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}>
+        {parts.map((p, idx) => {
+          const match = p.match(/^:([a-zA-Z0-9_-]{2,32}):$/)!;
+          const stk = resolved[match[1].toLowerCase()];
+          const src = stk.url || mediaUrl(stk.id);
+          const ratio = stk.width && stk.height ? stk.height / stk.width : 1;
+          const sz = 38;
+          return (
+            <Image
+              key={idx}
+              source={src}
+              style={{ width: sz, height: Math.round(sz * ratio) }}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          );
+        })}
+      </View>
+    );
+  }
+
+  // Parse mixed text and custom emojis
+  const parts = useMemo(() => {
+    const res: { type: 'text' | 'emoji'; content: string; stk?: Sticker }[] = [];
+    const re = /:([a-zA-Z0-9_-]{2,32}):/g;
+    let lastIndex = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > lastIndex) {
+        res.push({ type: 'text', content: text.slice(lastIndex, m.index) });
+      }
+      const name = m[1].toLowerCase();
+      const stk = resolved[name];
+      if (stk) {
+        res.push({ type: 'emoji', content: m[0], stk });
+      } else {
+        res.push({ type: 'text', content: m[0] });
+      }
+      lastIndex = re.lastIndex;
+    }
+    if (lastIndex < text.length) {
+      res.push({ type: 'text', content: text.slice(lastIndex) });
+    }
+    return res;
+  }, [text, resolved]);
+
+  return (
+    <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 22 }}>
+      {parts.map((p: { type: 'text' | 'emoji'; content: string; stk?: Sticker }, idx: number) => {
+        if (p.type === 'emoji' && p.stk) {
+          const src = p.stk.url || mediaUrl(p.stk.id);
+          return (
+            <Image
+              key={idx}
+              source={src}
+              style={{ width: 22, height: 22 }}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          );
+        }
+        return <Text key={idx}>{p.content}</Text>;
+      })}
+    </Text>
   );
 }
 
@@ -121,7 +278,7 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
         <StickerBubble m={m} onLongPress={hold} />
       ) : (
         <Pressable onPress={m.failed ? onRetry : armed ? () => setArmed(false) : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
-          <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 21 }}>{m.body}</Text>
+          <FormattedMessageText text={m.body} />
         </Pressable>
       )}
       {armed ? (
@@ -187,8 +344,26 @@ export default function ChatScreen() {
   useEffect(() => {
     set({ openChat: id });
     loadMessages(id!).then(() => markRead(id!)).catch(() => {});
+    loadAllCustomStickers().catch(() => {});
+    loadRecentStickers().then(setCustomList).catch(() => {});
     return () => set({ openChat: null });
   }, [id]);
+
+  const [customList, setCustomList] = useState<Sticker[]>([]);
+  const matchColon = text.match(/:([a-zA-Z0-9_-]+)$/);
+  const colonQuery = matchColon ? matchColon[1].toLowerCase() : null;
+
+  const suggestions = useMemo(() => {
+    if (!colonQuery) return [];
+    return customList.filter((s) => s.name?.toLowerCase().includes(colonQuery)).slice(0, 5);
+  }, [colonQuery, customList]);
+
+  const insertSuggestion = (s: Sticker) => {
+    if (!s.name) return;
+    Haptics.selectionAsync();
+    const replaced = text.replace(/:([a-zA-Z0-9_-]+)$/, `:${s.name}: `);
+    setText(replaced);
+  };
 
   if (!friend) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
   const msgs = chat.messages;
@@ -233,6 +408,27 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
+        {suggestions.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
+            {suggestions.map((s: Sticker) => (
+              <Pressable
+                key={s.id}
+                onPress={() => insertSuggestion(s)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.14)',
+                }}>
+                <Image source={s.url || mediaUrl(s.id)} style={{ width: 20, height: 20 }} contentFit="contain" />
+                <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 13 }}>:{s.name}:</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
@@ -249,7 +445,8 @@ export default function ChatScreen() {
         onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
         onPickSticker={(stk) => {
           setStickersVisible(false);
-          sendSticker(id!, stk.id).catch(() => {});
+          const meta = stk.width && stk.height ? `${stk.width}:${stk.height}:${stk.name || ''}` : undefined;
+          sendSticker(id!, stk.id, meta).catch(() => {});
         }}
       />
       {picker ? (

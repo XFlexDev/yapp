@@ -79,12 +79,12 @@ export function onGroupMessage(id: string, m: ChatMsg) {
 export const onGroupRead = (id: string, user: string, at: number) => patch(id, (g) => ({ reads: { ...g.reads, [user]: Math.max(g.reads[user] ?? 0, at) } }));
 export const onLeft = (id: string) => set((s) => { const { [id]: _, ...rest } = s.groups; return { groups: rest }; });
 
-export async function sendGroupSticker(id: string, stickerId: string) {
+export async function sendGroupSticker(id: string, stickerId: string, meta?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
   try {
-    const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker' } });
+    const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta } });
     patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));

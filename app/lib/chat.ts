@@ -148,12 +148,12 @@ export const BACKGROUNDS: { id: string; colors: [string, string, ...string[]] }[
   { id: 'gold', colors: ['#3A2A00', '#0A0700'] },
 ];
 
-export async function sendSticker(id: string, stickerId: string) {
+export async function sendSticker(id: string, stickerId: string, meta?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
-    const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker' } });
+    const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta } });
     patch(id, (c) => (c.messages.some((x) => x.id === m.id) ? { messages: c.messages.filter((x) => x.id !== tmp.id) } : { messages: c.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (c) => ({ messages: c.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));

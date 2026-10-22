@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
@@ -18,6 +18,7 @@ import { Avatar } from '../lib/ui';
 import { Backdrop, Bubble, Glyph, MuteRow, PhotoViewer, SectionLabel } from './chat';
 import { req } from '../lib/api';
 import { StickerPicker } from '../components/StickerPicker';
+import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 
@@ -78,6 +79,7 @@ export default function GroupScreen() {
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
   const [stickersVisible, setStickersVisible] = useState(false);
+  const [customList, setCustomList] = useState<Sticker[]>([]);
   const talker = useStore((s) => s.groupTalk[id!] ?? null);
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
@@ -87,8 +89,25 @@ export default function GroupScreen() {
     set({ openChat: `g:${id}` });
     loadGroupMessages(id!).then(() => markGroupRead(id!)).catch(() => {});
     focusGroup(id!);
+    loadAllCustomStickers().catch(() => {});
+    loadRecentStickers().then(setCustomList).catch(() => {});
     return () => { set({ openChat: null }); leaveGroupTalk(); };
   }, [id]);
+
+  const matchColon = text.match(/:([a-zA-Z0-9_-]+)$/);
+  const colonQuery = matchColon ? matchColon[1].toLowerCase() : null;
+
+  const suggestions = useMemo(() => {
+    if (!colonQuery) return [];
+    return customList.filter((s) => s.name?.toLowerCase().includes(colonQuery)).slice(0, 5);
+  }, [colonQuery, customList]);
+
+  const insertSuggestion = (s: Sticker) => {
+    if (!s.name) return;
+    Haptics.selectionAsync();
+    const replaced = text.replace(/:([a-zA-Z0-9_-]+)$/, `:${s.name}: `);
+    setText(replaced);
+  };
   useEffect(() => { if (talk === 'hint') { const t = setTimeout(() => setTalk('idle'), 1600); return () => clearTimeout(t); } }, [talk]);
   useEffect(() => { if (!g) router.back(); }, [!g]);
   if (!g) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
@@ -123,6 +142,27 @@ export default function GroupScreen() {
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
+        {suggestions.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
+            {suggestions.map((s: Sticker) => (
+              <Pressable
+                key={s.id}
+                onPress={() => insertSuggestion(s)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.14)',
+                }}>
+                <Image source={s.url || mediaUrl(s.id)} style={{ width: 20, height: 20 }} contentFit="contain" />
+                <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 13 }}>:{s.name}:</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
@@ -140,7 +180,8 @@ export default function GroupScreen() {
         onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
         onPickSticker={(stk) => {
           setStickersVisible(false);
-          sendGroupSticker(id!, stk.id).catch(() => {});
+          const meta = stk.width && stk.height ? `${stk.width}:${stk.height}:${stk.name || ''}` : undefined;
+          sendGroupSticker(id!, stk.id, meta).catch(() => {});
         }}
       />
       {sheet ? (
