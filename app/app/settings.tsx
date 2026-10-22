@@ -21,7 +21,7 @@ import { signOutLocal } from './_layout';
 
 const CARD = '#121212';
 const SEP = 'rgba(255,255,255,0.07)';
-const MOVE = LinearTransition.duration(260);
+const MOVE = LinearTransition.duration(240);
 
 function Chevron() {
   return <SymbolView name="chevron.right" tintColor="rgba(255,255,255,0.3)" size={14} weight="bold" fallback={<MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.3)" />} />;
@@ -32,7 +32,7 @@ type Trophy = { id: string; title: string; sub: string; goal: number; progress: 
 function Section({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <Animated.View layout={MOVE} entering={FadeIn.duration(200)} exiting={FadeOut.duration(160)} style={{ gap: 8 }}>
-      {title ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 13, paddingHorizontal: 18 }}>{title}</Text> : null}
+      {title ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 13, paddingHorizontal: 16 }}>{title}</Text> : null}
       <View style={{ backgroundColor: CARD, borderRadius: 24, borderCurve: 'continuous', overflow: 'hidden' }}>{children}</View>
     </Animated.View>
   );
@@ -40,10 +40,10 @@ function Section({ title, children }: { title?: string; children: ReactNode }) {
 
 function Row({ label, sub, onPress, right, color = '#fff', first }: { label: string; sub?: string; onPress?: () => void; right?: ReactNode; color?: string; first?: boolean }) {
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ minHeight: 58, paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.05)' : 'transparent', borderTopWidth: first ? 0 : 1, borderTopColor: SEP })}>
+    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ minHeight: 56, paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.05)' : 'transparent', borderTopWidth: first ? 0 : 1, borderTopColor: SEP })}>
       <View style={{ flex: 1 }}>
-        <Swap text={label} style={{ color, fontFamily: F.bold, fontSize: 17 }} />
-        {sub ? <Text style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.regular, fontSize: 14, marginTop: 1 }}>{sub}</Text> : null}
+        <Swap text={label} style={{ color, fontFamily: F.bold, fontSize: 16 }} />
+        {sub ? <Text style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.regular, fontSize: 13, marginTop: 1 }}>{sub}</Text> : null}
       </View>
       {right === undefined && onPress ? <Chevron /> : right}
     </Pressable>
@@ -57,28 +57,28 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   const knob = useAnimatedStyle(() => ({ transform: [{ translateX: v.value * 22 }] }));
   return (
     <Pressable onPress={() => { Haptics.selectionAsync(); onChange(!on); }} hitSlop={8}>
-      <Animated.View style={[{ width: 54, height: 32, borderRadius: 16, padding: 3 }, track]}>
-        <Animated.View style={[{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#fff' }, knob]} />
+      <Animated.View style={[{ width: 52, height: 30, borderRadius: 15, padding: 3 }, track]}>
+        <Animated.View style={[{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' }, knob]} />
       </Animated.View>
     </Pressable>
   );
 }
 
-function Chip({ title, onPress, strong }: { title: string; onPress: () => void; strong?: boolean }) {
+function Chip({ title, onPress, strong, danger }: { title: string; onPress: () => void; strong?: boolean; danger?: boolean }) {
   return (
-    <Squish onPress={onPress} style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, justifyContent: 'center', backgroundColor: strong ? '#fff' : 'rgba(255,255,255,0.1)' }}>
-      <Swap text={title} style={{ color: strong ? '#000' : '#fff', fontFamily: F.black, fontSize: 14 }} />
+    <Squish onPress={onPress} style={{ height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: 'center', backgroundColor: danger ? 'rgba(255,69,58,0.2)' : strong ? '#fff' : 'rgba(255,255,255,0.1)' }}>
+      <Swap text={title} style={{ color: danger ? C.danger : strong ? '#000' : '#fff', fontFamily: F.black, fontSize: 13 }} />
     </Squish>
   );
 }
 
 function Person({ user, first, right }: { user: User; first?: boolean; right: ReactNode }) {
   return (
-    <Animated.View layout={MOVE} exiting={FadeOut.duration(160)} style={{ minHeight: 66, paddingHorizontal: 18, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: first ? 0 : 1, borderTopColor: SEP }}>
-      <Avatar user={user} size={42} />
+    <Animated.View layout={MOVE} exiting={FadeOut.duration(160)} style={{ minHeight: 62, paddingHorizontal: 18, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: first ? 0 : 1, borderTopColor: SEP }}>
+      <Avatar user={user} size={40} />
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{nameOf(user)}</Text>
-        {user.username ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.regular, fontSize: 14 }}>@{user.username}</Text> : null}
+        <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>{nameOf(user)}</Text>
+        {user.username ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.regular, fontSize: 13 }}>@{user.username}</Text> : null}
       </View>
       <View style={{ flexDirection: 'row', gap: 8 }}>{right}</View>
     </Animated.View>
@@ -93,7 +93,7 @@ function FriendRow({ f, first }: { f: Friend; first: boolean }) {
     removeFriend(f.id);
     req(`/v1/friends/${f.id}`, { method: 'DELETE' }).catch(() => syncAll().catch(() => {}));
   };
-  return <Person user={f} first={first} right={<Chip title={sure ? 'sure?' : 'remove'} onPress={remove} />} />;
+  return <Person user={f} first={first} right={<Chip title={sure ? 'sure?' : 'remove'} danger={sure} onPress={remove} />} />;
 }
 
 function Inline({ value, onSave, prefix, placeholder, max, clean }: { value: string; onSave: (v: string) => Promise<void>; prefix?: string; placeholder: string; max: number; clean?: (v: string) => string }) {
@@ -102,15 +102,18 @@ function Inline({ value, onSave, prefix, placeholder, max, clean }: { value: str
   const save = () => { if (v.trim() && v !== value) onSave(v.trim()).catch(() => setV(value)); else setV(value); };
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      {prefix ? <Text style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.bold, fontSize: 17 }}>{prefix}</Text> : null}
-      <TextInput value={v} onChangeText={(t) => setV(clean ? clean(t) : t)} onBlur={save} onSubmitEditing={save} placeholder={placeholder} placeholderTextColor="rgba(255,255,255,0.25)" maxLength={max} autoCapitalize={prefix ? 'none' : 'words'} autoCorrect={false} returnKeyType="done" keyboardAppearance="dark" selectionColor={C.red} style={{ flex: 1, color: '#fff', fontFamily: F.bold, fontSize: 17, paddingVertical: 0 }} />
+      {prefix ? <Text style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.bold, fontSize: 16 }}>{prefix}</Text> : null}
+      <TextInput value={v} onChangeText={(t) => setV(clean ? clean(t) : t)} onBlur={save} onSubmitEditing={save} placeholder={placeholder} placeholderTextColor="rgba(255,255,255,0.25)" maxLength={max} autoCapitalize={prefix ? 'none' : 'words'} autoCorrect={false} returnKeyType="done" keyboardAppearance="dark" selectionColor={C.red} style={{ flex: 1, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingVertical: 0 }} />
     </View>
   );
 }
 
+type TabKey = 'profile' | 'friends' | 'prefs';
+
 export default function Settings() {
   const insets = useSafeAreaInsets();
   const { me, friends, incoming, outgoing } = useStore();
+  const [tab, setTab] = useState<TabKey>('profile');
   const [blocked, setBlocked] = useState<User[]>([]);
   useEffect(() => { loadBlocks().then(setBlocked).catch(() => {}); }, []);
   const [trophies, setTrophies] = useState<Trophy[]>([]);
@@ -148,91 +151,182 @@ export default function Settings() {
   };
   const version = `${Constants.expoConfig?.version ?? '1.0.0'}${Updates.updateId ? ` · ${Updates.updateId.slice(0, 7)}` : ''}`;
 
+  const tabs: { key: TabKey; label: string; badge?: number }[] = [
+    { key: 'profile', label: 'profile' },
+    { key: 'friends', label: `friends (${friends.length})`, badge: incoming.length || undefined },
+    { key: 'prefs', label: 'settings' },
+  ];
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: 22, paddingBottom: insets.bottom + 40, paddingHorizontal: 14, gap: 22 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 8 }}>
-          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 34, letterSpacing: -0.5 }}>settings</Text>
-          <Squish onPress={() => router.back()} style={{ height: 36, paddingHorizontal: 16, borderRadius: 18, backgroundColor: '#fff', justifyContent: 'center' }}>
-            <Text style={{ color: '#000', fontFamily: F.black, fontSize: 15 }}>done</Text>
+      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: insets.bottom + 40, paddingHorizontal: 16, gap: 18 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+        
+        {/* Header */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
+          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }}>settings</Text>
+          <Squish onPress={() => router.back()} style={{ height: 34, paddingHorizontal: 16, borderRadius: 17, backgroundColor: '#fff', justifyContent: 'center' }}>
+            <Text style={{ color: '#000', fontFamily: F.black, fontSize: 14 }}>done</Text>
           </Squish>
         </View>
 
-        <View style={{ alignItems: 'center', gap: 10 }}>
-          <Squish onPress={() => pickAndUploadPhoto().catch((e) => setError(String(e?.message ?? 'upload failed').toLowerCase()))} style={{ alignItems: 'center', gap: 10 }}>
-            <Avatar user={me} size={104} />
-            <Text style={{ color: 'rgba(255,255,255,0.55)', fontFamily: F.black, fontSize: 15 }}>change photo</Text>
-          </Squish>
-          {error ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ color: C.danger, fontFamily: F.bold, fontSize: 14 }}>{error}</Animated.Text> : null}
+        {/* Clean Segmented Tab Bar */}
+        <View style={{ flexDirection: 'row', backgroundColor: CARD, borderRadius: 20, padding: 4, gap: 4 }}>
+          {tabs.map((t) => {
+            const active = tab === t.key;
+            return (
+              <Pressable
+                key={t.key}
+                onPress={() => { Haptics.selectionAsync(); setTab(t.key); }}
+                style={{
+                  flex: 1,
+                  paddingVertical: 9,
+                  borderRadius: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: active ? 'rgba(255,255,255,0.12)' : 'transparent',
+                  flexDirection: 'row',
+                  gap: 6,
+                }}>
+                <Text style={{ color: active ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 13 }}>
+                  {t.label}
+                </Text>
+                {t.badge ? (
+                  <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 10 }}>{t.badge}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
 
-        <Section title="profile">
-          <Row first label="name" right={<View style={{ width: '62%' }}><Inline value={me.display_name} placeholder="your name" max={32} onSave={(display_name) => patch({ display_name })} /></View>} />
-          <Row label="username" right={<View style={{ width: '62%' }}><Inline value={me.username ?? ''} prefix="@" placeholder="username" max={20} clean={(t) => t.toLowerCase().replace(/[^a-z0-9_.]/g, '')} onSave={(username) => patch({ username })} /></View>} />
-          <Row label="email" right={<Text numberOfLines={1} style={{ width: '62%', color: 'rgba(255,255,255,0.42)', fontFamily: F.bold, fontSize: 17 }}>{me.email}</Text>} />
-        </Section>
+        {/* TAB 1: PROFILE */}
+        {tab === 'profile' && (
+          <Animated.View entering={FadeIn.duration(180)} style={{ gap: 16 }}>
+            {/* Avatar block */}
+            <View style={{ alignItems: 'center', paddingVertical: 6, gap: 10 }}>
+              <Squish onPress={() => pickAndUploadPhoto().catch((e) => setError(String(e?.message ?? 'upload failed').toLowerCase()))} style={{ alignItems: 'center', gap: 10 }}>
+                <Avatar user={me} size={96} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <SymbolView name="camera.fill" size={13} tintColor="rgba(255,255,255,0.6)" fallback={<MaterialCommunityIcons name="camera" size={13} color="rgba(255,255,255,0.6)" />} />
+                  <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.black, fontSize: 14 }}>change photo</Text>
+                </View>
+              </Squish>
+              {error ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} style={{ color: C.danger, fontFamily: F.bold, fontSize: 13 }}>{error}</Animated.Text> : null}
+            </View>
 
-        <Section>
-          <Row first label="add friends" onPress={() => { router.back(); setTimeout(() => router.push('/add'), 250); }} />
-          <Row label="share my profile" sub={`@${me.username}`} onPress={() => Share.share({ message: `add me on yapp! i'm @${me.username}` })} />
-        </Section>
+            {/* Profile fields */}
+            <Section title="your details">
+              <Row first label="name" right={<View style={{ width: '60%' }}><Inline value={me.display_name} placeholder="your name" max={32} onSave={(display_name) => patch({ display_name })} /></View>} />
+              <Row label="username" right={<View style={{ width: '60%' }}><Inline value={me.username ?? ''} prefix="@" placeholder="username" max={20} clean={(t) => t.toLowerCase().replace(/[^a-z0-9_.]/g, '')} onSave={(username) => patch({ username })} /></View>} />
+              <Row label="email" right={<Text numberOfLines={1} style={{ width: '60%', color: 'rgba(255,255,255,0.42)', fontFamily: F.bold, fontSize: 15 }}>{me.email}</Text>} />
+            </Section>
 
-        {incoming.length ? (
-          <Section title={`friend requests · ${incoming.length}`}>
-            {incoming.map((r, i) => <Person key={r.id} user={r.user} first={i === 0} right={<><Chip title="decline" onPress={() => drop(r)} /><Chip title="accept" strong onPress={() => accept(r)} /></>} />)}
-          </Section>
-        ) : null}
+            {/* Share & Quick Add */}
+            <Section title="share">
+              <Row first label="share my profile" sub={`@${me.username}`} onPress={() => Share.share({ message: `add me on yapp! i'm @${me.username}` })} />
+            </Section>
 
-        {outgoing.length ? (
-          <Section title={`sent · ${outgoing.length}`}>
-            {outgoing.map((r, i) => <Person key={r.id} user={r.user} first={i === 0} right={<Chip title="cancel" onPress={() => drop(r)} />} />)}
-          </Section>
-        ) : null}
+            {/* Trophies */}
+            {trophies.length ? (
+              <Section title={`trophies · ${trophies.filter((t) => t.done).length}/${trophies.length}`}>
+                {trophies.map((t, i) => (
+                  <Row key={t.id} first={i === 0} label={t.title} sub={t.sub} color={t.done ? '#fff' : 'rgba(255,255,255,0.5)'}
+                    right={<Text style={{ color: t.done ? '#fff' : 'rgba(255,255,255,0.35)', fontFamily: F.black, fontSize: 13 }}>{t.done ? 'unlocked' : `${t.progress}/${t.goal}`}</Text>} />
+                ))}
+              </Section>
+            ) : null}
+          </Animated.View>
+        )}
 
-        <Section title={`friends · ${friends.length}`}>
-          {friends.length ? friends.map((f, i) => <FriendRow key={f.id} f={f} first={i === 0} />) : <Row first label="no friends yet" sub="add someone by their username" />}
-        </Section>
+        {/* TAB 2: FRIENDS & REQUESTS */}
+        {tab === 'friends' && (
+          <Animated.View entering={FadeIn.duration(180)} style={{ gap: 16 }}>
+            {/* Add friend action banner */}
+            <Section>
+              <Row first label="add friends by username" sub="find friends and invite them to chat" onPress={() => { router.back(); setTimeout(() => router.push('/add'), 250); }} />
+            </Section>
 
-        {trophies.length ? (
-          <Section title={`trophies · ${trophies.filter((t) => t.done).length}/${trophies.length}`}>
-            {trophies.map((t, i) => (
-              <Row key={t.id} first={i === 0} label={t.title} sub={t.sub} color={t.done ? '#fff' : 'rgba(255,255,255,0.55)'}
-                right={<Text style={{ color: t.done ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 14 }}>{t.done ? 'unlocked' : `${t.progress}/${t.goal}`}</Text>} />
-            ))}
-          </Section>
-        ) : null}
+            {/* Incoming Requests */}
+            {incoming.length ? (
+              <Section title={`friend requests · ${incoming.length}`}>
+                {incoming.map((r, i) => (
+                  <Person key={r.id} user={r.user} first={i === 0} right={
+                    <>
+                      <Chip title="decline" onPress={() => drop(r)} />
+                      <Chip title="accept" strong onPress={() => accept(r)} />
+                    </>
+                  } />
+                ))}
+              </Section>
+            ) : null}
 
-        <Section>
-          <Row first label="do not disturb" sub="friends can’t talk to you" right={<Toggle on={me.dnd} onChange={setDnd} />} />
-        </Section>
+            {/* Outgoing Requests */}
+            {outgoing.length ? (
+              <Section title={`sent requests · ${outgoing.length}`}>
+                {outgoing.map((r, i) => (
+                  <Person key={r.id} user={r.user} first={i === 0} right={<Chip title="cancel" onPress={() => drop(r)} />} />
+                ))}
+              </Section>
+            ) : null}
 
-        {blocked.length ? (
-          <Section title={`blocked · ${blocked.length}`}>
-            {blocked.map((u, i) => <Person key={u.id} user={u} first={i === 0} right={<Chip title="unblock" onPress={() => doUnblock(u)} />} />)}
-          </Section>
-        ) : null}
+            {/* Friend List */}
+            <Section title={`all friends · ${friends.length}`}>
+              {friends.length ? (
+                friends.map((f, i) => <FriendRow key={f.id} f={f} first={i === 0} />)
+              ) : (
+                <Row first label="no friends yet" sub="tap above to add someone by username" />
+              )}
+            </Section>
 
-        {notif ? (
-          <Section title="notifications">
-            <Row first label="messages" sub="chats and groups" right={<Toggle on={notif.prefs.messages} onChange={(v) => setPref('messages', v)} />} />
-            <Row label="talk" sub="when a friend talks to you" right={<Toggle on={notif.prefs.talk} onChange={(v) => setPref('talk', v)} />} />
-            <Row label="calls" right={<Toggle on={notif.prefs.calls} onChange={(v) => setPref('calls', v)} />} />
-            <Row label="friends" sub="requests and new friends" right={<Toggle on={notif.prefs.friends} onChange={(v) => setPref('friends', v)} />} />
-          </Section>
-        ) : null}
+            {/* Blocked Users */}
+            {blocked.length ? (
+              <Section title={`blocked · ${blocked.length}`}>
+                {blocked.map((u, i) => (
+                  <Person key={u.id} user={u} first={i === 0} right={<Chip title="unblock" onPress={() => doUnblock(u)} />} />
+                ))}
+              </Section>
+            ) : null}
+          </Animated.View>
+        )}
 
-        <Section title="help">
-          <Row first label="contact support" sub="info@kreatix.dev" onPress={() => Linking.openURL('mailto:info@kreatix.dev?subject=Yapp')} />
-          <Row label="privacy policy" onPress={() => Linking.openURL(`${API}/privacy`)} />
-          <Row label="terms of service" onPress={() => Linking.openURL(`${API}/terms`)} />
-        </Section>
+        {/* TAB 3: PREFERENCES & SETTINGS */}
+        {tab === 'prefs' && (
+          <Animated.View entering={FadeIn.duration(180)} style={{ gap: 16 }}>
+            {/* Status */}
+            <Section title="status">
+              <Row first label="do not disturb" sub="friends can’t talk or call you" right={<Toggle on={me.dnd} onChange={setDnd} />} />
+            </Section>
 
-        <Section>
-          <Row first label="sign out" onPress={async () => { await logout(); signOutLocal(); }} right={null} />
-          <Row label={sureDelete ? 'tap again to delete forever' : 'delete account'} sub="removes your profile, photo and friends" color={C.danger} onPress={del} right={null} />
-        </Section>
+            {/* Notifications */}
+            {notif ? (
+              <Section title="notifications">
+                <Row first label="messages" sub="chats and groups" right={<Toggle on={notif.prefs.messages} onChange={(v) => setPref('messages', v)} />} />
+                <Row label="talk" sub="when a friend talks to you" right={<Toggle on={notif.prefs.talk} onChange={(v) => setPref('talk', v)} />} />
+                <Row label="calls" sub="incoming voice and video calls" right={<Toggle on={notif.prefs.calls} onChange={(v) => setPref('calls', v)} />} />
+                <Row label="friends" sub="requests and acceptances" right={<Toggle on={notif.prefs.friends} onChange={(v) => setPref('friends', v)} />} />
+              </Section>
+            ) : null}
 
-        <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.bold, fontSize: 13, textAlign: 'center' }}>yapp {version}</Text>
+            {/* Support and legal */}
+            <Section title="help & legal">
+              <Row first label="contact support" sub="info@kreatix.dev" onPress={() => Linking.openURL('mailto:info@kreatix.dev?subject=Yapp')} />
+              <Row label="privacy policy" onPress={() => Linking.openURL(`${API}/privacy`)} />
+              <Row label="terms of service" onPress={() => Linking.openURL(`${API}/terms`)} />
+            </Section>
+
+            {/* Account Danger Zone */}
+            <Section title="account">
+              <Row first label="sign out" onPress={async () => { await logout(); signOutLocal(); }} right={null} />
+              <Row label={sureDelete ? 'tap again to delete forever' : 'delete account'} sub="removes your profile, photo and friends" color={C.danger} onPress={del} right={null} />
+            </Section>
+          </Animated.View>
+        )}
+
+        {/* Footer */}
+        <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.bold, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+          yapp {version}
+        </Text>
       </ScrollView>
     </View>
   );

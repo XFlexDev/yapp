@@ -1,7 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
-import { router, Stack, type ErrorBoundaryProps } from 'expo-router';
+import { router, Stack, type ErrorBoundaryProps, DarkTheme, ThemeProvider } from 'expo-router';
 import { requireOptionalNativeModule } from 'expo';
 import { Appearance, Pressable, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
