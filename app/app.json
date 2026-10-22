@@ -92,7 +92,8 @@
       "expo-font",
       "./plugins/with-pinning",
       "expo-web-browser",
-      "./plugins/with-black-window"
+      "./plugins/with-black-window",
+      "./plugins/with-disable-sandboxing"
     ],
     "scheme": "yapp",
     "owner": "kreatix",
