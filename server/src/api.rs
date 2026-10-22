@@ -795,9 +795,24 @@ fn delete_account(st: &S, uid: &str) -> R<()> {
         for a in [av, pf].into_iter().flatten() {
             let _ = std::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(a));
         }
-        let mut q = c.prepare("SELECT body FROM messages WHERE kind='image' AND (a=?1 OR b=?1)")?;
-        let photos: Vec<String> = q.query_map([uid], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        let mut q = c.prepare("SELECT body FROM messages WHERE (kind='image' OR kind='sticker') AND (a=?1 OR b=?1)")?;
+        let media: Vec<String> = q.query_map([uid], |r| r.get(0))?.collect::<Result<_, _>>()?;
         drop(q);
+
+        // Find all sticker IDs in packs authored by this user
+        let mut sq = c.prepare(
+            "SELECT i.sticker_id FROM sticker_pack_items i
+             JOIN sticker_packs p ON p.id = i.pack_id
+             WHERE p.owner_id = ?",
+        )?;
+        let pack_stickers: Vec<String> = sq.query_map([uid], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        drop(sq);
+
+        // Delete authored packs (cascades to sticker_pack_items)
+        c.execute("DELETE FROM sticker_packs WHERE owner_id=?", [uid])?;
+        c.execute("DELETE FROM user_recent_stickers WHERE user_id=?", [uid])?;
+        c.execute("DELETE FROM user_installed_packs WHERE user_id=?", [uid])?;
+
         c.execute("DELETE FROM messages WHERE a=?1 OR b=?1", [uid])?;
         c.execute("DELETE FROM chat_meta WHERE a=?1 OR b=?1", [uid])?;
         c.execute("DELETE FROM chat_reads WHERE friend_id=?", [uid])?;
@@ -808,9 +823,10 @@ fn delete_account(st: &S, uid: &str) -> R<()> {
         if !clips.is_empty() {
             recorder(st, "/delete", json!({ "ids": clips }));
         }
-        if !photos.is_empty() {
+        let all_media: Vec<String> = media.into_iter().chain(pack_stickers).collect();
+        if !all_media.is_empty() {
             let st = st.clone();
-            tokio::spawn(async move { for k in photos { drop_media(&st, k).await; } });
+            tokio::spawn(async move { for k in all_media { drop_media(&st, k).await; } });
         }
         f
     };
@@ -890,12 +906,17 @@ async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>>
     Ok(Json(me))
 }
 
-/// Delete a photo/background/chat image once nothing references it any more.
+/// Delete a photo/background/chat image/sticker once nothing references it any more.
 async fn drop_media(st: &S, key: String) {
     let used: i64 = st
         .db()
         .query_row(
-            "SELECT (SELECT COUNT(*) FROM users WHERE avatar=?1 OR pfp=?1) + (SELECT COUNT(*) FROM chat_meta WHERE background=?1) + (SELECT COUNT(*) FROM groups WHERE background=?1) + (SELECT COUNT(*) FROM messages WHERE kind='image' AND body=?1)",
+            "SELECT (SELECT COUNT(*) FROM users WHERE avatar=?1 OR pfp=?1) + \
+                    (SELECT COUNT(*) FROM chat_meta WHERE background=?1) + \
+                    (SELECT COUNT(*) FROM groups WHERE background=?1) + \
+                    (SELECT COUNT(*) FROM messages WHERE (kind='image' OR kind='sticker') AND body=?1) + \
+                    (SELECT COUNT(*) FROM sticker_pack_items WHERE sticker_id=?1) + \
+                    (SELECT COUNT(*) FROM user_recent_stickers WHERE sticker_id=?1)",
             [&key],
             |r| r.get(0),
         )
@@ -903,11 +924,12 @@ async fn drop_media(st: &S, key: String) {
     if used > 0 {
         return;
     }
-    if key.starts_with("p-") || key.starts_with("q-") || key.starts_with("b-") || key.starts_with("c-") {
+    if key.starts_with("p-") || key.starts_with("q-") || key.starts_with("b-") || key.starts_with("c-") || key.starts_with("s-") {
         if let Some(store) = crate::storage::get() {
             store.delete(&key).await;
         }
         let _ = st.db().execute("DELETE FROM media_meta WHERE key=?", [&key]);
+        let _ = st.db().execute("DELETE FROM stickers WHERE id=?", [&key]);
     } else if valid_avatar_name(&key) {
         let _ = tokio::fs::remove_file(std::path::Path::new(&st.cfg.avatar_dir).join(key)).await;
     }
