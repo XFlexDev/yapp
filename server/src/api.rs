@@ -1969,6 +1969,7 @@ async fn chat_photos(State(st): State<S>, Authed(me): Authed, Path(other): Path<
 #[derive(Deserialize)]
 struct SendMsg {
     body: String,
+    kind: Option<String>,
 }
 
 async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<SendMsg>) -> R<Json<ChatMsg>> {
@@ -1979,7 +1980,8 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
     if body.chars().count() > 2000 {
         return Err(bad("That message is too long"));
     }
-    post_dm(&st, me, other, "text", body, None).await
+    let kind = r.kind.unwrap_or_else(|| "text".into());
+    post_dm(&st, me, other, &kind, body, None).await
 }
 
 #[derive(Deserialize)]
@@ -2276,7 +2278,8 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
     let body = r.body.trim().to_string();
     if body.is_empty() { return Err(bad("Say something")); }
     if body.chars().count() > 2000 { return Err(bad("That message is too long")); }
-    post_group(&st, me, g, "text", body, None).await
+    let kind = r.kind.unwrap_or_else(|| "text".into());
+    post_group(&st, me, g, &kind, body, None).await
 }
 
 async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
