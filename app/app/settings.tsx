@@ -1,4 +1,6 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { setPref } from '../lib/notifs';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -6,8 +8,8 @@ import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Updates from 'expo-updates';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Linking, Pressable, ScrollView, Share, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition, interpolateColor, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { Linking, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
 import { pickAndUploadPhoto } from '../lib/photo';
@@ -264,24 +266,93 @@ export default function Settings() {
   };
   const version = `${Constants.expoConfig?.version ?? '1.0.0'}${Updates.updateId ? ` · ${Updates.updateId.slice(0, 7)}` : ''}`;
 
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollY.value = e.contentOffset.y;
+    },
+  });
+
+  const borderStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [0, 20], [0, 1], 'clamp'),
+  }));
+
   const tabs: TabItem[] = [
     { key: 'profile', label: 'profile' },
     { key: 'friends', label: `friends (${friends.length})`, badge: incoming.length || undefined },
     { key: 'prefs', label: 'settings' },
   ];
 
+  const headerHeight = insets.top + 54;
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingBottom: insets.bottom + 40, paddingHorizontal: 16, gap: 18 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
-        
-        {/* Header */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
+      {/* Sticky Header with Progressive Blur Backdrop */}
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+        }}>
+        {/* Blur layers creating progressive blur + gradient feather */}
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <BlurView
+            tint="systemUltraThinMaterialDark"
+            intensity={90}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
+            locations={[0, 0.7, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: StyleSheet.hairlineWidth,
+                backgroundColor: SEP,
+              },
+              borderStyle,
+            ]}
+          />
+        </View>
+
+        {/* Header Content */}
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingBottom: 10,
+            paddingHorizontal: 20,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
           <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 32, letterSpacing: -0.5 }}>settings</Text>
           <Squish onPress={() => router.back()} style={{ height: 34, paddingHorizontal: 16, borderRadius: 17, backgroundColor: '#fff', justifyContent: 'center' }}>
             <Text style={{ color: '#000', fontFamily: F.black, fontSize: 14 }}>done</Text>
           </Squish>
         </View>
+      </View>
 
+      <Animated.ScrollView
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        contentContainerStyle={{
+          paddingTop: headerHeight + 12,
+          paddingBottom: insets.bottom + 40,
+          paddingHorizontal: 16,
+          gap: 18,
+        }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets>
         {/* Morphing Animated Segmented Tab Bar */}
         <SegmentedTabs tabs={tabs} activeTab={tab} onSelect={setTab} />
 
@@ -412,7 +483,7 @@ export default function Settings() {
         <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.bold, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
           yapp {version}
         </Text>
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
   );
 }
