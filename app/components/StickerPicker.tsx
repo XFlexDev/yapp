@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -344,6 +344,7 @@ const EMOJI_KEYWORDS: Record<string, string> = {
 };
 
 type TabType = 'emoji' | 'stickers';
+const COLON = ':';
 
 export function StickerPicker({
   visible,
@@ -471,328 +472,183 @@ export function StickerPicker({
 
   if (!visible) return null;
 
+  const chip = (e: string, kw: string) => (
+    <Pressable
+      key={e}
+      onPress={() => {
+        Haptics.selectionAsync();
+        setSearch(search === kw ? '' : kw);
+      }}
+      style={({ pressed }) => ({
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: search === kw ? 'rgba(255,255,255,0.16)' : pressed ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)',
+      })}>
+      <Text style={{ fontSize: 18 }}>{e}</Text>
+    </Pressable>
+  );
+
+  const row = (title: string, items: React.ReactNode) => (
+    <View style={{ gap: 8 }} key={title}>
+      <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, paddingLeft: 4 }}>
+        {title}
+      </Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 8 }}>
+        {items}
+      </ScrollView>
+    </View>
+  );
+
+  const emojiCell = (em: string) => (
+    <Pressable
+      key={em}
+      onPress={() => handleSelectEmoji(em)}
+      style={({ pressed }) => ({
+        width: 42,
+        height: 42,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 10,
+        backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent',
+      })}>
+      <Text style={{ fontSize: 26 }}>{em}</Text>
+    </Pressable>
+  );
+
+  const stickerCell = (stk: Sticker, sz = 72) => (
+    <Pressable
+      key={stk.id}
+      onPress={() => (stk.is_emoji ? onPickEmoji(COLON + (stk.name || 'custom') + COLON) : handleSelectSticker(stk))}
+      style={({ pressed }) => ({
+        width: sz,
+        height: sz,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+      })}>
+      <Image source={stk.url || mediaUrl(stk.id)} style={{ width: sz - 10, height: sz - 10 }} contentFit="contain" cachePolicy="memory-disk" />
+    </Pressable>
+  );
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Dimmed backdrop */}
-      <Animated.View
-        entering={FadeIn.duration(180)}
-        exiting={FadeOut.duration(150)}
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 50 }]}>
+      <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(150)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
 
-      {/* Main Bottom Sheet Tray */}
       <Animated.View
-        entering={SlideInDown.duration(280)}
+        entering={SlideInDown.duration(260)}
         exiting={SlideOutDown.duration(200)}
         style={{
           position: 'absolute',
           left: 0,
           right: 0,
           bottom: 0,
-          maxHeight: '62%',
-          height: 440,
-          backgroundColor: '#161618',
-          borderTopLeftRadius: 28,
-          borderTopRightRadius: 28,
+          height: '58%',
+          backgroundColor: '#121214',
+          borderTopLeftRadius: 26,
+          borderTopRightRadius: 26,
           borderCurve: 'continuous',
-          paddingBottom: bottomInset,
-          zIndex: 60,
+          paddingBottom: bottomInset + 64,
           overflow: 'hidden',
         }}>
-        {/* Top Segmented Controls: [Emoji] | [Stickers] */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, gap: 10 }}>
-          <View style={{ flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 18, padding: 3 }}>
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                setTab('emoji');
-              }}
-              style={{
-                flex: 1,
-                height: 36,
-                borderRadius: 15,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                backgroundColor: tab === 'emoji' ? 'rgba(255,255,255,0.18)' : 'transparent',
-              }}>
-              <SymbolView
-                name="face.smiling"
-                size={17}
-                tintColor={tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.4)'}
-                fallback={<MaterialCommunityIcons name="emoticon-outline" size={18} color={tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.4)'} />}
-              />
-              <Text style={{ color: tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 14 }}>Emoji</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12 }}>
+          <Pressable onPress={() => { setTab('emoji'); setSearch(''); }} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
+            <SymbolView name="clock" size={20} tintColor={tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.5)'} fallback={<MaterialCommunityIcons name="clock-outline" size={20} color={tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.5)'} />} />
+          </Pressable>
+          <Pressable onPress={() => { setTab('emoji'); }} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
+            <SymbolView name="face.smiling" size={20} tintColor={tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.5)'} fallback={<MaterialCommunityIcons name="emoticon-outline" size={20} color={tab === 'emoji' ? '#fff' : 'rgba(255,255,255,0.5)'} />} />
+          </Pressable>
+          <Pressable onPress={() => { setTab('stickers'); }} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
+            <SymbolView name="star.square" size={20} tintColor={tab === 'stickers' ? '#fff' : 'rgba(255,255,255,0.5)'} fallback={<MaterialCommunityIcons name="sticker-emoji" size={20} color={tab === 'stickers' ? '#fff' : 'rgba(255,255,255,0.5)'} />} />
+          </Pressable>
+          <View style={{ width: StyleSheet.hairlineWidth, height: 22, backgroundColor: 'rgba(255,255,255,0.12)' }} />
+          {packs.map((p) => (
+            <Pressable key={p.id} onPress={() => setTab('stickers')} style={{ width: 40, height: 40, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
+              {p.thumbnail_url ? <Image source={p.thumbnail_url} style={{ width: 34, height: 34 }} contentFit="contain" /> : <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>{p.title.slice(0, 2).toLowerCase()}</Text>}
             </Pressable>
+          ))}
+        </ScrollView>
 
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                setTab('stickers');
-              }}
-              style={{
-                flex: 1,
-                height: 36,
-                borderRadius: 15,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                backgroundColor: tab === 'stickers' ? 'rgba(255,255,255,0.18)' : 'transparent',
-              }}>
-              <SymbolView
-                name="star.square.fill"
-                size={17}
-                tintColor={tab === 'stickers' ? '#fff' : 'rgba(255,255,255,0.4)'}
-                fallback={<MaterialCommunityIcons name="sticker-emoji" size={18} color={tab === 'stickers' ? '#fff' : 'rgba(255,255,255,0.4)'} />}
-              />
-              <Text style={{ color: tab === 'stickers' ? '#fff' : 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 14 }}>Stickers</Text>
-            </Pressable>
-          </View>
-
-          {/* Search Bar */}
-          <View
-            style={{
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: 'rgba(255,255,255,0.07)',
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 12,
-              gap: 8,
-            }}>
-            <SymbolView
-              name="magnifyingglass"
-              size={15}
-              tintColor="rgba(255,255,255,0.35)"
-              fallback={<MaterialCommunityIcons name="magnify" size={18} color="rgba(255,255,255,0.35)" />}
-            />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingBottom: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 12, width: 132 }}>
+            <SymbolView name="magnifyingglass" size={14} tintColor="rgba(255,255,255,0.4)" fallback={<MaterialCommunityIcons name="magnify" size={16} color="rgba(255,255,255,0.4)" />} />
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder={tab === 'emoji' ? 'Search emojis...' : 'Search stickers...'}
+              placeholder="search"
               placeholderTextColor="rgba(255,255,255,0.3)"
               keyboardAppearance="dark"
               style={{ flex: 1, color: '#fff', fontFamily: F.bold, fontSize: 14, paddingVertical: 0 }}
             />
-            {search ? (
-              <Pressable onPress={() => setSearch('')} hitSlop={8}>
-                <SymbolView
-                  name="xmark.circle.fill"
-                  size={15}
-                  tintColor="rgba(255,255,255,0.4)"
-                  fallback={<MaterialCommunityIcons name="close-circle" size={16} color="rgba(255,255,255,0.4)" />}
-                />
-              </Pressable>
-            ) : null}
           </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {chip('❤️', 'heart')}
+            {chip('👍', 'thumbs')}
+            {chip('👎', 'down')}
+            {chip('🎉', 'party')}
+            {chip('😀', 'smile')}
+            {chip('😂', 'laugh')}
+            {chip('😢', 'sad')}
+            {chip('😡', 'angry')}
+            {chip('🔥', 'fire')}
+          </ScrollView>
         </View>
 
-        {/* Content Container */}
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
-          keyboardShouldPersistTaps="handled">
-          
-          {/* TAB 1: EMOJI */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 18, paddingHorizontal: 10, paddingBottom: 20 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {tab === 'emoji' && (
-            <View style={{ gap: 16 }}>
-              {/* Custom Emojis row */}
-              <View style={{ gap: 8 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Custom Emojis
-                  </Text>
-                  <Squish
-                    onPress={() => handleStartPick(true)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                      paddingHorizontal: 10,
-                      height: 26,
-                      borderRadius: 13,
-                      backgroundColor: 'rgba(255,255,255,0.1)',
-                    }}>
-                    <SymbolView
-                      name="plus"
-                      size={12}
-                      tintColor="#fff"
-                      fallback={<MaterialCommunityIcons name="plus" size={13} color="#fff" />}
-                    />
-                    <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 11 }}>Add</Text>
-                  </Squish>
-                </View>
-
-                {/* Custom emojis grid */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  {filteredCustomEmojis.map((stk) => (
-                    <Pressable
-                      key={stk.id}
-                      onPress={() => onPickEmoji(`:${stk.name || 'custom'}:`)}
-                      style={({ pressed }) => ({
-                        minWidth: 48,
-                        paddingVertical: 4,
-                        paddingHorizontal: 6,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: 12,
-                        backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)',
-                      })}>
-                      <Image
-                        source={stk.url || mediaUrl(stk.id)}
-                        style={{ width: 34, height: 34 }}
-                        contentFit="contain"
-                        cachePolicy="memory-disk"
-                      />
-                      {stk.name ? (
-                        <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 10, marginTop: 2, maxWidth: 52, textAlign: 'center' }}>
-                          :{stk.name}:
-                        </Text>
-                      ) : null}
-                    </Pressable>
-                  ))}
-                  {filteredCustomEmojis.length === 0 && (
-                    <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.bold, fontSize: 13, paddingVertical: 4 }}>
-                      Tap "+ Add" to upload custom emojis with a custom ID
-                    </Text>
-                  )}
-                </View>
-              </View>
-
-              {/* Standard Emoji Categories */}
-              {filteredEmojiSections.map((sec) => (
-                <View key={sec.title} style={{ gap: 8 }}>
-                  <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    {sec.title}
-                  </Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {sec.emojis.map((em) => (
-                      <Pressable
-                        key={em}
-                        onPress={() => handleSelectEmoji(em)}
-                        style={({ pressed }) => ({
-                          width: 38,
-                          height: 38,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: 10,
-                          backgroundColor: pressed ? 'rgba(255,255,255,0.15)' : 'transparent',
-                        })}>
-                        <Text style={{ fontSize: 26 }}>{em}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* TAB 2: STICKERS */}
-          {tab === 'stickers' && (
-            <View style={{ gap: 16 }}>
-              {/* Upload custom sticker action banner */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  My Stickers & Recents
-                </Text>
-                <Squish
-                  onPress={() => handleStartPick(false)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 5,
-                    paddingHorizontal: 12,
-                    height: 28,
-                    borderRadius: 14,
-                    backgroundColor: C.red,
-                  }}>
-                  <SymbolView
-                    name="plus"
-                    size={12}
-                    tintColor="#fff"
-                    fallback={<MaterialCommunityIcons name="plus" size={14} color="#fff" />}
-                  />
-                  <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 12 }}>New Sticker</Text>
-                </Squish>
-              </View>
-
-              {/* Recent / Custom Stickers Grid */}
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                {filteredCustomStickers.map((stk) => (
+            <>
+              {row('custom emojis', (
+                <>
                   <Pressable
-                    key={stk.id}
-                    onPress={() => handleSelectSticker(stk)}
-                    style={({ pressed }) => ({
-                      minWidth: 78,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 16,
-                      padding: 6,
-                      backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
-                    })}>
-                    <Image
-                      source={stk.url || mediaUrl(stk.id)}
-                      style={{ width: 68, height: 68 }}
-                      contentFit="contain"
-                      cachePolicy="memory-disk"
-                    />
-                    {stk.name ? (
-                      <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 10, marginTop: 4, maxWidth: 70, textAlign: 'center' }}>
-                        :{stk.name}:
-                      </Text>
-                    ) : null}
+                    onPress={() => handleStartPick(true)}
+                    style={({ pressed }) => ({ width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)' })}>
+                    <SymbolView name="plus" size={18} tintColor="#fff" fallback={<MaterialCommunityIcons name="plus" size={20} color="#fff" />} />
                   </Pressable>
-                ))}
-                {filteredCustomStickers.length === 0 && (
-                  <View style={{ paddingVertical: 18, alignItems: 'center', width: '100%', gap: 6 }}>
-                    <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 14 }}>
-                      No stickers yet
-                    </Text>
-                    <Text style={{ color: 'rgba(255,255,255,0.25)', fontFamily: F.regular, fontSize: 12, textAlign: 'center' }}>
-                      Tap "+ New Sticker" to upload custom stickers with an ID
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Sticker Packs */}
-              {packs.map((p) => (
-                <View key={p.id} style={{ gap: 8 }}>
-                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.black, fontSize: 13 }}>
-                    {p.title}
-                  </Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                    {p.stickers.map((stk) => (
-                      <Pressable
-                        key={stk.id}
-                        onPress={() => handleSelectSticker(stk)}
-                        style={({ pressed }) => ({
-                          width: 78,
-                          height: 78,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: 16,
-                          backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
-                        })}>
-                        <Image
-                          source={stk.url || mediaUrl(stk.id)}
-                          style={{ width: 68, height: 68 }}
-                          contentFit="contain"
-                          cachePolicy="memory-disk"
-                        />
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
+                  {filteredCustomEmojis.map((s) => stickerCell(s, 42))}
+                </>
               ))}
-            </View>
+              {filteredEmojiSections.map((sec) => row(sec.title, sec.emojis.map(emojiCell)))}
+            </>
+          )}
+          {tab === 'stickers' && (
+            <>
+              {row('my stickers', (
+                <>
+                  <Pressable
+                    onPress={() => handleStartPick(false)}
+                    style={({ pressed }) => ({ width: 72, height: 72, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)' })}>
+                    <SymbolView name="plus" size={22} tintColor="#fff" fallback={<MaterialCommunityIcons name="plus" size={24} color="#fff" />} />
+                  </Pressable>
+                  {filteredCustomStickers.map((s) => stickerCell(s))}
+                </>
+              ))}
+              {packs.map((p) => row(p.title.toLowerCase(), p.stickers.map((s) => stickerCell(s))))}
+            </>
           )}
         </ScrollView>
+      </Animated.View>
 
-
+      <Animated.View entering={FadeIn.delay(120).duration(180)} exiting={FadeOut.duration(120)} style={{ position: 'absolute', bottom: bottomInset + 10, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', backgroundColor: 'rgba(30,30,34,0.96)', borderRadius: 24, padding: 4 }}>
+          {(['emoji', 'stickers'] as TabType[]).map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => { Haptics.selectionAsync(); setTab(t); }}
+              style={{ paddingHorizontal: 20, height: 38, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: tab === t ? 'rgba(255,255,255,0.16)' : 'transparent' }}>
+              <Text style={{ color: tab === t ? '#fff' : 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 14 }}>{t}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable
+          onPress={onClose}
+          style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(30,30,34,0.96)', alignItems: 'center', justifyContent: 'center' }}>
+          <SymbolView name="xmark" size={16} tintColor="#fff" weight="bold" fallback={<MaterialCommunityIcons name="close" size={20} color="#fff" />} />
+        </Pressable>
       </Animated.View>
 
       {/* ID Assignment Dialog for custom emojis & stickers */}
