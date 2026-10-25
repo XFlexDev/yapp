@@ -43,7 +43,7 @@ export default function SignIn() {
   const codeRef = useRef<any>(null);
   const { style: shakeStyle, shake } = useShake();
 
-  const go = (s: Step, d = 1) => { setDir(d); setError(''); setStep(s); };
+  const go = (s: Step, d = 1) => { setDir(d); setError(''); setTimeout(() => setStep(s), 0); };
   const back = () => { if (step === 'age') setGoogle(false); go(step === 'code' ? 'email' : step === 'email' && creating ? 'age' : 'welcome', -1); };
   const fail = (e: unknown) => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); shake(); setError(e instanceof ApiError ? e.message.toLowerCase() : 'something went wrong'); };
 

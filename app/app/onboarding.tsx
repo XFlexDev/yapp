@@ -19,7 +19,7 @@ export default function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const { style: shakeStyle, shake } = useShake();
-  const go = (s: Step, d = 1) => { setDir(d); setError(''); setStep(s); };
+  const go = (s: Step, d = 1) => { setDir(d); setError(''); setTimeout(() => setStep(s), 0); };
   const fail = (e: unknown) => { shake(); setError(e instanceof ApiError ? e.message.toLowerCase() : 'something went wrong'); };
 
   const saveUsername = async () => {
