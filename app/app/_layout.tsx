@@ -2,18 +2,20 @@ import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
 import { router, Stack, type ErrorBoundaryProps, DarkTheme, ThemeProvider } from 'expo-router';
 import { requireOptionalNativeModule } from 'expo';
-import { Appearance, Pressable, Text, View } from 'react-native';
+import { Appearance, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { restore, setSignedOutHandler } from '../lib/api';
-import { maybeAskBattery, startBackground, stopBackground } from '../lib/background';
+import { batteryExcluded, excludeBattery, startBackground, stopBackground } from '../lib/background';
 import { registerPush } from '../lib/push';
+import * as SecureStore from 'expo-secure-store';
+import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
-import { C } from '../lib/theme';
-import { RED } from '../lib/tt';
+import { C, F } from '../lib/theme';
+import { RED, Squish } from '../lib/tt';
 import { Intro } from '../lib/intro';
 import { startUpdates } from '../lib/updates';
 import { startListening, stopVoice } from '../lib/voice';
@@ -58,6 +60,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 export default function Root() {
   const [fonts] = useFonts({ Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black });
   const status = useStore((s) => s.status);
+  const [askBattery, setAskBattery] = useState(false);
   const me = useStore((s) => s.me);
 
   useEffect(() => {
@@ -69,10 +72,12 @@ export default function Root() {
 
   useEffect(() => {
     if (status !== 'in') return;
+    if (Platform.OS === 'android' && !batteryExcluded()) {
+      SecureStore.getItemAsync('battery-asked').then((v) => { if (!v) setAskBattery(true); }).catch(() => {});
+    }
     startRealtime();
     startListening().catch(() => {});
     startBackground();
-    maybeAskBattery();
     registerPush();
     const open = (d: any) => {
       if (d?.type === 'group_message' && d.group_id) router.push({ pathname: '/group', params: { id: d.group_id } });
@@ -117,6 +122,23 @@ export default function Root() {
         </Stack>
         <Intro />
       </GestureHandlerRootView>
+      {askBattery ? (
+        <View style={StyleSheet.absoluteFill}>
+          <Animated.View entering={FadeIn.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]} />
+          <Animated.View entering={SlideInDown.duration(300)} style={{ position: 'absolute', left: 10, right: 10, bottom: 30, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 24, gap: 12 }}>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>keep yapp awake</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
+              android may put yapp to sleep to save battery, which means friends can't talk or call you while the app is closed. tap continue, then hit allow on the next dialog. if you skip this, yapp can only reach you while it's open.
+            </Text>
+            <Squish onPress={() => { excludeBattery(); setAskBattery(false); SecureStore.setItemAsync('battery-asked', '1').catch(() => {}); }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>continue</Text>
+            </Squish>
+            <Pressable onPress={() => setAskBattery(false)} style={{ alignSelf: 'center', padding: 6 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 14 }}>not now</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      ) : null}
     </ThemeProvider>
   );
 }
