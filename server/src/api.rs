@@ -381,17 +381,18 @@ async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Valu
         )?;
     }
     let html = format!(
-        r#"<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:Nunito,-apple-system,'Segoe UI',Roboto,sans-serif">
-<div style="max-width:460px;margin:0 auto;padding:48px 30px">
-<img src="https://yap.kreatix.dev/yapp-mark.png" width="120" alt="yapp" style="width:120px;height:auto">
-<div style="margin-top:34px;font-size:16px;font-weight:600;color:#d4d4d4">Sign in to yapp as {email}.</div>
+        r#"<!doctype html><html><body style="margin:0;padding:0">
+<div style="background:#000;color:#fff;font-family:Nunito,-apple-system,'Segoe UI',Roboto,sans-serif;padding:24px 0">
+<div style="max-width:460px;margin:0 auto;padding:28px 30px 48px">
+<img src="https://yap.kreatix.dev/yapp-mark.png" width="110" alt="yapp" style="width:110px;height:auto;display:block">
+<div style="margin-top:34px;font-size:16px;font-weight:600;color:#d4d4d4">Sign in to yapp as <a style="color:#4f8ef7" href="mailto:{email}">{email}</a>.</div>
 <div style="margin-top:26px;font-size:16px;font-weight:600;color:#d4d4d4">Enter this code to sign in:</div>
 <div style="margin-top:16px;font-size:56px;font-weight:900;letter-spacing:4px;color:#fff">{code}</div>
 <div style="margin-top:30px;font-size:15px;font-weight:600;line-height:1.6;color:#d4d4d4">This code will expire in 10 minutes and can only be used once.</div>
 <div style="margin-top:36px;border-top:1px solid #242428"></div>
 <div style="margin-top:22px;font-size:13px;font-weight:600;line-height:1.7;color:#6d6d6d">If you didn't ask for this code, you can safely ignore this email.</div>
 <div style="margin-top:14px;font-size:13px;font-weight:600;line-height:1.7;color:#6d6d6d">yapp &middot; a <a href="https://kreatix.dev" style="color:#6d6d6d;text-decoration:underline">kreatix</a> project &middot; questions: <a href="mailto:info@kreatix.dev" style="color:#6d6d6d;text-decoration:underline">info@kreatix.dev</a></div>
-</div></body></html>"#
+</div></div></body></html>"#
     );
     let res = st
         .http
