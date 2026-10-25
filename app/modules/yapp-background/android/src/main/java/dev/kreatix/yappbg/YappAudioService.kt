@@ -36,7 +36,7 @@ class YappAudioService : Service() {
       )
     }
     val launch = packageManager.getLaunchIntentForPackage(packageName)
-    val tap = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    val tap = launch?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
     val n = NotificationCompat.Builder(this, CHANNEL)
       .setContentTitle(title)
       .setContentText(text)
@@ -63,13 +63,13 @@ class YappAudioService : Service() {
       }
     } catch (e: Exception) {
       stopSelf()
-      return START_NOT_STICKY
+      return START_STICKY
     }
     if (wifi == null) {
       wifi = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
         .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "yapp:voice").apply { setReferenceCounted(false); acquire() }
     }
-    return START_NOT_STICKY
+    return START_STICKY
   }
 
   override fun onTimeout(startId: Int, fgsType: Int) {

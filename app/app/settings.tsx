@@ -8,7 +8,7 @@ import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Dimensions, Linking, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { Dimensions, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInLeft, FadeInRight, FadeOut, LinearTransition, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
@@ -16,6 +16,7 @@ import { pickAndUploadPhoto } from '../lib/photo';
 import { loadBlocks, unblock } from '../lib/safety';
 import { syncAll } from '../lib/realtime';
 import { removeFriend, set, upsertFriend, useStore } from '../lib/store';
+import { batteryExcluded, excludeBattery } from '../lib/background';
 import { API, C, F } from '../lib/theme';
 import { SPRING, Squish, Swap } from '../lib/tt';
 import { Avatar } from '../lib/ui';
@@ -252,6 +253,7 @@ export default function Settings() {
   useEffect(() => { req<Trophy[]>('/v1/me/achievements').then(setTrophies).catch(() => {}); }, []);
   const doUnblock = (u: User) => { setBlocked((b) => b.filter((x) => x.id !== u.id)); unblock(u.id).catch(() => loadBlocks().then(setBlocked).catch(() => {})); };
   const [error, setError] = useState('');
+  const [bgOk, setBgOk] = useState(() => batteryExcluded());
   const [sureDelete, setSureDelete] = useState(false);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 3500); return () => clearTimeout(t); } }, [error]);
   useEffect(() => { if (sureDelete) { const t = setTimeout(() => setSureDelete(false), 3500); return () => clearTimeout(t); } }, [sureDelete]);
@@ -513,6 +515,9 @@ export default function Settings() {
                 <Row label="talk" sub="when a friend talks to you" right={<Toggle on={notif.prefs.talk} onChange={(v) => setPref('talk', v)} />} />
                 <Row label="calls" sub="incoming voice and video calls" right={<Toggle on={notif.prefs.calls} onChange={(v) => setPref('calls', v)} />} />
                 <Row label="friends" sub="requests and acceptances" right={<Toggle on={notif.prefs.friends} onChange={(v) => setPref('friends', v)} />} />
+                {Platform.OS === 'android' ? (
+                  <Row label="always-on listening" sub={bgOk ? 'on: friends can reach you anytime' : 'exempt yapp from battery saving so talks play in background'} onPress={bgOk ? undefined : () => { if (excludeBattery()) setBgOk(true); }} right={bgOk ? <SymbolView name="checkmark" tintColor="#4CD964" size={18} fallback={<MaterialCommunityIcons name="check" size={20} color="#4CD964" />} /> : undefined} />
+                ) : null}
               </Section>
             ) : null}
 

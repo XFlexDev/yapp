@@ -2,7 +2,7 @@ import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import { useStore } from './store';
 
-type Bg = { start(title: string, text: string): boolean; stop(): void; setActive(active: boolean): void };
+type Bg = { start(title: string, text: string): boolean; stop(): void; setActive(active: boolean): void; isBatteryExcluded(): boolean; excludeBattery(): boolean };
 // Missing on iOS and on Android builds made before the module existed; every call is then a no-op.
 const native = Platform.OS === 'android' ? requireOptionalNativeModule<Bg>('YappBackground') : null;
 
@@ -30,3 +30,13 @@ export function stopBackground() {
 }
 
 export function setSelfTalking(v: boolean) { selfTalking = v; sync(); }
+
+/** True when Android has exempted Yapp from battery optimization (Android only, else true). */
+export function batteryExcluded(): boolean {
+  return native ? native.isBatteryExcluded() : true;
+}
+
+/** Opens the system dialog to exempt Yapp from battery optimization. Returns false if unavailable. */
+export function excludeBattery(): boolean {
+  return native ? native.excludeBattery() : false;
+}
