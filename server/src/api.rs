@@ -382,14 +382,15 @@ async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Valu
     }
     let html = format!(
         r#"<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:Nunito,-apple-system,'Segoe UI',Roboto,sans-serif">
-<div style="max-width:460px;margin:0 auto;padding:56px 24px;text-align:center">
-<img src="https://yap.kreatix.dev/yapp-logo.png" width="168" alt="yapp" style="width:168px;height:auto">
-<div style="margin-top:48px;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#8a8a8a">your sign-in code</div>
-<div style="margin-top:20px;display:inline-block;background:#161618;border:1px solid #26262a;border-radius:26px;padding:26px 44px">
-<span style="font-size:52px;font-weight:900;letter-spacing:14px;color:#fff;font-family:ui-monospace,Menlo,monospace">{code}</span>
-</div>
-<div style="margin-top:36px;color:#5a5a5a;font-size:13px;line-height:1.7;font-weight:600">expires in 10 minutes.<br>didn't ask for this? ignore it.</div>
-<div style="margin-top:64px;color:#2e2e30;font-size:12px;font-weight:600">yapp &middot; a kreatix project</div>
+<div style="max-width:460px;margin:0 auto;padding:48px 30px">
+<img src="https://yap.kreatix.dev/yapp-logo.png" width="120" alt="yapp" style="width:120px;height:auto">
+<div style="margin-top:34px;font-size:16px;font-weight:600;color:#d4d4d4">Sign in to yapp as {email}.</div>
+<div style="margin-top:26px;font-size:16px;font-weight:600;color:#d4d4d4">Enter this code to sign in:</div>
+<div style="margin-top:16px;font-size:56px;font-weight:900;letter-spacing:4px;color:#fff">{code}</div>
+<div style="margin-top:30px;font-size:15px;font-weight:600;line-height:1.6;color:#d4d4d4">This code will expire in 10 minutes and can only be used once.</div>
+<div style="margin-top:36px;border-top:1px solid #242428"></div>
+<div style="margin-top:22px;font-size:13px;font-weight:600;line-height:1.7;color:#6d6d6d">If you didn't ask for this code, you can safely ignore this email.</div>
+<div style="margin-top:14px;font-size:13px;font-weight:600;line-height:1.7;color:#6d6d6d">yapp &middot; a <a href="https://kreatix.dev" style="color:#6d6d6d;text-decoration:underline">kreatix</a> project &middot; questions: <a href="mailto:info@kreatix.dev" style="color:#6d6d6d;text-decoration:underline">info@kreatix.dev</a></div>
 </div></body></html>"#
     );
     let res = st
