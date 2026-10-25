@@ -7,7 +7,7 @@ import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay } from 'react-native-reanimated';;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
@@ -365,44 +365,113 @@ export function MsgMenu({
   rows.push({ icon: ['arrowshape.turn.up.right.fill', 'arrow-redo'], label: 'forward', go: onForward });
   if (onDelete) rows.push({ icon: ['trash.fill', 'delete'], label: 'delete', danger: true, go: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); onDelete(); onClose(); } });
 
-  const W = 230, MENU_H = rows.length * 48 + 16;
-  const top = Math.min(Math.max(y - 40, 90), Dimensions.get('window').height - MENU_H - 180);
+  const W = 230, ROW = 46, MENU_H = rows.length * ROW + 14;
+  const SCREEN_H = Dimensions.get('window').height;
+  const CLONE_H = m.kind === 'image' ? 200 : m.kind === 'sticker' ? 150 : 60;
+  // enough room below the tap → clone at tap, pill+card underneath; otherwise flip so the card lands above
+  const below = y + CLONE_H / 2 + 56 + MENU_H + 30 < SCREEN_H;
+  const cloneTop = below ? Math.max(y - CLONE_H / 2, 70) : Math.max(y - CLONE_H / 2 - 56 - MENU_H - 10, 70);
+  const springIn = FadeIn.duration(1);
+  const morph = { damping: 26, stiffness: 320, mass: 0.9 };
+
+  const clone = (
+    <Animated.View
+      entering={(s: any) => {
+        'worklet';
+        return {
+          initialValues: { opacity: 0, transform: [{ scale: 0.55 }, { translateY: 14 }] },
+          animations: {
+            opacity: withTiming(1, { duration: 110 }),
+            transform: [{ scale: withSpring(1, morph) }, { translateY: withSpring(0, morph) }],
+          },
+        };
+      }}
+      exiting={FadeOut.duration(90)}
+      style={{ alignItems: mine ? 'flex-end' : 'flex-start', paddingHorizontal: 12 }}>
+      {m.kind === 'image' ? (
+        <Image source={mediaUrl(m.body)} style={{ width: 200, height: 200 }} contentFit="contain" cachePolicy="memory-disk" />
+      ) : m.kind === 'sticker' ? (
+        <Image source={mediaUrl(m.body)} style={{ width: 150, height: 150 }} contentFit="contain" cachePolicy="memory-disk" />
+      ) : (
+        <View style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.2)' }}>
+          <FormattedMessageText text={m.body} />
+        </View>
+      )}
+    </Animated.View>
+  );
+
+  const pill = (
+    <Animated.View
+      entering={(s: any) => {
+        'worklet';
+        return {
+          initialValues: { opacity: 0, transform: [{ scale: 0.6 }, { translateY: below ? -8 : 8 }] },
+          animations: {
+            opacity: withTiming(1, { duration: 120 }),
+            transform: [{ scale: withDelay(50, withSpring(1, morph)) }, { translateY: withDelay(50, withSpring(0, morph)) }],
+          },
+        };
+      }}
+      exiting={FadeOut.duration(90)}
+      style={{ flexDirection: 'row', alignSelf: 'center', gap: 2, backgroundColor: 'rgba(40,40,44,0.95)', borderRadius: 24, paddingHorizontal: 6, paddingVertical: 4, marginVertical: 10 }}>
+      {QUICK_REACTIONS.map((e) => (
+        <Pressable key={e} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onReact(e); onClose(); }} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.15)' : 'transparent' })}>
+          <Text style={{ fontSize: 22 }}>{e}</Text>
+        </Pressable>
+      ))}
+    </Animated.View>
+  );
+
+  const card = (
+    <Animated.View
+      entering={(s: any) => {
+        'worklet';
+        return {
+          initialValues: { opacity: 0, transform: [{ scaleY: 0.6 }, { scaleX: 0.85 }, { translateY: below ? -10 : 10 }] },
+          animations: {
+            opacity: withTiming(1, { duration: 110 }),
+            transform: [{ scaleY: withDelay(80, withSpring(1, morph)) }, { scaleX: withDelay(80, withSpring(1, morph)) }, { translateY: withDelay(80, withSpring(0, morph)) }],
+          },
+        };
+      }}
+      exiting={FadeOut.duration(90)}
+      style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginRight: mine ? 12 : 0, marginLeft: mine ? 0 : 12, width: W, borderRadius: 18, borderCurve: 'continuous', backgroundColor: 'rgba(30,30,34,0.97)', overflow: 'hidden' }}>
+      {rows.map((r, i) => (
+        <Animated.View
+          key={r.label}
+          entering={(s: any) => {
+            'worklet';
+            return { initialValues: { opacity: 0 }, animations: { opacity: withDelay(110 + i * 28, withTiming(1, { duration: 110 })) } };
+          }}>
+          <Pressable onPress={() => { Haptics.selectionAsync(); r.go(); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: ROW, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderBottomWidth: i === rows.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.08)' })}>
+            <SymbolView name={r.icon[0] as any} size={17} tintColor={r.danger ? C.danger : '#fff'} fallback={<MaterialCommunityIcons name={r.icon[1] as any} size={19} color={r.danger ? C.danger : '#fff'} />} />
+            <Text style={{ color: r.danger ? C.danger : '#fff', fontFamily: F.bold, fontSize: 16 }}>{r.label}</Text>
+          </Pressable>
+        </Animated.View>
+      ))}
+    </Animated.View>
+  );
+
   return (
     <View style={StyleSheet.absoluteFill}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
         <BlurView intensity={30} tint="dark" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
       </Pressable>
-      <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={{ position: 'absolute', top, left: 0, right: 0 }}>
-        {/* floating message clone */}
-        <Animated.View entering={FadeIn.duration(140)} style={{ alignItems: mine ? 'flex-end' : 'flex-start', paddingHorizontal: 12 }}>
-          {m.kind === 'image' ? (
-            <Image source={mediaUrl(m.body)} style={{ width: 200, height: 200 }} contentFit="contain" cachePolicy="memory-disk" />
-          ) : m.kind === 'sticker' ? (
-            <Image source={mediaUrl(m.body)} style={{ width: 150, height: 150 }} contentFit="contain" cachePolicy="memory-disk" />
-          ) : (
-            <View style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.2)' }}>
-              <FormattedMessageText text={m.body} />
-            </View>
-          )}
-        </Animated.View>
-        {/* reaction pill */}
-        <Animated.View entering={FadeInDown.duration(160).easing(out)} style={{ flexDirection: 'row', alignSelf: 'center', gap: 2, marginTop: 10, backgroundColor: 'rgba(40,40,44,0.95)', borderRadius: 24, paddingHorizontal: 6, paddingVertical: 4 }}>
-          {QUICK_REACTIONS.map((e) => (
-            <Pressable key={e} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onReact(e); onClose(); }} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.15)' : 'transparent' })}>
-              <Text style={{ fontSize: 22 }}>{e}</Text>
-            </Pressable>
-          ))}
-        </Animated.View>
-        {/* action card */}
-        <Animated.View entering={FadeInDown.duration(180).easing(out)} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: 10, marginRight: mine ? 12 : 0, marginLeft: mine ? 0 : 12, width: W, borderRadius: 18, borderCurve: 'continuous', backgroundColor: 'rgba(30,30,34,0.97)', overflow: 'hidden' }}>
-          {rows.map((r, i) => (
-            <Pressable key={r.label} onPress={() => { Haptics.selectionAsync(); r.go(); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 48, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderBottomWidth: i === rows.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.08)' })}>
-              <SymbolView name={r.icon[0] as any} size={17} tintColor={r.danger ? C.danger : '#fff'} fallback={<MaterialCommunityIcons name={r.icon[1] as any} size={19} color={r.danger ? C.danger : '#fff'} />} />
-              <Text style={{ color: r.danger ? C.danger : '#fff', fontFamily: F.bold, fontSize: 16 }}>{r.label}</Text>
-            </Pressable>
-          ))}
-        </Animated.View>
-      </Animated.View>
+      <View style={{ position: 'absolute', top: cloneTop, left: 0, right: 0 }}>
+        {below ? (
+          <>
+            {clone}
+            {pill}
+            {card}
+          </>
+        ) : (
+          <>
+            {pill}
+            {card}
+            {clone}
+          </>
+        )}
+      </View>
     </View>
   );
 }
