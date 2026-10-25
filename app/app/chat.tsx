@@ -347,8 +347,12 @@ export default function ChatScreen() {
   useEffect(() => {
     set({ openChat: id });
     loadMessages(id!).then(() => markRead(id!)).catch(() => {});
-    loadAllCustomStickers().catch(() => {});
-    loadRecentStickers().then(setCustomList).catch(() => {});
+    Promise.all([loadRecentStickers(), loadAllCustomStickers()])
+      .then(([r, all]) => {
+        const seen = new Set<string>();
+        setCustomList([...r, ...all].filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))));
+      })
+      .catch(() => {});
     return () => set({ openChat: null });
   }, [id]);
 

@@ -29,7 +29,7 @@ import {
   type StickerPack,
 } from '../lib/stickers';
 import { C, F } from '../lib/theme';
-import { Squish } from '../lib/tt';
+import { Pill, Squish } from '../lib/tt';
 
 // Standard high-frequency native emojis grouped cleanly
 const STANDARD_EMOJI_SECTIONS = [
@@ -593,7 +593,7 @@ export function StickerPicker({
         {/* Content Container */}
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 60 }}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
           keyboardShouldPersistTaps="handled">
           
           {/* TAB 1: EMOJI */}
@@ -792,131 +792,51 @@ export function StickerPicker({
           )}
         </ScrollView>
 
-        {/* Bottom Quick Dock */}
-        <View
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 48,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: 'rgba(255,255,255,0.08)',
-            backgroundColor: '#111113',
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 12,
-            justifyContent: 'space-between',
-          }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                setTab('emoji');
-              }}
-              hitSlop={8}
-              style={{ opacity: tab === 'emoji' ? 1 : 0.4 }}>
-              <SymbolView
-                name="clock.fill"
-                size={18}
-                tintColor="#fff"
-                fallback={<MaterialCommunityIcons name="clock-outline" size={18} color="#fff" />}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                setTab('stickers');
-              }}
-              hitSlop={8}
-              style={{ opacity: tab === 'stickers' ? 1 : 0.4 }}>
-              <SymbolView
-                name="star.fill"
-                size={18}
-                tintColor="#fff"
-                fallback={<MaterialCommunityIcons name="star" size={18} color="#fff" />}
-              />
-            </Pressable>
-          </View>
 
-          {/* Close tray icon button */}
-          <Pressable
-            onPress={() => {
-              Haptics.selectionAsync();
-              onClose();
-            }}
-            hitSlop={8}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              backgroundColor: 'rgba(255,255,255,0.1)',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-            <SymbolView
-              name="chevron.down"
-              size={14}
-              tintColor="#fff"
-              weight="bold"
-              fallback={<MaterialCommunityIcons name="chevron-down" size={18} color="#fff" />}
-            />
-          </Pressable>
-        </View>
       </Animated.View>
 
       {/* ID Assignment Dialog for custom emojis & stickers */}
       {namingDialog ? (
-        <Animated.View
-          entering={FadeIn.duration(160)}
-          exiting={FadeOut.duration(140)}
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              backgroundColor: 'rgba(0,0,0,0.82)',
-              zIndex: 100,
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingHorizontal: 24,
-            },
-          ]}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
+          <Pressable
+            onPress={() => setNamingDialog(null)}
+            style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.82)' }]}
+          />
           <View
             style={{
-              width: '100%',
-              maxWidth: 320,
+              position: 'absolute',
+              left: 24,
+              right: 24,
+              top: '30%',
+              alignSelf: 'center',
+              maxWidth: 340,
               backgroundColor: '#1E1E20',
-              borderRadius: 24,
+              borderRadius: 26,
               borderCurve: 'continuous',
               padding: 20,
-              alignItems: 'center',
               gap: 14,
             }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>
-              {namingDialog.isEmoji ? 'Assign Emoji ID' : 'Assign Sticker ID'}
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18, textAlign: 'center' }}>
+              {namingDialog.isEmoji ? 'name your emoji' : 'name your sticker'}
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 13, textAlign: 'center' }}>
-              Type :{assignedId || 'name'}: in chat to use it
+              type :{assignedId || 'name'}: in chat to use it
             </Text>
-
-            <Image
-              source={namingDialog.uri}
-              style={{
-                width: namingDialog.isEmoji ? 48 : 88,
-                height: namingDialog.isEmoji ? 48 : 88,
-                borderRadius: namingDialog.isEmoji ? 12 : 8,
-              }}
-              contentFit="contain"
-            />
-
+            <View style={{ alignItems: 'center' }}>
+              <Image
+                source={namingDialog.uri}
+                style={{ width: namingDialog.isEmoji ? 52 : 96, height: namingDialog.isEmoji ? 52 : 96, borderRadius: namingDialog.isEmoji ? 14 : 10 }}
+                contentFit="contain"
+              />
+            </View>
             <View
               style={{
-                width: '100%',
-                height: 44,
-                borderRadius: 22,
+                height: 46,
+                borderRadius: 23,
                 backgroundColor: 'rgba(255,255,255,0.08)',
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingHorizontal: 14,
+                paddingHorizontal: 16,
               }}>
               <Text style={{ color: C.red, fontFamily: F.black, fontSize: 16 }}>:</Text>
               <TextInput
@@ -925,7 +845,7 @@ export function StickerPicker({
                   setAssignedId(t.toLowerCase().replace(/[^a-z0-9_-]/g, ''));
                   setNamingError('');
                 }}
-                placeholder="custom_id"
+                placeholder="name"
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -935,45 +855,19 @@ export function StickerPicker({
               />
               <Text style={{ color: C.red, fontFamily: F.black, fontSize: 16 }}>:</Text>
             </View>
-
             {namingError ? (
-              <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, textAlign: 'center' }}>
-                {namingError}
-              </Text>
+              <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, textAlign: 'center' }}>{namingError}</Text>
             ) : null}
-
-            <View style={{ flexDirection: 'row', gap: 10, width: '100%', marginTop: 4 }}>
-              <Squish
-                onPress={() => setNamingDialog(null)}
-                style={{
-                  flex: 1,
-                  height: 42,
-                  borderRadius: 21,
-                  backgroundColor: 'rgba(255,255,255,0.1)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 15 }}>Cancel</Text>
-              </Squish>
-              <Squish
-                onPress={handleConfirmNaming}
-                disabled={busy}
-                style={{
-                  flex: 1,
-                  height: 42,
-                  borderRadius: 21,
-                  backgroundColor: C.red,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: busy ? 0.6 : 1,
-                }}>
-                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>
-                  {busy ? 'Saving…' : 'Save'}
-                </Text>
-              </Squish>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              <View style={{ flex: 1 }}>
+                <Pill title="cancel" ghost onPress={() => setNamingDialog(null)} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Pill title={busy ? 'saving…' : 'save'} loading={busy} onPress={handleConfirmNaming} />
+              </View>
             </View>
           </View>
-        </Animated.View>
+        </View>
       ) : null}
     </View>
   );
