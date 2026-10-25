@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { req } from './api';
+import { mediaUrl, req } from './api';
 import { get, set, type Chat, type ChatMsg } from './store';
 
 const EMPTY: Chat = { messages: [], loaded: false, more: true, background: null, theirReadAt: 0, unread: 0 };
@@ -32,12 +32,12 @@ export async function loadMessages(id: string, older = false) {
   }));
 }
 
-export async function sendMessage(id: string, body: string) {
+export async function sendMessage(id: string, body: string, replyTo?: string, kind = 'text', meta?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'text', body, created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind, body, meta, created_at: Date.now(), pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
-    const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body } });
+    const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body, kind, meta, reply_to: replyTo } });
     patch(id, (c) => (c.messages.some((x) => x.id === m.id) ? { messages: c.messages.filter((x) => x.id !== tmp.id) } : { messages: c.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (c) => ({ messages: c.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));
@@ -148,14 +148,37 @@ export const BACKGROUNDS: { id: string; colors: [string, string, ...string[]] }[
   { id: 'gold', colors: ['#3A2A00', '#0A0700'] },
 ];
 
-export async function sendSticker(id: string, stickerId: string, meta?: string) {
+export async function sendSticker(id: string, stickerId: string, meta?: string, replyTo?: string) {
   const me = get().me!.id;
   const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
-    const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta } });
+    const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta, reply_to: replyTo } });
     patch(id, (c) => (c.messages.some((x) => x.id === m.id) ? { messages: c.messages.filter((x) => x.id !== tmp.id) } : { messages: c.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (c) => ({ messages: c.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));
   }
+}
+
+
+/** Update a message's reaction chips inside a chat or group entry. */
+export function applyReactions(chatId: string, msgId: string, reactions: ChatMsg['reactions']) {
+  const patchChat = (list: ChatMsg[]) => list.map((m) => (m.id === msgId ? { ...m, reactions } : m));
+  const st = get();
+  if (st.chats[chatId]) {
+    patch(chatId, (c) => ({ messages: patchChat(c.messages) }));
+  } else if (st.groups[chatId]) {
+    set({ groups: { ...st.groups, [chatId]: { ...st.groups[chatId], messages: patchChat(st.groups[chatId].messages) } } });
+  }
+}
+
+export async function react(id: string, msgId: string, emoji: string) {
+  await req(`/v1/chats/${id}/messages/${msgId}/react`, { method: 'POST', body: { emoji } });
+}
+
+/** Save an image message to your sticker collection via the sticker pipeline. */
+export async function saveImageAsSticker(body: string) {
+  const url = body.startsWith('http') ? body : mediaUrl(body);
+  const blob = await (await fetch(url)).blob();
+  return req<unknown>('/v1/stickers/upload?is_emoji=false', { method: 'POST', raw: blob, ctype: 'image/webp' });
 }

@@ -4,18 +4,18 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
 import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, pickBackgroundPhoto } from '../lib/chat';
-import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
-import { set, useStore } from '../lib/store';
+import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, reactGroup, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
+import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, Glyph, MuteRow, PhotoViewer, SectionLabel } from './chat';
+import { Backdrop, Bubble, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel } from './chat';
 import { req } from '../lib/api';
 import { StickerPicker } from '../components/StickerPicker';
 import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
@@ -79,6 +79,9 @@ export default function GroupScreen() {
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
   const [stickersVisible, setStickersVisible] = useState(false);
+  const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ChatMsg | null>(null);
+  const [forwarding, setForwarding] = useState<ChatMsg | null>(null);
   const [customList, setCustomList] = useState<Sticker[]>([]);
   const talker = useStore((s) => s.groupTalk[id!] ?? null);
   const opened = useRef(Date.now());
@@ -117,7 +120,7 @@ export default function GroupScreen() {
   const lastMine = msgs.find((m) => m.from === me?.id && !m.pending && !m.failed);
   const seenBy = lastMine ? g.members.filter((u) => u.id !== me?.id && (g.reads[u.id] ?? 0) >= lastMine.created_at).map((u) => nameOf(u).toLowerCase()) : [];
   const others = friends.filter((f) => !g.members.some((u) => u.id === f.id));
-  const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b); };
+  const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b, replyingTo?.id); setReplyingTo(null); };
   const close = () => { setSheet(null); setSure(false); setOpen(null); };
   const renameGroup = (name: string) => { const n = name.trim(); if (!n || n === g.name) return; req(`/v1/groups/${id}`, { method: 'PATCH', body: { name: n } }).catch(() => {}); };
   const removeMember = (uid: string) => { Haptics.selectionAsync(); req(`/v1/groups/${id}/members/${uid}`, { method: 'DELETE' }).catch(() => {}); };
@@ -138,7 +141,11 @@ export default function GroupScreen() {
           renderItem={({ item, index }) => {
             const mine = item.from === me?.id;
             return <Bubble m={item} mine={mine} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
-              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView} onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />;
+              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView}
+              friendName={item.from === me?.id ? 'you' : nameOf(who(item.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
+              onReact={(e: string) => reactGroup(id!, item.id, e).catch(() => {})}
+              onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
+              onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />;
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
@@ -163,6 +170,18 @@ export default function GroupScreen() {
             ))}
           </View>
         ) : null}
+        {replyingTo ? (
+          <Animated.View entering={FadeInDown.duration(160).easing(out)} exiting={FadeOut.duration(120)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 10, marginBottom: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)' }}>
+            <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.red }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.red, fontFamily: F.black, fontSize: 12 }}>{replyingTo.from === me?.id ? 'you' : nameOf(who(replyingTo.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}</Text>
+              <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{replyingTo.kind === 'image' ? '\ud83d\udcf7 photo' : replyingTo.kind === 'sticker' ? 'sticker' : replyingTo.body}</Text>
+            </View>
+            <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+              <Glyph g="back" size={16} />
+            </Pressable>
+          </Animated.View>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
@@ -173,6 +192,17 @@ export default function GroupScreen() {
           ) : <TalkButton onState={setTalk} />}
         </View>
       </Animated.View>
+      {menu ? (
+        <MsgMenu
+          m={menu.m} mine={menu.m.from === me?.id} y={menu.y} x={menu.x} friendName={menu.m.from === me?.id ? 'you' : nameOf(who(menu.m.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
+          onClose={() => setMenu(null)}
+          onReply={() => { setReplyingTo(menu.m); setMenu(null); }}
+          onDelete={menu.m.from === me?.id ? () => deleteGroupMessage(id!, menu.m).catch(() => {}) : undefined}
+          onReact={(e) => reactGroup(id!, menu.m.id, e).catch(() => {})}
+          onForward={() => { setForwarding(menu.m); setMenu(null); }}
+        />
+      ) : null}
+      {forwarding ? <ForwardSheet m={forwarding} onClose={() => setForwarding(null)} /> : null}
       <StickerPicker
         visible={stickersVisible}
         onClose={() => setStickersVisible(false)}

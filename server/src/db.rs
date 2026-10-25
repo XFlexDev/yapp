@@ -84,9 +84,16 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
             recipient TEXT NOT NULL,
             kind TEXT NOT NULL,
             body TEXT NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            reply_to TEXT
         );
         CREATE INDEX IF NOT EXISTS messages_pair ON messages(a, b, created_at);
+        CREATE TABLE IF NOT EXISTS reactions(
+            msg_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            emoji TEXT NOT NULL,
+            PRIMARY KEY(msg_id, user_id)
+        );
         CREATE TABLE IF NOT EXISTS chat_meta(
             a TEXT NOT NULL,
             b TEXT NOT NULL,
@@ -227,6 +234,11 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
         "#,
     )?;
     let _ = c.execute("ALTER TABLE stickers ADD COLUMN name TEXT", []);
+    let _ = c.execute("ALTER TABLE messages ADD COLUMN reply_to TEXT", []);
+    let _ = c.execute(
+        "CREATE TABLE IF NOT EXISTS reactions(msg_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, emoji TEXT NOT NULL, PRIMARY KEY(msg_id, user_id))",
+        [],
+    );
     let _ = c.execute("CREATE INDEX IF NOT EXISTS stickers_name ON stickers(name)", []);
     Ok(c)
 }

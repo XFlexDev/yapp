@@ -6,18 +6,24 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
-import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, retry, sendMessage, sendPhoto, sendSticker, setBackground } from '../lib/chat';
+import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, react as reactMsg, retry, saveImageAsSticker, sendMessage, sendPhoto, sendSticker, setBackground } from '../lib/chat';
 import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { StickerPicker } from '../components/StickerPicker';
-import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, type Sticker } from '../lib/stickers';
+import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, saveSticker, type Sticker } from '../lib/stickers';
+import { BlurView } from 'expo-blur';
+
+let Clipboard: any = null;
+try { Clipboard = require('expo-clipboard'); } catch {}
+let MediaLibrary: any = null;
+try { MediaLibrary = require('expo-media-library'); } catch {}
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'], photo: ['photo.fill', 'image'], sticker: ['face.smiling.inverse', 'sticker-emoji'] } as const;
@@ -74,7 +80,7 @@ const AV = 38;
 const MORPH = { damping: 24, stiffness: 260, mass: 0.8 };
 
 /** Photo bubble: exact aspect from the start, blurred preview until the WebP arrives from the CDN. */
-function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?: (uri: string) => void; onRetry: () => void; onLongPress?: () => void }) {
+function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?: (uri: string) => void; onRetry: () => void; onLongPress?: (e: any) => void }) {
   const [w, h, thumb] = (m.meta ?? '').split(',');
   const ratio = +w && +h ? Math.min(1.5, Math.max(0.6, +h / +w)) : 1;
   const src = m.body.startsWith('c-') ? mediaUrl(m.body) : m.body;
@@ -86,7 +92,7 @@ function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?:
   );
 }
 
-function StickerBubble({ m, onLongPress }: { m: ChatMsg; onLongPress?: () => void }) {
+function StickerBubble({ m, onLongPress }: { m: ChatMsg; onLongPress?: (e: any) => void }) {
   const [wStr, hStr] = m.meta ? m.meta.split(':') : [];
   const metaW = wStr ? parseFloat(wStr) : 0;
   const metaH = hStr ? parseFloat(hStr) : 0;
@@ -269,29 +275,180 @@ export function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () 
   );
 }
 
-export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, author }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; author?: string }) {
-  const [armed, setArmed] = useState(false);
-  const hold = onDelete && !m.pending ? () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setArmed(true); } : undefined;
+const QUICK_REACTIONS = ['\u2764\ufe0f', '\ud83d\ude02', '\ud83d\udc4d', '\ud83d\ude2e', '\ud83d\ude22', '\ud83d\udd25'];
+
+export function ReplyQuote({ reply, name }: { reply: { from: string; kind: string; body: string }; name: string }) {
+  const label = reply.kind === 'image' ? '\ud83d\udcf7 photo' : reply.kind === 'sticker' ? 'sticker' : reply.body;
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, borderLeftWidth: 3, borderLeftColor: 'rgba(255,255,255,0.7)', paddingLeft: 8, marginBottom: 5 }}>
+      <View style={{ flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 12, opacity: 0.9 }}>{name}</Text>
+        <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.75)', fontFamily: F.bold, fontSize: 12 }}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string }) {
+  const hold = !m.pending && onMenu ? (e: any) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onMenu(m, e.nativeEvent.pageY, e.nativeEvent.pageX); } : undefined;
+  const chips = m.reactions ?? [];
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
       {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
+      {m.reply && (m.kind === 'image' || m.kind === 'sticker') ? (
+        <View style={{ marginBottom: 4, paddingHorizontal: 6 }}><ReplyQuote reply={m.reply} name={m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')} /></View>
+      ) : null}
       {m.kind === 'image' ? (
-        <PhotoBubble m={m} onOpen={armed ? () => setArmed(false) : onOpen} onRetry={onRetry} onLongPress={hold} />
+        <PhotoBubble m={m} onOpen={onOpen} onRetry={onRetry} onLongPress={hold} />
       ) : m.kind === 'sticker' ? (
         <StickerBubble m={m} onLongPress={hold} />
       ) : (
-        <Pressable onPress={m.failed ? onRetry : armed ? () => setArmed(false) : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
+        <Pressable onPress={m.failed ? onRetry : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
+          {m.reply ? <ReplyQuote reply={m.reply} name={m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')} /> : null}
           <FormattedMessageText text={m.body} />
         </Pressable>
       )}
-      {armed ? (
-        <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-          <Squish onPress={() => setArmed(false)} style={{ height: 32, paddingHorizontal: 14, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>cancel</Text></Squish>
-          <Squish onPress={() => { setArmed(false); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); onDelete?.(); }} style={{ height: 32, paddingHorizontal: 14, borderRadius: 16, backgroundColor: C.danger, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>delete</Text></Squish>
-        </Animated.View>
+      {chips.length > 0 ? (
+        <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+          {chips.map((r) => (
+            <Pressable key={r.emoji} onPress={() => { Haptics.selectionAsync(); onReact?.(r.emoji); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.12)' }}>
+              <Text style={{ fontSize: 13 }}>{r.emoji}</Text>
+              {r.users.length > 1 ? <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 11 }}>{r.users.length}</Text> : null}
+            </Pressable>
+          ))}
+        </View>
       ) : null}
       {m.failed ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>not sent · tap to retry</Text> : seen ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>{typeof seen === 'string' ? seen : 'seen'}</Text> : null}
     </Animated.View>
+  );
+}
+
+export function MsgMenu({
+  m, mine, y, x, friendName, onClose, onReply, onDelete, onReact, onForward,
+}: {
+  m: ChatMsg; mine: boolean; y: number; x: number; friendName?: string;
+  onClose: () => void; onReply: () => void; onDelete?: () => void;
+  onReact: (emoji: string) => void; onForward: () => void;
+}) {
+  const [saved, setSaved] = useState(false);
+  const rows: { icon: [string, string]; label: string; danger?: boolean; go: () => void }[] = [];
+  rows.push({ icon: ['arrowshape.turn.up.left.fill', 'arrow-undo'], label: 'reply', go: onReply });
+  if (m.kind === 'text' && Clipboard) rows.push({ icon: ['doc.on.doc.fill', 'content-copy'], label: 'copy', go: () => { Clipboard.setStringAsync(m.body).catch(() => {}); onClose(); } });
+  if (m.kind === 'sticker' || m.kind === 'image') {
+    rows.push({
+      icon: ['plus.square.fill', 'sticker-plus-outline'],
+      label: saved ? 'saved' : m.kind === 'sticker' ? 'save sticker' : 'save as sticker',
+      go: async () => {
+        if (saved) { onClose(); return; }
+        try {
+          if (m.kind === 'sticker') await saveSticker(m.body);
+          else await saveImageAsSticker(m.body);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setSaved(true);
+          setTimeout(onClose, 500);
+        } catch { onClose(); }
+      },
+    });
+  }
+  if (m.kind === 'image' && MediaLibrary) {
+    rows.push({
+      icon: ['arrow.down.to.line.compact', 'download'], label: 'save to photos', go: async () => {
+        try {
+          const url = mediaUrl(m.body);
+          const r = await MediaLibrary.requestPermissionsAsync(true);
+          if (r.granted) { await MediaLibrary.saveToLibraryAsync(url); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
+        } catch {}
+        onClose();
+      },
+    });
+  }
+  rows.push({ icon: ['arrowshape.turn.up.right.fill', 'arrow-redo'], label: 'forward', go: onForward });
+  if (onDelete) rows.push({ icon: ['trash.fill', 'delete'], label: 'delete', danger: true, go: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); onDelete(); onClose(); } });
+
+  const W = 230, MENU_H = rows.length * 48 + 16;
+  const top = Math.min(Math.max(y - 40, 90), Dimensions.get('window').height - MENU_H - 180);
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+        <BlurView intensity={30} tint="dark" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
+      </Pressable>
+      <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={{ position: 'absolute', top, left: 0, right: 0 }}>
+        {/* floating message clone */}
+        <Animated.View entering={FadeIn.duration(140)} style={{ alignItems: mine ? 'flex-end' : 'flex-start', paddingHorizontal: 12 }}>
+          {m.kind === 'image' ? (
+            <Image source={mediaUrl(m.body)} style={{ width: 200, height: 200 }} contentFit="contain" cachePolicy="memory-disk" />
+          ) : m.kind === 'sticker' ? (
+            <Image source={mediaUrl(m.body)} style={{ width: 150, height: 150 }} contentFit="contain" cachePolicy="memory-disk" />
+          ) : (
+            <View style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.2)' }}>
+              <FormattedMessageText text={m.body} />
+            </View>
+          )}
+        </Animated.View>
+        {/* reaction pill */}
+        <Animated.View entering={FadeInDown.duration(160).easing(out)} style={{ flexDirection: 'row', alignSelf: 'center', gap: 2, marginTop: 10, backgroundColor: 'rgba(40,40,44,0.95)', borderRadius: 24, paddingHorizontal: 6, paddingVertical: 4 }}>
+          {QUICK_REACTIONS.map((e) => (
+            <Pressable key={e} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onReact(e); onClose(); }} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.15)' : 'transparent' })}>
+              <Text style={{ fontSize: 22 }}>{e}</Text>
+            </Pressable>
+          ))}
+        </Animated.View>
+        {/* action card */}
+        <Animated.View entering={FadeInDown.duration(180).easing(out)} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: 10, marginRight: mine ? 12 : 0, marginLeft: mine ? 0 : 12, width: W, borderRadius: 18, borderCurve: 'continuous', backgroundColor: 'rgba(30,30,34,0.97)', overflow: 'hidden' }}>
+          {rows.map((r, i) => (
+            <Pressable key={r.label} onPress={() => { Haptics.selectionAsync(); r.go(); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 48, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderBottomWidth: i === rows.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.08)' })}>
+              <SymbolView name={r.icon[0] as any} size={17} tintColor={r.danger ? C.danger : '#fff'} fallback={<MaterialCommunityIcons name={r.icon[1] as any} size={19} color={r.danger ? C.danger : '#fff'} />} />
+              <Text style={{ color: r.danger ? C.danger : '#fff', fontFamily: F.bold, fontSize: 16 }}>{r.label}</Text>
+            </Pressable>
+          ))}
+        </Animated.View>
+      </Animated.View>
+    </View>
+  );
+}
+
+export function ForwardSheet({ m, onClose }: { m: ChatMsg; onClose: () => void }) {
+  const friends = useStore((s) => s.friends);
+  const groups = useStore((s) => s.groups);
+  const send = async (fid: string, gid?: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      if (gid) {
+        const { sendGroup } = await import('../lib/groups');
+        await sendGroup(gid, m.kind === 'text' ? m.body : m.body, undefined, m.kind, m.meta);
+      } else if (m.kind === 'sticker') {
+        await sendSticker(fid, m.body, m.meta);
+      } else if (m.kind === 'image') {
+        await sendMessage(fid, m.body, undefined, 'image', m.meta);
+      } else {
+        await sendMessage(fid, m.body);
+      }
+    } catch {}
+    onClose();
+  };
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+        <Pressable style={{ flex: 1 }} onPress={onClose} />
+      </Animated.View>
+      <Animated.View entering={SlideInDown.duration(260).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '70%', backgroundColor: '#141416', borderTopLeftRadius: 26, borderTopRightRadius: 26, borderCurve: 'continuous', paddingBottom: 30 }}>
+        <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.black, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.6, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 10 }}>forward to</Text>
+        <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+          {Object.values(groups).map((g) => (
+            <Pressable key={g.id} onPress={() => send('', g.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="people" size={18} /></View>
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{g.name}</Text>
+            </Pressable>
+          ))}
+          {friends.map((f) => (
+            <Pressable key={f.id} onPress={() => send(f.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
+              <Avatar user={f} size={44} />
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{nameOf(f)}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -326,6 +483,9 @@ export default function ChatScreen() {
   const meId = useStore((s) => s.me?.id);
   const [text, setText] = useState('');
   const [picker, setPicker] = useState(false);
+  const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ChatMsg | null>(null);
+  const [forwarding, setForwarding] = useState<ChatMsg | null>(null);
   const [stickersVisible, setStickersVisible] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [page, setPage] = useState<null | 'bg' | 'photos' | 'report'>(null);
@@ -380,7 +540,8 @@ export default function ChatScreen() {
     if (!b) return;
     Haptics.selectionAsync();
     setText('');
-    sendMessage(id!, b);
+    sendMessage(id!, b, replyingTo?.id);
+    setReplyingTo(null);
   };
 
   return (
@@ -405,8 +566,11 @@ export default function ChatScreen() {
           data={msgs}
           keyExtractor={(m) => m.cid ?? m.id}
           renderItem={({ item, index }) => (
-            <Bubble m={item} mine={item.from === meId} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current}
-              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView} onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
+            <Bubble m={item} mine={item.from === meId} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current} friendName={nameOf(friend)}
+              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView}
+              onReact={(e: string) => reactMsg(id!, item.id, e).catch(() => {})}
+              onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
+              onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
           )}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
@@ -436,6 +600,18 @@ export default function ChatScreen() {
             ))}
           </View>
         ) : null}
+        {replyingTo ? (
+          <Animated.View entering={FadeInDown.duration(160).easing(out)} exiting={FadeOut.duration(120)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 10, marginBottom: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)' }}>
+            <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.red }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.red, fontFamily: F.black, fontSize: 12 }}>{replyingTo.from === meId ? 'you' : nameOf(friend)}</Text>
+              <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{replyingTo.kind === 'image' ? '\ud83d\udcf7 photo' : replyingTo.kind === 'sticker' ? 'sticker' : replyingTo.body}</Text>
+            </View>
+            <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+              <Glyph g="back" size={16} />
+            </Pressable>
+          </Animated.View>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
@@ -445,6 +621,17 @@ export default function ChatScreen() {
         </View>
       </Animated.View>
       </View>
+      {menu ? (
+        <MsgMenu
+          m={menu.m} mine={menu.m.from === meId} y={menu.y} x={menu.x} friendName={nameOf(friend)}
+          onClose={() => setMenu(null)}
+          onReply={() => { setReplyingTo(menu.m); setMenu(null); }}
+          onDelete={menu.m.from === meId ? () => deleteMessage(id!, menu.m).catch(() => {}) : undefined}
+          onReact={(e) => reactMsg(id!, menu.m.id, e).catch(() => {})}
+          onForward={() => { setForwarding(menu.m); setMenu(null); }}
+        />
+      ) : null}
+      {forwarding ? <ForwardSheet m={forwarding} onClose={() => setForwarding(null)} /> : null}
       <StickerPicker
         visible={stickersVisible}
         onClose={() => setStickersVisible(false)}

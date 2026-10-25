@@ -26,11 +26,11 @@ export async function loadGroupMessages(id: string, older = false) {
   merge(r.group);
   patch(id, (o) => ({ messages: older ? [...o.messages, ...r.messages.filter((m) => !o.messages.some((x) => x.id === m.id))] : [...o.messages.filter((m) => m.pending), ...r.messages], loaded: true, more: r.messages.length === 40 }));
 }
-export async function sendGroup(id: string, body: string) {
+export async function sendGroup(id: string, body: string, replyTo?: string, kind = 'text', meta?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'text', body, created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind, body, meta, created_at: Date.now(), pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
-  try { const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body } }); patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) })); }
+  try { const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body, kind, meta, reply_to: replyTo } }); patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) })); }
   catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
 }
 async function groupPhotoTo(id: string, p: Photo) {
@@ -79,14 +79,19 @@ export function onGroupMessage(id: string, m: ChatMsg) {
 export const onGroupRead = (id: string, user: string, at: number) => patch(id, (g) => ({ reads: { ...g.reads, [user]: Math.max(g.reads[user] ?? 0, at) } }));
 export const onLeft = (id: string) => set((s) => { const { [id]: _, ...rest } = s.groups; return { groups: rest }; });
 
-export async function sendGroupSticker(id: string, stickerId: string, meta?: string) {
+export async function sendGroupSticker(id: string, stickerId: string, meta?: string, replyTo?: string) {
   const me = get().me!.id;
   const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
   try {
-    const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta } });
+    const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta, reply_to: replyTo } });
     patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));
   }
+}
+
+
+export async function reactGroup(id: string, msgId: string, emoji: string) {
+  await req(`/v1/groups/${id}/messages/${msgId}/react`, { method: 'POST', body: { emoji } });
 }

@@ -2,7 +2,7 @@ import type { Clip } from './api';
 import { create } from 'zustand';
 import type { Friend, FriendRequest, Me, User } from './api';
 
-export type ChatMsg = { id: string; from: string; to: string; kind: string; body: string; created_at: number; pending?: boolean; failed?: boolean; cid?: string; meta?: string };
+export type ChatMsg = { id: string; from: string; to: string; kind: string; body: string; created_at: number; pending?: boolean; failed?: boolean; cid?: string; meta?: string; reply?: { from: string; kind: string; body: string }; reactions?: { emoji: string; users: string[] }[] };
 export type Chat = { messages: ChatMsg[]; loaded: boolean; more: boolean; background: string | null; theirReadAt: number; unread: number };
 
 export type NotifPrefs = { messages: boolean; talk: boolean; calls: boolean; friends: boolean };

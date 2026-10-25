@@ -1849,12 +1849,65 @@ struct ChatMsg {
     /// Photos: "w,h,thumb" (thumb = tiny base64 WebP for the instant blurred preview).
     #[serde(skip_serializing_if = "Option::is_none")]
     meta: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply: Option<ReplyView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    reactions: Vec<ReactionView>,
+    #[serde(skip)]
+    reply_to: Option<String>,
 }
 
-const MSG_COLS: &str = "id, sender, recipient, kind, body, created_at, (SELECT w || ',' || h || ',' || thumb FROM media_meta WHERE key=messages.body AND messages.kind='image')";
+#[derive(Serialize, Deserialize, Clone)]
+struct ReplyView {
+    from: String,
+    kind: String,
+    body: String,
+}
+
+#[derive(Serialize, Clone)]
+struct ReactionView {
+    emoji: String,
+    users: Vec<String>,
+}
+
+const MSG_COLS: &str = "id, sender, recipient, kind, body, created_at, (SELECT w || ',' || h || ',' || thumb FROM media_meta WHERE key=messages.body AND messages.kind='image'), reply_to, (SELECT json_object('from', q.sender, 'kind', q.kind, 'body', substr(q.body,1,90)) FROM messages q WHERE q.id = messages.reply_to), (SELECT json_group_array(json_object('emoji', r.emoji, 'user', r.user_id)) FROM reactions r WHERE r.msg_id = messages.id)";
+
+fn group_reactions(v: Option<String>) -> Vec<ReactionView> {
+    let arr: Vec<Value> = v.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+    let mut order: Vec<String> = vec![];
+    let mut map: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for it in arr {
+        let e = it["emoji"].as_str().unwrap_or_default().to_string();
+        let u = it["user"].as_str().unwrap_or_default().to_string();
+        if e.is_empty() || u.is_empty() { continue; }
+        if !map.contains_key(&e) { order.push(e.clone()); }
+        map.entry(e).or_default().push(u);
+    }
+    order.into_iter().map(|e| ReactionView { users: map.remove(&e).unwrap_or_default(), emoji: e }).collect()
+}
+
+fn load_reactions(c: &Connection, mid: &str) -> Vec<ReactionView> {
+    let v: Option<String> = c.query_row(
+        "SELECT json_group_array(json_object('emoji', r.emoji, 'user', r.user_id)) FROM reactions r WHERE r.msg_id=?",
+        [mid],
+        |r| r.get(0),
+    ).ok().flatten();
+    group_reactions(v)
+}
 
 fn row_msg(r: &Row) -> rusqlite::Result<ChatMsg> {
-    Ok(ChatMsg { id: r.get(0)?, from: r.get(1)?, to: r.get(2)?, kind: r.get(3)?, body: r.get(4)?, created_at: r.get(5)?, meta: r.get(6)? })
+    Ok(ChatMsg {
+        id: r.get(0)?,
+        from: r.get(1)?,
+        to: r.get(2)?,
+        kind: r.get(3)?,
+        body: r.get(4)?,
+        created_at: r.get(5)?,
+        meta: r.get(6)?,
+        reply_to: r.get(7)?,
+        reply: r.get::<_, Option<String>>(8)?.and_then(|j| serde_json::from_str::<ReplyView>(&j).ok()),
+        reactions: group_reactions(r.get::<_, Option<String>>(9)?),
+    })
 }
 
 fn now_ms() -> i64 {
@@ -2014,6 +2067,7 @@ struct SendMsg {
     body: String,
     kind: Option<String>,
     meta: Option<String>,
+    reply_to: Option<String>,
 }
 
 async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Json(r): Json<SendMsg>) -> R<Json<ChatMsg>> {
@@ -2025,13 +2079,17 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
         return Err(bad("That message is too long"));
     }
     let kind = r.kind.unwrap_or_else(|| "text".into());
-    if kind != "text" && kind != "sticker" {
+    if kind != "text" && kind != "sticker" && kind != "image" {
         return Err(bad("Unknown message kind"));
     }
     if kind == "sticker" && !sticker_exists(&st, &body) {
         return Err(not_found("Sticker not found"));
     }
-    post_dm(&st, me, other, &kind, body, r.meta).await
+    if kind == "image" {
+        let ok: bool = st.db().query_row("SELECT 1 FROM media_meta WHERE key=?", [&body], |_| Ok(())).optional()?.is_some();
+        if !ok { return Err(not_found("Photo not found")); }
+    }
+    post_dm(&st, me, other, &kind, body, r.meta, r.reply_to).await
 }
 
 #[derive(Deserialize)]
@@ -2063,7 +2121,7 @@ async fn save_chat_photo(st: &S, body: &[u8], p: &PhotoMeta) -> R<(String, Strin
 async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
     if !are_friends(&st.db(), &me, &other)? { return Err(not_friends()); }
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
-    post_dm(&st, me, other, "image", key, Some(meta)).await
+    post_dm(&st, me, other, "image", key, Some(meta), None).await
 }
 
 fn sticker_exists(st: &S, id: &str) -> bool {
@@ -2075,7 +2133,18 @@ fn sticker_exists(st: &S, id: &str) -> bool {
         .is_some()
 }
 
-async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
+fn fill_reply(st: &S, mut m: ChatMsg) -> ChatMsg {
+    if let Some(rid) = &m.reply_to {
+        m.reply = st.db().query_row(
+            "SELECT sender, kind, substr(body,1,90) FROM messages WHERE id=?",
+            [rid],
+            |r| Ok(ReplyView { from: r.get(0)?, kind: r.get(1)?, body: r.get(2)? }),
+        ).ok();
+    }
+    m
+}
+
+async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, meta: Option<String>, reply_to: Option<String>) -> R<Json<ChatMsg>> {
     let meta = meta.or_else(|| {
         if kind == "sticker" {
             st.db().query_row(
@@ -2098,15 +2167,19 @@ async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, me
             return Err(not_friends());
         }
         let (a, b) = db::pair(&me, &other);
+        if let Some(rid) = &reply_to {
+            let ok: bool = c.query_row("SELECT 1 FROM messages WHERE id=? AND a=? AND b=?", params![rid, a, b], |_| Ok(())).optional()?.is_some();
+            if !ok { return Err(not_found("Message not found")); }
+        }
         let mut t = now_ms();
         let last: Option<i64> = c.query_row("SELECT MAX(created_at) FROM messages WHERE a=? AND b=?", [a, b], |r| r.get(0))?;
         if let Some(l) = last {
             t = t.max(l + 1);
         }
-        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: other.clone(), kind: kind.into(), body, created_at: t, meta: meta.clone() };
+        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: other.clone(), kind: kind.into(), body, created_at: t, meta: meta.clone(), reply: None, reactions: vec![], reply_to: reply_to.clone() };
         c.execute(
-            "INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            params![m.id, a, b, m.from, m.to, m.kind, m.body, m.created_at],
+            "INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at, reply_to) VALUES (?,?,?,?,?,?,?,?,?)",
+            params![m.id, a, b, m.from, m.to, m.kind, m.body, m.created_at, reply_to],
         )?;
         c.execute(
             "INSERT INTO chat_reads(user_id, friend_id, read_at) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, friend_id) DO UPDATE SET read_at=excluded.read_at",
@@ -2114,6 +2187,7 @@ async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, me
         )?;
         (m, public_user(&c, &me)?)
     };
+    let m = fill_reply(&st, m);
     let ev = json!({ "type": "message", "message": &m });
     let online = st.hub.online(&other);
     st.hub.send(&other, &ev);
@@ -2354,22 +2428,26 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
     if body.is_empty() { return Err(bad("Say something")); }
     if body.chars().count() > 2000 { return Err(bad("That message is too long")); }
     let kind = r.kind.unwrap_or_else(|| "text".into());
-    if kind != "text" && kind != "sticker" {
+    if kind != "text" && kind != "sticker" && kind != "image" {
         return Err(bad("Unknown message kind"));
     }
     if kind == "sticker" && !sticker_exists(&st, &body) {
         return Err(not_found("Sticker not found"));
     }
-    post_group(&st, me, g, &kind, body, r.meta).await
+    if kind == "image" {
+        let ok: bool = st.db().query_row("SELECT 1 FROM media_meta WHERE key=?", [&body], |_| Ok(())).optional()?.is_some();
+        if !ok { return Err(not_found("Photo not found")); }
+    }
+    post_group(&st, me, g, &kind, body, r.meta, r.reply_to).await
 }
 
 async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
     if !is_member(&st.db(), &g, &me)? { return Err(not_found("Group not found")); }
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
-    post_group(&st, me, g, "image", key, Some(meta)).await
+    post_group(&st, me, g, "image", key, Some(meta), None).await
 }
 
-async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
+async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, meta: Option<String>, reply_to: Option<String>) -> R<Json<ChatMsg>> {
     let meta = meta.or_else(|| {
         if kind == "sticker" {
             st.db().query_row(
@@ -2389,15 +2467,20 @@ async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, met
     let (m, ids, title) = {
         let c = st.db();
         if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        if let Some(rid) = &reply_to {
+            let ok: bool = c.query_row("SELECT 1 FROM messages WHERE id=? AND a=? AND b='#'", params![rid, g], |_| Ok(())).optional()?.is_some();
+            if !ok { return Err(not_found("Message not found")); }
+        }
         let last: Option<i64> = c.query_row("SELECT MAX(created_at) FROM messages WHERE a=? AND b='#'", [&g], |r| r.get(0))?;
         let t = last.map_or(now_ms(), |l| now_ms().max(l + 1));
-        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: g.clone(), kind: kind.into(), body, created_at: t, meta: meta.clone() };
-        c.execute("INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at) VALUES (?,?,'#',?,?,?,?,?)", params![m.id, g, m.from, m.to, m.kind, m.body, m.created_at])?;
+        let m = ChatMsg { id: random_token()[..16].to_string(), from: me.clone(), to: g.clone(), kind: kind.into(), body, created_at: t, meta: meta.clone(), reply: None, reactions: vec![], reply_to: reply_to.clone() };
+        c.execute("INSERT INTO messages(id, a, b, sender, recipient, kind, body, created_at, reply_to) VALUES (?,?,'#',?,?,?,?,?,?)", params![m.id, g, m.from, m.to, m.kind, m.body, m.created_at, reply_to])?;
         c.execute("UPDATE group_members SET read_at=? WHERE group_id=? AND user_id=?", params![t, g, me])?;
         let gname: String = c.query_row("SELECT name FROM groups WHERE id=?", [&g], |r| r.get(0))?;
         let u = public_user(&c, &me)?;
         (m, member_ids(&c, &g)?, format!("{gname} · {}", label(&u)))
     };
+    let m = fill_reply(&st, m);
     tell_group(st, &ids, &json!({ "type": "group_message", "group_id": g, "message": &m }));
     let preview: String = if m.kind == "image" { "sent a photo".into() } else { m.body.chars().take(120).collect() };
     for u in ids.iter().filter(|u| **u != me && !st.hub.online(u)) {
@@ -2995,6 +3078,73 @@ async fn list_all_stickers(
     Ok(Json(items))
 }
 
+
+#[derive(Deserialize)]
+struct ReactReq {
+    emoji: String,
+}
+
+async fn react_dm(
+    State(st): State<S>,
+    Authed(me): Authed,
+    Path((other, mid)): Path<(String, String)>,
+    Json(r): Json<ReactReq>,
+) -> R<Json<Value>> {
+    let emoji = r.emoji.trim().to_string();
+    if emoji.is_empty() || emoji.chars().count() > 8 {
+        return Err(bad("Bad emoji"));
+    }
+    let (a, b) = db::pair(&me, &other);
+    let reactions;
+    {
+        let c = st.db();
+        if !are_friends(&c, &me, &other)? {
+            return Err(not_friends());
+        }
+        let ok: bool = c.query_row("SELECT 1 FROM messages WHERE id=? AND a=? AND b=?", params![mid, a, b], |_| Ok(())).optional()?.is_some();
+        if !ok { return Err(not_found("Message not found")); }
+        let had: bool = c.query_row("SELECT 1 FROM reactions WHERE msg_id=? AND user_id=? AND emoji=?", params![mid, me, emoji], |_| Ok(())).optional()?.is_some();
+        if had {
+            c.execute("DELETE FROM reactions WHERE msg_id=? AND user_id=? AND emoji=?", params![mid, me, emoji])?;
+        } else {
+            c.execute("INSERT OR REPLACE INTO reactions(msg_id, user_id, emoji) VALUES (?,?,?)", params![mid, me, emoji])?;
+        }
+        reactions = load_reactions(&c, &mid);
+    }
+    st.hub.send(&other, &json!({ "type": "message_reaction", "chat": me, "msg_id": mid, "reactions": reactions }));
+    st.hub.send(&me, &json!({ "type": "message_reaction", "chat": other, "msg_id": mid, "reactions": reactions }));
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn react_group(
+    State(st): State<S>,
+    Authed(me): Authed,
+    Path((g, mid)): Path<(String, String)>,
+    Json(r): Json<ReactReq>,
+) -> R<Json<Value>> {
+    let emoji = r.emoji.trim().to_string();
+    if emoji.is_empty() || emoji.chars().count() > 8 {
+        return Err(bad("Bad emoji"));
+    }
+    let (ids, reactions);
+    {
+        let c = st.db();
+        if !is_member(&c, &g, &me)? { return Err(not_found("Group not found")); }
+        let ok: bool = c.query_row("SELECT 1 FROM messages WHERE id=? AND a=? AND b='#'", params![mid, g], |_| Ok(())).optional()?.is_some();
+        if !ok { return Err(not_found("Message not found")); }
+        let had: bool = c.query_row("SELECT 1 FROM reactions WHERE msg_id=? AND user_id=? AND emoji=?", params![mid, me, emoji], |_| Ok(())).optional()?.is_some();
+        if had {
+            c.execute("DELETE FROM reactions WHERE msg_id=? AND user_id=? AND emoji=?", params![mid, me, emoji])?;
+        } else {
+            c.execute("INSERT OR REPLACE INTO reactions(msg_id, user_id, emoji) VALUES (?,?,?)", params![mid, me, emoji])?;
+        }
+        reactions = load_reactions(&c, &mid);
+        ids = member_ids(&c, &g)?;
+    }
+    tell_group(&st, &ids, &json!({ "type": "group_reaction", "group_id": g, "msg_id": mid, "reactions": reactions }));
+    Ok(Json(json!({ "ok": true })))
+}
+
 pub fn router(st: S) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
@@ -3050,6 +3200,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups", get(list_groups).post(create_group))
         .route("/v1/groups/{id}", axum::routing::patch(group_patch))
         .route("/v1/groups/{id}/messages", get(group_messages).post(group_send))
+        .route("/v1/groups/{id}/messages/{mid}/react", post(react_group))
         .route("/v1/groups/{id}/photo", post(group_photo).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/v1/groups/{id}/read", post(group_read))
         .route("/v1/groups/{id}/talk/start", post(group_talk_start))
@@ -3062,6 +3213,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/groups/{id}/invite/decline", post(group_invite_decline))
         .route("/v1/groups/{id}/members/{uid}", axum::routing::delete(group_remove))
         .route("/v1/chats/{id}/messages", get(list_messages).post(send_message))
+        .route("/v1/chats/{id}/messages/{mid}/react", post(react_dm))
         .route("/v1/chats/{id}", axum::routing::delete(delete_chat))
         .route("/v1/chats/{id}/messages/{mid}", axum::routing::delete(delete_dm_message))
         .route("/v1/groups/{id}/messages/{mid}", axum::routing::delete(delete_group_message))

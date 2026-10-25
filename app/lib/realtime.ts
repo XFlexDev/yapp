@@ -5,7 +5,7 @@ import { clearPokeCount, get, patchFriend, patchUser, removeFriend, set, upsertF
 import { API } from './theme';
 import { remoteEnded } from './voice';
 import { haptic } from './haptic';
-import { loadChats, onBackground, onMessage, onRead, onCleared, onMessageDeleted } from './chat';
+import { applyReactions, loadChats, onBackground, onMessage, onRead, onCleared, onMessageDeleted } from './chat';
 import { loadNotifs } from './notifs';
 import { loadClips, onClip } from './clips';
 import { loadGroups, loadInvites, onGroupMessage, onGroupRead, onGroupUpdated, onInvite, onLeft, onGroupMessageDeleted } from './groups';
@@ -67,6 +67,8 @@ function onEvent(e: any) {
       if (selected) haptic.poked();
       break;
     }
+    case 'message_reaction': applyReactions(e.chat, e.msg_id, e.reactions); break;
+    case 'group_reaction': applyReactions(e.group_id, e.msg_id, e.reactions); break;
     case 'wave': {
       set({ incomingWave: { friendId: e.from.id, count: e.count || 1, at: Date.now() } });
       haptic.poked();
