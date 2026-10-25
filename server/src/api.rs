@@ -383,7 +383,7 @@ async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Valu
     let html = format!(
         r#"<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:Nunito,-apple-system,'Segoe UI',Roboto,sans-serif">
 <div style="max-width:460px;margin:0 auto;padding:48px 30px">
-<img src="https://yap.kreatix.dev/yapp-logo.png" width="120" alt="yapp" style="width:120px;height:auto">
+<img src="https://yap.kreatix.dev/yapp-mark.png" width="120" alt="yapp" style="width:120px;height:auto">
 <div style="margin-top:34px;font-size:16px;font-weight:600;color:#d4d4d4">Sign in to yapp as {email}.</div>
 <div style="margin-top:26px;font-size:16px;font-weight:600;color:#d4d4d4">Enter this code to sign in:</div>
 <div style="margin-top:16px;font-size:56px;font-weight:900;letter-spacing:4px;color:#fff">{code}</div>
