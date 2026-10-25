@@ -381,12 +381,15 @@ async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Valu
         )?;
     }
     let html = format!(
-        r#"<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
-<div style="max-width:420px;margin:0 auto;padding:48px 28px">
-<div style="font-size:22px;font-weight:700;letter-spacing:-0.5px">yapp</div>
-<div style="margin-top:36px;color:#8a8a8a;font-size:15px">Your sign-in code</div>
-<div style="margin-top:10px;font-size:44px;font-weight:700;letter-spacing:10px;font-family:ui-monospace,Menlo,monospace">{code}</div>
-<div style="margin-top:28px;color:#5a5a5a;font-size:13px;line-height:1.5">It expires in 10 minutes. If you didn't ask for it, ignore this email.</div>
+        r#"<!doctype html><html><body style="margin:0;background:#000;color:#fff;font-family:Nunito,-apple-system,'Segoe UI',Roboto,sans-serif">
+<div style="max-width:460px;margin:0 auto;padding:56px 24px;text-align:center">
+<img src="https://yap.kreatix.dev/yapp-logo.png" width="168" alt="yapp" style="width:168px;height:auto">
+<div style="margin-top:48px;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#8a8a8a">your sign-in code</div>
+<div style="margin-top:20px;display:inline-block;background:#161618;border:1px solid #26262a;border-radius:26px;padding:26px 44px">
+<span style="font-size:52px;font-weight:900;letter-spacing:14px;color:#fff;font-family:ui-monospace,Menlo,monospace">{code}</span>
+</div>
+<div style="margin-top:36px;color:#5a5a5a;font-size:13px;line-height:1.7;font-weight:600">expires in 10 minutes.<br>didn't ask for this? ignore it.</div>
+<div style="margin-top:64px;color:#2e2e30;font-size:12px;font-weight:600">yapp &middot; a kreatix project</div>
 </div></body></html>"#
     );
     let res = st
