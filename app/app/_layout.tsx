@@ -8,7 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { restore, setSignedOutHandler } from '../lib/api';
-import { startBackground, stopBackground } from '../lib/background';
+import { maybeAskBattery, startBackground, stopBackground } from '../lib/background';
 import { registerPush } from '../lib/push';
 import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
@@ -72,6 +72,7 @@ export default function Root() {
     startRealtime();
     startListening().catch(() => {});
     startBackground();
+    maybeAskBattery();
     registerPush();
     const open = (d: any) => {
       if (d?.type === 'group_message' && d.group_id) router.push({ pathname: '/group', params: { id: d.group_id } });

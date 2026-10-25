@@ -1,4 +1,5 @@
 import { requireOptionalNativeModule } from 'expo';
+import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { useStore } from './store';
 
@@ -31,12 +32,24 @@ export function stopBackground() {
 
 export function setSelfTalking(v: boolean) { selfTalking = v; sync(); }
 
+const ASKED_KEY = 'battery-asked';
+/** Auto-ask for the battery exemption once after sign-in; never nags twice. */
+export async function maybeAskBattery() {
+  if (!native) return;
+  try {
+    if (native.isBatteryExcluded()) return;
+    if (await SecureStore.getItemAsync(ASKED_KEY)) return;
+    await SecureStore.setItemAsync(ASKED_KEY, '1');
+    native.excludeBattery();
+  } catch {}
+}
+
 /** True when Android has exempted Yapp from battery optimization (Android only, else true). */
 export function batteryExcluded(): boolean {
-  return native ? native.isBatteryExcluded() : true;
+  try { return native ? native.isBatteryExcluded() : true; } catch { return true; }
 }
 
 /** Opens the system dialog to exempt Yapp from battery optimization. Returns false if unavailable. */
 export function excludeBattery(): boolean {
-  return native ? native.excludeBattery() : false;
+  try { return native ? native.excludeBattery() : false; } catch { return false; }
 }
