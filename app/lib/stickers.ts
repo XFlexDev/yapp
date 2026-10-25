@@ -95,6 +95,11 @@ export async function recordRecentSticker(sid: string) {
   req(`/v1/stickers/recent/${sid}`, { method: 'POST' }).catch(() => {});
 }
 
+/** Persist a sticker/emoji you received into your own collection. */
+export async function saveSticker(sid: string) {
+  await req(`/v1/stickers/${sid}/save`, { method: 'POST' });
+}
+
 export async function uploadCustomSticker(
   isEmoji = false,
   name?: string,

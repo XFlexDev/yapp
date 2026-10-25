@@ -3077,6 +3077,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/sticker-packs/{slug}", get(get_sticker_pack))
         .route("/v1/stickers/recent", get(list_recent_stickers))
         .route("/v1/stickers/recent/{sid}", post(use_recent_sticker))
+        .route("/v1/stickers/{sid}/save", post(use_recent_sticker))
         .route("/v1/poke", post(poke))
         .route("/v1/wave", post(wave))
         .route("/v1/stream", get(stream))
