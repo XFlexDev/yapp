@@ -2025,6 +2025,12 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
         return Err(bad("That message is too long"));
     }
     let kind = r.kind.unwrap_or_else(|| "text".into());
+    if kind != "text" && kind != "sticker" {
+        return Err(bad("Unknown message kind"));
+    }
+    if kind == "sticker" && !sticker_exists(&st, &body) {
+        return Err(not_found("Sticker not found"));
+    }
     post_dm(&st, me, other, &kind, body, r.meta).await
 }
 
@@ -2058,6 +2064,15 @@ async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<S
     if !are_friends(&st.db(), &me, &other)? { return Err(not_friends()); }
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
     post_dm(&st, me, other, "image", key, Some(meta)).await
+}
+
+fn sticker_exists(st: &S, id: &str) -> bool {
+    st.db()
+        .query_row("SELECT 1 FROM stickers WHERE id=?", [id], |_| Ok(()))
+        .optional()
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, meta: Option<String>) -> R<Json<ChatMsg>> {
@@ -2339,6 +2354,12 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
     if body.is_empty() { return Err(bad("Say something")); }
     if body.chars().count() > 2000 { return Err(bad("That message is too long")); }
     let kind = r.kind.unwrap_or_else(|| "text".into());
+    if kind != "text" && kind != "sticker" {
+        return Err(bad("Unknown message kind"));
+    }
+    if kind == "sticker" && !sticker_exists(&st, &body) {
+        return Err(not_found("Sticker not found"));
+    }
     post_group(&st, me, g, &kind, body, r.meta).await
 }
 
@@ -2623,12 +2644,20 @@ pub struct UploadStickerQuery {
 
 async fn upload_sticker(
     State(st): State<S>,
-    Authed(_me): Authed,
+    Authed(me): Authed,
     Query(q): Query<UploadStickerQuery>,
     body: axum::body::Bytes,
 ) -> R<Json<StickerItem>> {
     if body.is_empty() {
         return Err(bad("Upload file is empty"));
+    }
+    {
+        let mut e = st.sticker_uploads.entry(me.clone()).or_default();
+        e.retain(|t| t.elapsed() < Duration::from_secs(3600));
+        if e.len() >= 25 {
+            return Err(bad("Too many uploads — try again in an hour"));
+        }
+        e.push(Instant::now());
     }
     let is_emoji = q.is_emoji.unwrap_or(false);
     let name = q.name.as_deref().map(|s| s.trim().to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-', "")).filter(|s| !s.is_empty());
@@ -2814,6 +2843,7 @@ async fn create_sticker_pack(
 
 async fn get_sticker_pack(
     State(st): State<S>,
+    Authed(_me): Authed,
     Path(slug): Path<String>,
 ) -> R<Json<StickerPackView>> {
     let c = st.db();
@@ -2864,6 +2894,9 @@ async fn use_recent_sticker(
     Authed(me): Authed,
     Path(sid): Path<String>,
 ) -> R<Json<Value>> {
+    if !sticker_exists(&st, &sid) {
+        return Err(not_found("Sticker not found"));
+    }
     let now = now_ms();
     st.db().execute(
         "INSERT INTO user_recent_stickers(user_id, sticker_id, used_at) VALUES (?1, ?2, ?3)
@@ -2906,6 +2939,7 @@ async fn list_recent_stickers(
 
 async fn resolve_sticker(
     State(st): State<S>,
+    Authed(_me): Authed,
     Path(name): Path<String>,
 ) -> R<Json<StickerItem>> {
     let c = st.db();

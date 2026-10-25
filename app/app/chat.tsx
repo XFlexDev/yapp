@@ -164,6 +164,31 @@ export function FormattedMessageText({ text }: { text: string }) {
     return stk && !stk.is_emoji ? stk : null;
   }, [text, resolved]);
 
+  // Parse mixed text and custom emojis — hooks must run before any early return.
+  const parts = useMemo(() => {
+    const res: { type: 'text' | 'emoji'; content: string; stk?: Sticker }[] = [];
+    const re = /:([a-zA-Z0-9_-]{2,32}):/g;
+    let lastIndex = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > lastIndex) {
+        res.push({ type: 'text', content: text.slice(lastIndex, m.index) });
+      }
+      const name = m[1].toLowerCase();
+      const stk = resolved[name];
+      if (stk) {
+        res.push({ type: 'emoji', content: m[0], stk });
+      } else {
+        res.push({ type: 'text', content: m[0] });
+      }
+      lastIndex = re.lastIndex;
+    }
+    if (lastIndex < text.length) {
+      res.push({ type: 'text', content: text.slice(lastIndex) });
+    }
+    return res;
+  }, [text, resolved]);
+
   if (singleSticker) {
     const ratio = singleSticker.width && singleSticker.height ? singleSticker.height / singleSticker.width : 1;
     const maxW = 180;
@@ -211,49 +236,27 @@ export function FormattedMessageText({ text }: { text: string }) {
     );
   }
 
-  // Parse mixed text and custom emojis
-  const parts = useMemo(() => {
-    const res: { type: 'text' | 'emoji'; content: string; stk?: Sticker }[] = [];
-    const re = /:([a-zA-Z0-9_-]{2,32}):/g;
-    let lastIndex = 0;
-    let m;
-    while ((m = re.exec(text)) !== null) {
-      if (m.index > lastIndex) {
-        res.push({ type: 'text', content: text.slice(lastIndex, m.index) });
-      }
-      const name = m[1].toLowerCase();
-      const stk = resolved[name];
-      if (stk) {
-        res.push({ type: 'emoji', content: m[0], stk });
-      } else {
-        res.push({ type: 'text', content: m[0] });
-      }
-      lastIndex = re.lastIndex;
-    }
-    if (lastIndex < text.length) {
-      res.push({ type: 'text', content: text.slice(lastIndex) });
-    }
-    return res;
-  }, [text, resolved]);
 
+  // expo-image can't render inline inside <Text> on iOS — wrap segments instead.
   return (
-    <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 22 }}>
-      {parts.map((p: { type: 'text' | 'emoji'; content: string; stk?: Sticker }, idx: number) => {
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+      {parts.map((p, idx) => {
         if (p.type === 'emoji' && p.stk) {
           const src = p.stk.url || mediaUrl(p.stk.id);
+          const ratio = p.stk.width && p.stk.height ? p.stk.height / p.stk.width : 1;
           return (
             <Image
               key={idx}
               source={src}
-              style={{ width: 22, height: 22 }}
+              style={{ width: Math.round(22 / Math.min(ratio, 1)), height: 22, marginHorizontal: 1 }}
               contentFit="contain"
               cachePolicy="memory-disk"
             />
           );
         }
-        return <Text key={idx}>{p.content}</Text>;
+        return <Text key={idx} style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, lineHeight: 22 }}>{p.content}</Text>;
       })}
-    </Text>
+    </View>
   );
 }
 
