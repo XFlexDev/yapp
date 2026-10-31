@@ -110,7 +110,9 @@ async fn encrypt_media(db_path: &str) -> Result<(), String> {
             "SELECT avatar FROM users WHERE avatar IS NOT NULL
              UNION SELECT pfp FROM users WHERE pfp IS NOT NULL
              UNION SELECT body FROM messages
-             UNION SELECT background FROM chats WHERE background IS NOT NULL
+             UNION SELECT background FROM chat_meta WHERE background IS NOT NULL
+             UNION SELECT key FROM media_meta
+             UNION SELECT thumb FROM media_meta
              UNION SELECT background FROM groups WHERE background IS NOT NULL
              UNION SELECT id FROM stickers
              UNION SELECT thumbnail_id FROM sticker_packs WHERE thumbnail_id IS NOT NULL",
