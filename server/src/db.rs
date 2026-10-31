@@ -235,6 +235,7 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
     )?;
     let _ = c.execute("ALTER TABLE stickers ADD COLUMN name TEXT", []);
     let _ = c.execute("ALTER TABLE messages ADD COLUMN reply_to TEXT", []);
+    let _ = c.execute("ALTER TABLE mutes ADD COLUMN \"until\" INTEGER NOT NULL DEFAULT 0", []);
     let _ = c.execute(
         "CREATE TABLE IF NOT EXISTS reactions(msg_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, emoji TEXT NOT NULL, PRIMARY KEY(msg_id, user_id))",
         [],

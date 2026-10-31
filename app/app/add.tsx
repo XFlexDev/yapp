@@ -6,7 +6,7 @@ import { ApiError, nameOf, req, type FriendRequest } from '../lib/api';
 import { set, upsertFriend, useStore } from '../lib/store';
 import { syncAll } from '../lib/realtime';
 import { C, F } from '../lib/theme';
-import { Avatar, Button, ErrorText, Field } from '../lib/ui';
+import { Avatar, ErrorText, Field } from '../lib/ui';
 
 function Row({ r, actions }: { r: FriendRequest; actions: React.ReactNode }) {
   return (
@@ -23,7 +23,7 @@ function Row({ r, actions }: { r: FriendRequest; actions: React.ReactNode }) {
 
 function Pill({ title, onPress, strong }: { title: string; onPress: () => void; strong?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ height: 36, paddingHorizontal: 16, borderRadius: 18, justifyContent: 'center', backgroundColor: strong ? C.red : C.surface2, opacity: pressed ? 0.7 : 1 })}>
+    <Pressable onPress={onPress} style={({ pressed }) => ({ height: 44, paddingHorizontal: 16, borderRadius: 22, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: strong ? C.red : 'rgba(255,255,255,0.12)', opacity: pressed ? 0.7 : 1 })}>
       <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 14 }}>{title}</Text>
     </Pressable>
   );
@@ -42,10 +42,10 @@ export default function Add() {
     try {
       const r = await req<{ status: string }>('/v1/friends/requests', { method: 'POST', body: { username } });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setMsg(r.status === 'accepted' ? `You and @${username} are friends` : `Request sent to @${username}`);
+      setMsg(r.status === 'accepted' ? `you and @${username} are friends` : `request sent to @${username}`);
       setUsername('');
       syncAll().catch(() => {});
-    } catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong'); }
+    } catch (e) { setError((e instanceof ApiError ? e.message : 'something went wrong').toLowerCase()); }
     finally { setBusy(false); }
   };
   const accept = async (r: FriendRequest) => {
@@ -58,19 +58,27 @@ export default function Add() {
   };
 
   return (
-    <ScrollView style={{ backgroundColor: C.surface, flexGrow: 0 }} contentContainerStyle={{ padding: 24, paddingTop: 28, gap: 12 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-      <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 28 }}>add friends</Text>
-      <Field value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="username" prefix="@" autoCapitalize="none" autoCorrect={false} returnKeyType="send" onSubmitEditing={send} />
+    <ScrollView style={{ backgroundColor: C.bg, flexGrow: 0 }} contentContainerStyle={{ padding: 24, paddingTop: 28, gap: 12 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 32 }}>add friends</Text>
+      <View style={{ borderRadius: 24, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 20, gap: 14 }}>
+        <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 14 }}>your username</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <Text numberOfLines={1} style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 28 }}>@{me?.username}</Text>
+          <Pressable onPress={() => Share.share({ message: `add me on yapp https://yap.kreatix.dev/@${me?.username}` })} style={({ pressed }) => ({ height: 44, paddingHorizontal: 20, borderRadius: 22, borderCurve: 'continuous', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.72 : 1 })}>
+            <Text style={{ color: '#000', fontFamily: F.black, fontSize: 14 }}>share</Text>
+          </Pressable>
+        </View>
+      </View>
+      <Field value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="friend's username" prefix="@" autoCapitalize="none" autoCorrect={false} returnKeyType="send" onSubmitEditing={send} />
       <ErrorText>{error}</ErrorText>
       {msg ? <Text style={{ color: C.online, fontFamily: F.bold, fontSize: 15 }}>{msg}</Text> : null}
-      <Button title="Send request" onPress={send} loading={busy} disabled={username.length < 3} />
-      <Pressable onPress={() => Share.share({ message: `add me on yapp https://yap.kreatix.dev/@${me?.username}` })} style={{ paddingVertical: 8 }}>
-        <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 15, textAlign: 'center' }}>You're @{me?.username}. Share your link</Text>
+      <Pressable disabled={busy || username.length < 3} onPress={() => { Haptics.selectionAsync(); send(); }} style={({ pressed }) => ({ height: 56, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', opacity: busy || username.length < 3 ? 0.4 : pressed ? 0.72 : 1 })}>
+        <Text style={{ color: '#000', fontFamily: F.black, fontSize: 18 }}>{busy ? 'sending…' : 'send request'}</Text>
       </Pressable>
-      {incoming.length ? <Text style={{ color: C.dim, fontFamily: F.black, fontSize: 13, marginTop: 12, letterSpacing: 0.5 }}>WANTS TO BE FRIENDS</Text> : null}
-      {incoming.map((r) => <Row key={r.id} r={r} actions={<View style={{ flexDirection: 'row', gap: 8 }}><Pill title="Accept" strong onPress={() => accept(r)} /><Pill title="✕" onPress={() => drop(r)} /></View>} />)}
-      {outgoing.length ? <Text style={{ color: C.dim, fontFamily: F.black, fontSize: 13, marginTop: 12, letterSpacing: 0.5 }}>SENT</Text> : null}
-      {outgoing.map((r) => <Row key={r.id} r={r} actions={<Pill title="Cancel" onPress={() => drop(r)} />} />)}
+      {incoming.length ? <Text style={{ color: C.dim, fontFamily: F.black, fontSize: 13, marginTop: 12 }}>wants to be friends</Text> : null}
+      {incoming.map((r) => <Row key={r.id} r={r} actions={<View style={{ flexDirection: 'row', gap: 8 }}><Pill title="accept" strong onPress={() => accept(r)} /><Pill title="decline" onPress={() => drop(r)} /></View>} />)}
+      {outgoing.length ? <Text style={{ color: C.dim, fontFamily: F.black, fontSize: 13, marginTop: 12 }}>sent</Text> : null}
+      {outgoing.map((r) => <Row key={r.id} r={r} actions={<Pill title="cancel" onPress={() => drop(r)} />} />)}
     </ScrollView>
   );
 }

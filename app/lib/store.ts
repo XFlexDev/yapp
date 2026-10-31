@@ -30,6 +30,7 @@ type State = {
   groups: Record<string, Group>;
   groupInvites: GroupInvite[];
   notif: { prefs: NotifPrefs; muted: string[] } | null;
+  muteUntil: Record<string, number>;
   clips: Record<string, Clip[]>;
   groupTalk: Record<string, string | null>;
   trophy: string | null;
@@ -38,7 +39,7 @@ type State = {
 
 export const useStore = create<State>(() => ({
   status: 'loading', me: null, friends: [], incoming: [], outgoing: [],
-  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, incomingWave: null, call: null, connected: false, chats: {}, openChat: null, groups: {}, groupInvites: [], notif: null,
+  selectedId: null, talkingTo: {}, pokedAt: {}, pokedCount: {}, pokeCount: {}, incomingWave: null, call: null, connected: false, chats: {}, openChat: null, groups: {}, groupInvites: [], notif: null, muteUntil: {},
   clips: {},
   groupTalk: {},
   trophy: null,

@@ -11,7 +11,7 @@ use axum::{
 };
 use rusqlite::{params, Connection, ErrorCode, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::{
     collections::HashSet,
     sync::Arc,
@@ -238,10 +238,12 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
             let on: i64 = c.query_row(&format!("SELECT {col} FROM notif_prefs WHERE user_id=?"), [user], |r| r.get(0)).unwrap_or(1);
             if on == 0 { return; }
         }
-        if matches!(kind, "message" | "group_message" | "ptt" | "poke" | "wave") {
+        if matches!(kind, "message" | "group_message" | "ptt" | "poke" | "wave" | "call") {
             let chat = data["group_id"].as_str().map(|g| format!("g:{g}")).or_else(|| data["from"].as_str().map(String::from));
             if let Some(ch) = chat {
-                if c.query_row("SELECT 1 FROM mutes WHERE user_id=? AND chat=?", [user, ch.as_str()], |_| Ok(())).is_ok() { return; }
+                if mute_active(&c, user, &ch, now_ms()).unwrap_or(false) {
+                    return;
+                }
             }
         }
         let Ok(mut s) = c.prepare("SELECT token FROM devices WHERE user_id=?") else { return };
@@ -282,6 +284,19 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
     });
 }
 
+fn mute_active(c: &Connection, user: &str, chat: &str, now: i64) -> rusqlite::Result<bool> {
+    let active: i64 = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM mutes WHERE user_id=?1 AND chat=?2 AND (\"until\"=0 OR \"until\">?3))",
+        params![user, chat, now],
+        |r| r.get(0),
+    )?;
+    Ok(active != 0)
+}
+
+fn friend_unavailable() -> ApiError {
+    err(StatusCode::CONFLICT, "FriendUnavailable", "They're on do not disturb")
+}
+
 // ---------- notification settings ----------
 
 #[derive(Deserialize)]
@@ -300,9 +315,16 @@ async fn get_notifs(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
         })
         .optional()?
         .unwrap_or_else(|| json!({ "messages": true, "talk": true, "calls": true, "friends": true }));
-    let mut q = c.prepare("SELECT chat FROM mutes WHERE user_id=?")?;
-    let muted: Vec<String> = q.query_map([&me], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    Ok(Json(json!({ "prefs": prefs, "muted": muted })))
+    let mut q = c.prepare("SELECT chat, \"until\" FROM mutes WHERE user_id=?1 AND (\"until\"=0 OR \"until\">?2)")?;
+    let rows = q.query_map(params![me, now_ms()], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+    let mut muted = Vec::new();
+    let mut mute_until = Map::new();
+    for row in rows {
+        let (chat, until) = row?;
+        muted.push(chat.clone());
+        mute_until.insert(chat, json!(until));
+    }
+    Ok(Json(json!({ "prefs": prefs, "muted": muted, "mute_until": mute_until })))
 }
 
 async fn put_notifs(State(st): State<S>, Authed(me): Authed, Json(p): Json<Prefs>) -> R<Json<Value>> {
@@ -318,13 +340,20 @@ async fn put_notifs(State(st): State<S>, Authed(me): Authed, Json(p): Json<Prefs
 struct MuteReq {
     chat: String,
     muted: bool,
+    #[serde(default)]
+    minutes: Option<i64>,
 }
 
 async fn put_mute(State(st): State<S>, Authed(me): Authed, Json(r): Json<MuteReq>) -> R<Json<Value>> {
     if r.chat.is_empty() || r.chat.len() > 40 { return Err(bad("Unknown chat")); }
     let c = st.db();
     if r.muted {
-        c.execute("INSERT OR IGNORE INTO mutes(user_id, chat) VALUES (?,?)", params![me, r.chat])?;
+        let until = r.minutes.map_or(0, |minutes| now_ms() + minutes.clamp(1, 525_600) * 60_000);
+        c.execute(
+            "INSERT INTO mutes(user_id, chat, \"until\") VALUES (?1,?2,?3)
+             ON CONFLICT(user_id, chat) DO UPDATE SET \"until\"=excluded.\"until\"",
+            params![me, r.chat, until],
+        )?;
     } else {
         c.execute("DELETE FROM mutes WHERE user_id=? AND chat=?", params![me, r.chat])?;
     }
@@ -1509,18 +1538,19 @@ async fn rtc_focus(State(st): State<S>, Authed(me): Authed, Json(r): Json<Friend
 }
 
 async fn ptt_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
-    let (u, dnd, streak) = {
+    let (u, unavailable, streak) = {
         let c = st.db();
         if !are_friends(&c, &me, &r.friend_id)? {
             return Err(not_friends());
         }
         let dnd: i64 = c.query_row("SELECT dnd FROM users WHERE id=?", [&r.friend_id], |r| r.get(0))?;
+        let unavailable = dnd != 0 || mute_active(&c, &r.friend_id, &me, now_ms())?;
         let u = public_user(&c, &me)?;
-        let streak = if dnd == 0 { Some(touch_streak(&c, &me, &r.friend_id)?) } else { None };
-        (u, dnd != 0, streak)
+        let streak = if unavailable { None } else { Some(touch_streak(&c, &me, &r.friend_id)?) };
+        (u, unavailable, streak)
     };
-    if dnd {
-        return Err(err(StatusCode::CONFLICT, "FriendUnavailable", "They're on do not disturb"));
+    if unavailable {
+        return Err(friend_unavailable());
     }
     if let Some((current, last_talked_at)) = streak {
         broadcast_streak(&st, &me, &r.friend_id, current, last_talked_at);
@@ -1726,16 +1756,19 @@ struct PokeReq {
 
 async fn poke(State(st): State<S>, Authed(me): Authed, Json(r): Json<PokeReq>) -> R<Json<Value>> {
     let key = (me.clone(), r.friend_id.clone());
-    if st.pokes.get(&key).is_some_and(|t| t.elapsed() < Duration::from_millis(800)) {
-        return Err(too_many("Easy"));
-    }
     let u = {
         let c = st.db();
         if !are_friends(&c, &me, &r.friend_id)? {
             return Err(not_friends());
         }
+        if mute_active(&c, &r.friend_id, &me, now_ms())? {
+            return Err(friend_unavailable());
+        }
         public_user(&c, &me)?
     };
+    if st.pokes.get(&key).is_some_and(|t| t.elapsed() < Duration::from_millis(800)) {
+        return Err(too_many("Easy"));
+    }
     st.pokes.insert(key, Instant::now());
     if st.pokes.len() > 10_000 {
         st.pokes.retain(|_, t| t.elapsed() < Duration::from_secs(10));
@@ -1767,6 +1800,9 @@ async fn wave(State(st): State<S>, Authed(me): Authed, Json(r): Json<WaveReq>) -
         if !are_friends(&c, &me, &r.friend_id)? {
             return Err(not_friends());
         }
+        if mute_active(&c, &r.friend_id, &me, now_ms())? {
+            return Err(friend_unavailable());
+        }
         public_user(&c, &me)?
     };
     let count = r.count.unwrap_or(1).clamp(1, 9999);
@@ -1795,16 +1831,17 @@ async fn wave(State(st): State<S>, Authed(me): Authed, Json(r): Json<WaveReq>) -
 }
 
 async fn call_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
-    let (u, dnd) = {
+    let (u, unavailable) = {
         let c = st.db();
         if !are_friends(&c, &me, &r.friend_id)? {
             return Err(not_friends());
         }
         let dnd: i64 = c.query_row("SELECT dnd FROM users WHERE id=?", [&r.friend_id], |r| r.get(0))?;
-        (public_user(&c, &me)?, dnd != 0)
+        let unavailable = dnd != 0 || mute_active(&c, &r.friend_id, &me, now_ms())?;
+        (public_user(&c, &me)?, unavailable)
     };
-    if dnd {
-        return Err(err(StatusCode::CONFLICT, "FriendUnavailable", "They're on do not disturb"));
+    if unavailable {
+        return Err(friend_unavailable());
     }
     let online = st.hub.online(&r.friend_id);
     st.hub.send(&r.friend_id, &json!({ "type": "call_ringing", "from": &u }));

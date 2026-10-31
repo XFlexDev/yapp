@@ -19,6 +19,7 @@ import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { haptic } from '../lib/haptic';
+import { muteFriend, unmuteFriend, useMuted } from '../lib/notifs';
 import { BlurView } from 'expo-blur';
 import { playClip } from '../lib/clips';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
@@ -328,8 +329,10 @@ function CallControls({ cp, ca, on, incoming, muted, cam, onMute, onCam, onEnd, 
 function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const [sure, setSure] = useState<'remove' | 'block' | null>(null);
-  const [mode, setMode] = useState<'main' | 'report' | 'reported'>('main');
+  const [mode, setMode] = useState<'main' | 'mute' | 'report' | 'reported'>('main');
   const [busy, setBusy] = useState(false);
+  const muted = useMuted(friend.id);
+  const muteUntil = useStore((s) => s.muteUntil[friend.id]);
   const confirm = (k: 'remove' | 'block') => { if (sure === k) return true; Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setSure(k); return false; };
   const remove = async () => {
     if (!confirm('remove')) return;
@@ -354,6 +357,22 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
       <Swap text={t} style={{ color, fontFamily: F.bold, fontSize: 17 }} />
     </Pressable>
   );
+  const muteLabel = () => {
+    if (muteUntil === undefined || muteUntil === 0) return 'muted';
+    const remaining = Math.max(0, muteUntil - Date.now());
+    if (remaining >= 86_400_000) return `muted for ${Math.floor(remaining / 86_400_000)}d`;
+    if (remaining >= 3_600_000) return `muted for ${Math.floor(remaining / 3_600_000)}h`;
+    return `muted for ${Math.max(1, Math.ceil(remaining / 60_000))}m`;
+  };
+  const chat = () => {
+    onClose();
+    requestAnimationFrame(() => router.push({ pathname: '/chat', params: { id: friend.id } }));
+  };
+  const chooseMute = (minutes: number | null) => {
+    muteFriend(friend.id, minutes);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setMode('main');
+  };
   return (
     <View style={StyleSheet.absoluteFill}>
       <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
@@ -361,23 +380,47 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
       </Animated.View>
       <Animated.View entering={SlideInDown.duration(340).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6, alignItems: 'stretch' }}>
         <View style={{ alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <Avatar user={friend} size={64} />
+          <Avatar user={friend} size={72} />
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20 }}>{nameOf(friend)}</Text>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>{nameOf(friend)}</Text>
             {friend.username ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 }}>@{friend.username}</Text> : null}
+            <Text style={{ fontFamily: F.bold, fontSize: 13, marginTop: 2 }}>
+              <Text style={{ color: friend.online && !friend.dnd ? C.online : 'rgba(255,255,255,0.55)' }}>{friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline'}</Text>
+              {muted ? <Text style={{ color: 'rgba(255,255,255,0.55)' }}> · {muteLabel()}</Text> : null}
+            </Text>
           </View>
         </View>
-        {mode === 'report' ? (
+        {mode === 'mute' ? (
+          <>
+            {row('for 1 hour', () => chooseMute(60))}
+            {row('for 8 hours', () => chooseMute(480))}
+            {row('for 24 hours', () => chooseMute(1440))}
+            {row('until i turn it back on', () => chooseMute(null))}
+            {row('back', () => setMode('main'), 'rgba(255,255,255,0.5)')}
+          </>
+        ) : mode === 'report' ? (
           <>
             {REASONS.map((r) => <View key={r}>{row(r, () => doReport(r))}</View>)}
             {row('back', () => setMode('main'), 'rgba(255,255,255,0.5)')}
           </>
         ) : (
           <>
-            {mode === 'reported'
-              ? <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', paddingHorizontal: 24, paddingVertical: 8 }}>thanks, we’ll look at it. you can also block them.</Text>
-              : row('report', () => setMode('report'))}
-            {mode === 'main' ? row('reorder friends', () => { onClose(); router.push('/order'); }) : null}
+            {mode === 'main' ? (
+              <>
+                <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 18, marginBottom: 4 }}>
+                  <Pressable onPress={chat} style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
+                    <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>chat</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { if (muted) { unmuteFriend(friend.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } else setMode('mute'); }} style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
+                    <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{muted ? 'unmute' : 'mute'}</Text>
+                  </Pressable>
+                </View>
+                {row('reorder friends', () => { onClose(); router.push('/order'); })}
+                {row('report', () => setMode('report'))}
+              </>
+            ) : (
+              <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', paddingHorizontal: 24, paddingVertical: 8 }}>thanks, we’ll look at it. you can also block them.</Text>
+            )}
             {row(sure === 'block' ? 'tap again to block' : 'block', doBlock, C.danger)}
             {mode === 'main' ? row(sure === 'remove' ? 'tap again to remove' : 'remove friend', remove, C.danger) : null}
             {row('close', onClose, 'rgba(255,255,255,0.5)')}
@@ -394,6 +437,7 @@ export default function Home() {
   const cam = useStore((s) => !!s.cams.local);
   const unreadAll = Object.values(chats).reduce((n, c) => n + c.unread, 0) + Object.values(groups).reduce((n, g) => n + g.unread, 0);
   const friend = useMemo(() => friends.find((f) => f.id === (call?.friendId ?? selectedId)) ?? friends[0], [friends, selectedId, call?.friendId]);
+  const friendMuted = useMuted(friend?.id ?? '');
   const [talking, setTalking] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [showConnecting, setShowConnecting] = useState(false);
@@ -641,7 +685,7 @@ export default function Home() {
   const bubble = call?.state === 'incoming' ? `${nameOf(friend).toLowerCase()} is calling`
     : call?.state === 'outgoing' ? 'calling…'
     : call?.state === 'active' ? 'on call'
-    : talking && connecting ? (showConnecting ? 'connecting' : 'hold to talk') : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? clipText ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friend.online ? 'hold to talk' : 'offline');
+    : talking && connecting ? (showConnecting ? 'connecting' : 'hold to talk') : talking ? 'slide up to lock' : hearing ? `${nameOf(friend).toLowerCase()} is talking` : note ?? clipText ?? incomingPokeText ?? (pendingPokeCount ? `poke${pendingPokeCount > 1 ? ` ×${pendingPokeCount}` : ''}` : friend.dnd ? 'do not disturb' : friendMuted ? 'muted' : friend.online ? 'hold to talk' : 'offline');
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
