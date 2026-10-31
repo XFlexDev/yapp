@@ -12,6 +12,7 @@ export type Sticker = {
   height: number;
   size_bytes: number;
   alt_emoji?: string;
+  owner_id?: string;
 };
 
 export type StickerPack = {

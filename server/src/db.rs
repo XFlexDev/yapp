@@ -234,6 +234,9 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
         "#,
     )?;
     let _ = c.execute("ALTER TABLE stickers ADD COLUMN name TEXT", []);
+    let _ = c.execute("ALTER TABLE stickers ADD COLUMN owner_id TEXT", []);
+    let _ = c.execute("ALTER TABLE stickers ADD COLUMN status TEXT", []);
+    let _ = c.execute("ALTER TABLE stickers ADD COLUMN mod_category TEXT", []);
     let _ = c.execute("ALTER TABLE messages ADD COLUMN reply_to TEXT", []);
     let _ = c.execute("ALTER TABLE mutes ADD COLUMN \"until\" INTEGER NOT NULL DEFAULT 0", []);
     let _ = c.execute(

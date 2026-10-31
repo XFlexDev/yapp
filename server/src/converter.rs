@@ -55,6 +55,63 @@ async fn probe_dimensions(path: &str) -> Option<(u32, u32)> {
     Some((w, h))
 }
 
+async fn probe_duration(path: &str) -> Option<f64> {
+    let out = Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            path,
+        ])
+        .output()
+        .await
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+pub async fn moderation_frames(input: &[u8]) -> Vec<Vec<u8>> {
+    let tmp_in = format!("/tmp/mod_in_{}.bin", uuid::Uuid::new_v4());
+    if tokio::fs::write(&tmp_in, input).await.is_err() {
+        return Vec::new();
+    }
+
+    let duration = probe_duration(&tmp_in).await.unwrap_or(0.0);
+    let times = if duration > 0.25 {
+        vec![0.0, duration * 0.33, duration * 0.66]
+    } else {
+        vec![0.0]
+    };
+    let mut frames = Vec::with_capacity(times.len());
+    for time in times {
+        let out = Command::new("ffmpeg")
+            .args([
+                "-v", "error",
+                "-ss", &format!("{time:.3}"),
+                "-i", &tmp_in,
+                "-frames:v", "1",
+                "-vf", "scale='min(512,iw)':'min(512,ih)':force_original_aspect_ratio=decrease",
+                "-q:v", "3",
+                "-f", "image2pipe",
+                "-vcodec", "mjpeg",
+                "pipe:1",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .await;
+        match out {
+            Ok(out) if out.status.success() && out.stdout.starts_with(&[0xFF, 0xD8, 0xFF]) => frames.push(out.stdout),
+            _ => {
+                frames.clear();
+                break;
+            }
+        }
+    }
+    let _ = tokio::fs::remove_file(&tmp_in).await;
+    frames
+}
+
 pub async fn convert_to_optimized_webp(input_bytes: &[u8], is_emoji: bool) -> Result<ConvertedSticker, String> {
     let tmp_in = format!("/tmp/stk_in_{}.bin", uuid::Uuid::new_v4());
     let tmp_out = format!("/tmp/stk_out_{}.webp", uuid::Uuid::new_v4());

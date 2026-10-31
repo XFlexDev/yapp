@@ -129,7 +129,7 @@ export function FormattedMessageText({ text }: { text: string }) {
 
   const tokens = useMemo(() => {
     const list: string[] = [];
-    const re = /:([a-zA-Z0-9_-]{2,32}):/g;
+    const re = /:([a-zA-Z0-9_-]{2,34}):/g;
     let m;
     while ((m = re.exec(text)) !== null) {
       list.push(m[1].toLowerCase());
@@ -139,6 +139,7 @@ export function FormattedMessageText({ text }: { text: string }) {
 
   useEffect(() => {
     for (const name of tokens) {
+      if (/^s-[0-9a-f]{32}$/.test(name)) continue;
       if (!resolved[name]) {
         const c = getCachedSticker(name);
         if (c) {
@@ -157,14 +158,16 @@ export function FormattedMessageText({ text }: { text: string }) {
     const trimmed = text.trim();
     const parts = trimmed.split(/\s+/);
     return parts.length > 0 && parts.length <= 4 && parts.every((p) => {
-      const match = p.match(/^:([a-zA-Z0-9_-]{2,32}):$/);
-      return match && resolved[match[1].toLowerCase()]?.is_emoji;
+      const match = p.match(/^:([a-zA-Z0-9_-]{2,34}):$/);
+      if (!match) return false;
+      const token = match[1].toLowerCase();
+      return /^s-[0-9a-f]{32}$/.test(token) || resolved[token]?.is_emoji;
     });
   }, [text, resolved]);
 
   // Check if message is a single standalone sticker
   const singleSticker = useMemo(() => {
-    const m = text.trim().match(/^:([a-zA-Z0-9_-]{2,32}):$/);
+    const m = text.trim().match(/^:([a-zA-Z0-9_-]{2,34}):$/);
     if (!m) return null;
     const stk = resolved[m[1].toLowerCase()];
     return stk && !stk.is_emoji ? stk : null;
@@ -172,8 +175,8 @@ export function FormattedMessageText({ text }: { text: string }) {
 
   // Parse mixed text and custom emojis — hooks must run before any early return.
   const parts = useMemo(() => {
-    const res: { type: 'text' | 'emoji'; content: string; stk?: Sticker }[] = [];
-    const re = /:([a-zA-Z0-9_-]{2,32}):/g;
+    const res: { type: 'text' | 'emoji'; content: string; stk?: Sticker; src?: string }[] = [];
+    const re = /:([a-zA-Z0-9_-]{2,34}):/g;
     let lastIndex = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
@@ -182,7 +185,9 @@ export function FormattedMessageText({ text }: { text: string }) {
       }
       const name = m[1].toLowerCase();
       const stk = resolved[name];
-      if (stk) {
+      if (/^s-[0-9a-f]{32}$/.test(name)) {
+        res.push({ type: 'emoji', content: m[0], src: mediaUrl(`${name}.webp`) });
+      } else if (stk) {
         res.push({ type: 'emoji', content: m[0], stk });
       } else {
         res.push({ type: 'text', content: m[0] });
@@ -223,10 +228,12 @@ export function FormattedMessageText({ text }: { text: string }) {
     return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}>
         {parts.map((p, idx) => {
-          const match = p.match(/^:([a-zA-Z0-9_-]{2,32}):$/)!;
-          const stk = resolved[match[1].toLowerCase()];
-          const src = stk.url || mediaUrl(stk.id);
-          const ratio = stk.width && stk.height ? stk.height / stk.width : 1;
+          const match = p.match(/^:([a-zA-Z0-9_-]{2,34}):$/)!;
+          const token = match[1].toLowerCase();
+          const direct = /^s-[0-9a-f]{32}$/.test(token);
+          const stk = resolved[token];
+          const src = direct ? mediaUrl(`${token}.webp`) : stk!.url || mediaUrl(stk!.id);
+          const ratio = stk && stk.width && stk.height ? stk.height / stk.width : 1;
           const sz = 38;
           return (
             <Image
@@ -247,9 +254,9 @@ export function FormattedMessageText({ text }: { text: string }) {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
       {parts.map((p, idx) => {
-        if (p.type === 'emoji' && p.stk) {
-          const src = p.stk.url || mediaUrl(p.stk.id);
-          const ratio = p.stk.width && p.stk.height ? p.stk.height / p.stk.width : 1;
+        if (p.type === 'emoji' && (p.stk || p.src)) {
+          const src = p.src || p.stk!.url || mediaUrl(p.stk!.id);
+          const ratio = p.stk && p.stk.width && p.stk.height ? p.stk.height / p.stk.width : 1;
           return (
             <Image
               key={idx}
@@ -293,7 +300,7 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
   const hold = !m.pending && onMenu ? (e: any) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onMenu(m, e.nativeEvent.pageY, e.nativeEvent.pageX); } : undefined;
   const chips = m.reactions ?? [];
   return (
-    <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 10 }}>
+    <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 8 }}>
       {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
       {m.reply && (m.kind === 'image' || m.kind === 'sticker') ? (
         <View style={{ marginBottom: 4, paddingHorizontal: 6 }}><ReplyQuote reply={m.reply} name={m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')} /></View>
@@ -320,6 +327,31 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
       ) : null}
       {m.failed ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>not sent · tap to retry</Text> : seen ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 12, marginTop: 3 }}>{typeof seen === 'string' ? seen : 'seen'}</Text> : null}
     </Animated.View>
+  );
+}
+
+function dateLabel(timestamp: number) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const day = (value: Date) => Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
+  const daysAgo = Math.round((day(now) - day(date)) / 86_400_000);
+  if (daysAgo === 0) return 'today';
+  if (daysAgo === 1) return 'yesterday';
+  if (daysAgo <= 6) return date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  return `${date.getDate()} ${months[date.getMonth()]}${date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : ''}`;
+}
+
+export function sameCalendarDay(a: number, b: number) {
+  const left = new Date(a), right = new Date(b);
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
+}
+
+export function DatePill({ timestamp }: { timestamp: number }) {
+  return (
+    <View style={{ alignSelf: 'center', marginVertical: 8, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 10, paddingVertical: 3 }}>
+      <Text style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 12 }}>{dateLabel(timestamp)}</Text>
+    </View>
   );
 }
 
@@ -548,9 +580,16 @@ export default function ChatScreen() {
   });
   const textIn = useAnimatedStyle(() => ({ opacity: morph.value, transform: [{ translateX: (1 - morph.value) * -12 }] }));
   const friend = useStore((s) => s.friends.find((f) => f.id === id));
+  const talking = useStore((s) => !!s.talkingTo[id!]);
   const chat = useStore((s) => s.chats[id!]) ?? chatOf(id!);
   const meId = useStore((s) => s.me?.id);
   const [text, setText] = useState('');
+  const sendVisible = !!text.trim();
+  const sendButtonStyle = useAnimatedStyle(() => ({
+    width: withTiming(sendVisible ? 44 : 0, { duration: 160, easing: out }),
+    opacity: withTiming(sendVisible ? 1 : 0, { duration: 160, easing: out }),
+    transform: [{ scale: withTiming(sendVisible ? 1 : 0.82, { duration: 160, easing: out }) }],
+  }));
   const [picker, setPicker] = useState(false);
   const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number } | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMsg | null>(null);
@@ -590,7 +629,7 @@ export default function ChatScreen() {
   const colonQuery = matchColon ? matchColon[1].toLowerCase() : null;
 
   const suggestions = useMemo(() => {
-    if (!colonQuery) return [];
+    if (!colonQuery || /^s-[0-9a-f]{1,32}$/.test(colonQuery)) return [];
     return customList.filter((s) => s.name?.toLowerCase().includes(colonQuery)).slice(0, 5);
   }, [colonQuery, customList]);
 
@@ -616,12 +655,13 @@ export default function ChatScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop bg={chat.background} photo={avatarUrl(friend)} />
+      <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.75)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 84, zIndex: 1 }} />
       <View style={{ zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Animated.View ref={avRef} onLayout={onAvLayout} style={avStyle}><Avatar user={friend} size={AV} /></Animated.View>
         <Animated.View style={[{ flex: 1 }, textIn]}>
           <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{nameOf(friend)}</Text>
-          <Text style={{ color: friend.online ? C.online : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>{friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline'}</Text>
+          <Text style={{ color: talking ? C.red : friend.online ? C.online : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>{talking ? `${nameOf(friend).toLowerCase()} is talking` : friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline'}</Text>
         </Animated.View>
         <Squish onPress={() => { Haptics.selectionAsync(); setPicker(true); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="gear" /></Squish>
       </View>
@@ -634,13 +674,20 @@ export default function ChatScreen() {
           inverted
           data={msgs}
           keyExtractor={(m) => m.cid ?? m.id}
-          renderItem={({ item, index }) => (
-            <Bubble m={item} mine={item.from === meId} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current} friendName={nameOf(friend)}
-              seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView}
-              onReact={(e: string) => reactMsg(id!, item.id, e).catch(() => {})}
-              onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
-              onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
-          )}
+          renderItem={({ item, index }) => {
+            const older = msgs[index + 1];
+            const joined = !!older && older.from === item.from && item.created_at >= older.created_at && item.created_at - older.created_at <= 120_000;
+            return (
+              <View>
+                <Bubble m={item} mine={item.from === meId} joined={joined} fresh={item.created_at > opened.current} friendName={nameOf(friend)}
+                  seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView}
+                  onReact={(e: string) => reactMsg(id!, item.id, e).catch(() => {})}
+                  onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
+                  onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
+                {older && !sameCalendarDay(item.created_at, older.created_at) ? <DatePill timestamp={older.created_at} /> : null}
+              </View>
+            );
+          }}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 + kbPad, flexGrow: 1 }}
@@ -676,17 +723,21 @@ export default function ChatScreen() {
               <Text style={{ color: C.red, fontFamily: F.black, fontSize: 12 }}>{replyingTo.from === meId ? 'you' : nameOf(friend)}</Text>
               <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{replyingTo.kind === 'image' ? '\ud83d\udcf7 photo' : replyingTo.kind === 'sticker' ? 'sticker' : replyingTo.body}</Text>
             </View>
-            <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
-              <Glyph g="back" size={16} />
+            <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ paddingHorizontal: 4, paddingVertical: 6 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>cancel</Text>
             </Pressable>
           </Animated.View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
-          <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
-          <TextInput value={text} onChangeText={setText} placeholder="message" placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
-            style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
-          <Squish onPress={send} disabled={!text.trim()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: text.trim() ? C.red : 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} /></Squish>
+          <View style={{ flex: 1, minHeight: 44, maxHeight: 130, flexDirection: 'row', alignItems: 'center', borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', paddingLeft: 16, paddingRight: 4 }}>
+            <TextInput value={text} onChangeText={setText} placeholder="message" placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
+              style={{ flex: 1, minHeight: 44, maxHeight: 130, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 0, paddingTop: 11, paddingBottom: 11 }} />
+            <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={19} /></Squish>
+          </View>
+          <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
+            {sendVisible ? <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish> : null}
+          </Animated.View>
         </View>
       </Animated.View>
       </View>

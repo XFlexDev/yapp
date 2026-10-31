@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
 import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +15,7 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel } from './chat';
+import { Backdrop, Bubble, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
 import { req } from '../lib/api';
 import { StickerPicker } from '../components/StickerPicker';
 import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
@@ -73,6 +73,12 @@ export default function GroupScreen() {
   const g = useStore((s) => s.groups[id!]);
   const { me, friends } = useStore();
   const [text, setText] = useState('');
+  const sendVisible = !!text.trim();
+  const sendButtonStyle = useAnimatedStyle(() => ({
+    width: withTiming(sendVisible ? 44 : 0, { duration: 160, easing: out }),
+    opacity: withTiming(sendVisible ? 1 : 0, { duration: 160, easing: out }),
+    transform: [{ scale: withTiming(sendVisible ? 1 : 0.82, { duration: 160, easing: out }) }],
+  }));
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
   const [sure, setSure] = useState(false);
   const [view, setView] = useState<string | null>(null);
@@ -101,7 +107,7 @@ export default function GroupScreen() {
   const colonQuery = matchColon ? matchColon[1].toLowerCase() : null;
 
   const suggestions = useMemo(() => {
-    if (!colonQuery) return [];
+    if (!colonQuery || /^s-[0-9a-f]{1,32}$/.test(colonQuery)) return [];
     return customList.filter((s) => s.name?.toLowerCase().includes(colonQuery)).slice(0, 5);
   }, [colonQuery, customList]);
 
@@ -128,6 +134,7 @@ export default function GroupScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop bg={g.background} photo={null} />
+      <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.75)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 84, zIndex: 1 }} />
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Pressable style={{ flex: 1 }} onPress={() => setSheet('people')}>
@@ -140,12 +147,19 @@ export default function GroupScreen() {
         <FlatList inverted data={msgs} keyExtractor={(m) => m.id}
           renderItem={({ item, index }) => {
             const mine = item.from === me?.id;
-            return <Bubble m={item} mine={mine} joined={msgs[index + 1]?.from === item.from} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
-              seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView}
-              friendName={item.from === me?.id ? 'you' : nameOf(who(item.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
-              onReact={(e: string) => reactGroup(id!, item.id, e).catch(() => {})}
-              onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
-              onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />;
+            const older = msgs[index + 1];
+            const joined = !!older && older.from === item.from && item.created_at >= older.created_at && item.created_at - older.created_at <= 120_000;
+            return (
+              <View>
+                <Bubble m={item} mine={mine} joined={joined} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
+                  seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView}
+                  friendName={item.from === me?.id ? 'you' : nameOf(who(item.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
+                  onReact={(e: string) => reactGroup(id!, item.id, e).catch(() => {})}
+                  onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
+                  onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />
+                {older && !sameCalendarDay(item.created_at, older.created_at) ? <DatePill timestamp={older.created_at} /> : null}
+              </View>
+            );
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
@@ -177,18 +191,22 @@ export default function GroupScreen() {
               <Text style={{ color: C.red, fontFamily: F.black, fontSize: 12 }}>{replyingTo.from === me?.id ? 'you' : nameOf(who(replyingTo.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}</Text>
               <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{replyingTo.kind === 'image' ? '\ud83d\udcf7 photo' : replyingTo.kind === 'sticker' ? 'sticker' : replyingTo.body}</Text>
             </View>
-            <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
-              <Glyph g="back" size={16} />
+            <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ paddingHorizontal: 4, paddingVertical: 6 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>cancel</Text>
             </Pressable>
           </Animated.View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
-          <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={20} /></Squish>
-          <TextInput value={text} onChangeText={setText} placeholder={`message ${g.name}`} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
-            style={{ flex: 1, minHeight: 44, maxHeight: 130, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11 }} />
-          {text.trim() ? (
-            <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} /></Squish>
+          <View style={{ flex: 1, minHeight: 44, maxHeight: 130, flexDirection: 'row', alignItems: 'center', borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', paddingLeft: 16, paddingRight: 4 }}>
+            <TextInput value={text} onChangeText={setText} placeholder={`message ${g.name}`} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
+              style={{ flex: 1, minHeight: 44, maxHeight: 130, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 0, paddingTop: 11, paddingBottom: 11 }} />
+            <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={19} /></Squish>
+          </View>
+          {sendVisible ? (
+            <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
+              <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish>
+            </Animated.View>
           ) : <TalkButton onState={setTalk} />}
         </View>
       </Animated.View>

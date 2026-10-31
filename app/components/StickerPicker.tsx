@@ -1,10 +1,10 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import * as ImagePicker from 'expo-image-picker';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,7 +29,6 @@ import {
   type StickerPack,
 } from '../lib/stickers';
 import { C, F } from '../lib/theme';
-import { Pill, Squish } from '../lib/tt';
 
 // Standard high-frequency native emojis grouped cleanly
 const STANDARD_EMOJI_SECTIONS = [
@@ -362,77 +361,49 @@ export function StickerPicker({
   const [tab, setTab] = useState<TabType>('emoji');
   const [search, setSearch] = useState('');
   const [recent, setRecent] = useState<Sticker[]>([]);
+  const [publicStickers, setPublicStickers] = useState<Sticker[]>([]);
   const [packs, setPacks] = useState<StickerPack[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [namingDialog, setNamingDialog] = useState<{
-    uri: string;
-    mimeType?: string;
-    isEmoji: boolean;
-  } | null>(null);
-  const [assignedId, setAssignedId] = useState('');
-  const [namingError, setNamingError] = useState('');
+  const [busyType, setBusyType] = useState<TabType | null>(null);
+  const [uploadError, setUploadError] = useState('');
+  const [newStickerId, setNewStickerId] = useState<string | null>(null);
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     Promise.all([loadRecentStickers(), loadAllCustomStickers()])
       .then(([r, all]) => {
         const seen = new Set<string>();
-        const merged = [...r, ...all].filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
-        setRecent(merged);
+        setRecent(r.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))));
+        setPublicStickers([...new Map(all.map((s) => [s.id, s])).values()]);
       })
       .catch(() => {});
     loadStickerPacks().then(setPacks).catch(() => {});
   }, [visible]);
 
-  const handleStartPick = async (isEmoji: boolean) => {
-    try {
-      const r = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
-        quality: 1,
-      });
-      const a = r.assets?.[0];
-      if (r.canceled || !a) return;
-      const base = (a.fileName || '').replace(/\.[^/.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]/g, '') || (isEmoji ? 'emoji' : 'sticker');
-      setAssignedId(base.slice(0, 24));
-      setNamingError('');
-      setNamingDialog({
-        uri: a.uri,
-        mimeType: a.mimeType,
-        isEmoji,
-      });
-    } catch {}
-  };
+  useEffect(() => () => {
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+  }, []);
 
-  const handleConfirmNaming = async () => {
-    if (!namingDialog || busy) return;
-    const clean = assignedId.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
-    if (clean.length < 2) {
-      setNamingError('ID must be at least 2 characters (letters, numbers, _ -)');
-      return;
-    }
-    setBusy(true);
-    setNamingError('');
+  const handleStartPick = async (isEmoji: boolean) => {
+    if (busyType) return;
+    setBusyType(isEmoji ? 'emoji' : 'stickers');
+    setUploadError('');
     try {
-      const stk = await uploadCustomSticker(
-        namingDialog.isEmoji,
-        clean,
-        { uri: namingDialog.uri, mimeType: namingDialog.mimeType }
-      );
-      if (stk) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setRecent((prev) => [stk, ...prev.filter((x) => x.id !== stk.id)]);
-        setNamingDialog(null);
-        if (namingDialog.isEmoji) {
-          onPickEmoji(`:${stk.name || clean}:`);
-        } else {
-          onPickSticker(stk);
-        }
-      }
+      const sticker = await uploadCustomSticker(isEmoji);
+      if (!sticker) return;
+      recordRecentSticker(sticker.id);
+      setRecent((prev) => [sticker, ...prev.filter((item) => item.id !== sticker.id)]);
+      setPublicStickers((prev) => [sticker, ...prev.filter((item) => item.id !== sticker.id)]);
+      setNewStickerId(sticker.id);
+      setTimeout(() => setNewStickerId((id) => id === sticker.id ? null : id), 500);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      setNamingError(e?.message || 'Failed to upload. Try again.');
+      setUploadError(String(e?.message || 'couldn’t upload this image, try again').toLowerCase());
+      if (errorTimer.current) clearTimeout(errorTimer.current);
+      errorTimer.current = setTimeout(() => setUploadError(''), 3000);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
-      setBusy(false);
+      setBusyType(null);
     }
   };
 
@@ -470,6 +441,20 @@ export function StickerPicker({
     return list.filter((s) => s.name?.toLowerCase().includes(q));
   }, [recent, search]);
 
+  const myStickerIds = useMemo(() => new Set(recent.map((s) => s.id)), [recent]);
+  const filteredEveryoneEmojis = useMemo(() => {
+    const list = publicStickers.filter((s) => s.is_emoji && !myStickerIds.has(s.id));
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
+    return list.filter((s) => s.name?.toLowerCase().includes(q) || s.alt_emoji?.toLowerCase().includes(q));
+  }, [myStickerIds, publicStickers, search]);
+  const filteredEveryoneStickers = useMemo(() => {
+    const list = publicStickers.filter((s) => !s.is_emoji && !myStickerIds.has(s.id));
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
+    return list.filter((s) => s.name?.toLowerCase().includes(q));
+  }, [myStickerIds, publicStickers, search]);
+
   if (!visible) return null;
 
   const chip = (e: string, kw: string) => (
@@ -493,8 +478,8 @@ export function StickerPicker({
 
   const row = (title: string, items: React.ReactNode) => (
     <View style={{ gap: 8 }} key={title}>
-      <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, paddingLeft: 4 }}>
-        {title}
+      <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 12, paddingLeft: 4 }}>
+        {busyType === (title === 'custom emojis' ? 'emoji' : 'stickers') && (title === 'custom emojis' || title === 'my stickers') ? 'checking…' : title}
       </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 8 }}>
         {items}
@@ -519,18 +504,52 @@ export function StickerPicker({
   );
 
   const stickerCell = (stk: Sticker, sz = 72) => (
+    <Animated.View key={stk.id} entering={newStickerId === stk.id ? FadeIn.duration(180) : undefined}>
+      <Pressable
+        onPress={() => {
+          if (stk.is_emoji) {
+            Haptics.selectionAsync();
+            recordRecentSticker(stk.id);
+            onPickEmoji(stk.name ? COLON + stk.name + COLON : COLON + stk.id.replace(/\.webp$/i, '') + COLON);
+          } else {
+            handleSelectSticker(stk);
+          }
+        }}
+        style={({ pressed }) => ({
+          width: sz,
+          height: sz,
+          borderRadius: 14,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+        })}>
+        <Image source={stk.url || mediaUrl(stk.id)} style={{ width: sz - 10, height: sz - 10 }} contentFit="contain" cachePolicy="memory-disk" />
+      </Pressable>
+    </Animated.View>
+  );
+
+  const addTile = (isEmoji: boolean, size: number) => (
     <Pressable
-      key={stk.id}
-      onPress={() => (stk.is_emoji ? onPickEmoji(COLON + (stk.name || 'custom') + COLON) : handleSelectSticker(stk))}
+      key={isEmoji ? 'add-emoji' : 'add-sticker'}
+      disabled={busyType !== null}
+      onPress={() => handleStartPick(isEmoji)}
       style={({ pressed }) => ({
-        width: sz,
-        height: sz,
-        borderRadius: 14,
+        width: size,
+        height: size,
+        borderRadius: isEmoji ? 12 : 14,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        opacity: pressed ? 0.72 : 1,
       })}>
-      <Image source={stk.url || mediaUrl(stk.id)} style={{ width: sz - 10, height: sz - 10 }} contentFit="contain" cachePolicy="memory-disk" />
+      {busyType === (isEmoji ? 'emoji' : 'stickers') ? (
+        <ActivityIndicator color="#fff" />
+      ) : (
+        <View style={{ width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ position: 'absolute', width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
+          <View style={{ position: 'absolute', width: 2, height: 18, borderRadius: 1, backgroundColor: '#fff' }} />
+        </View>
+      )}
     </Pressable>
   );
 
@@ -604,14 +623,11 @@ export function StickerPicker({
             <>
               {row('custom emojis', (
                 <>
-                  <Pressable
-                    onPress={() => handleStartPick(true)}
-                    style={({ pressed }) => ({ width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)' })}>
-                    <SymbolView name="plus" size={18} tintColor="#fff" fallback={<MaterialCommunityIcons name="plus" size={20} color="#fff" />} />
-                  </Pressable>
+                  {addTile(true, 42)}
                   {filteredCustomEmojis.map((s) => stickerCell(s, 42))}
                 </>
               ))}
+              {filteredEveryoneEmojis.length ? row("everyone's emojis", filteredEveryoneEmojis.map((s) => stickerCell(s, 42))) : null}
               {filteredEmojiSections.map((sec) => row(sec.title, sec.emojis.map(emojiCell)))}
             </>
           )}
@@ -619,17 +635,15 @@ export function StickerPicker({
             <>
               {row('my stickers', (
                 <>
-                  <Pressable
-                    onPress={() => handleStartPick(false)}
-                    style={({ pressed }) => ({ width: 72, height: 72, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)' })}>
-                    <SymbolView name="plus" size={22} tintColor="#fff" fallback={<MaterialCommunityIcons name="plus" size={24} color="#fff" />} />
-                  </Pressable>
+                  {addTile(false, 72)}
                   {filteredCustomStickers.map((s) => stickerCell(s))}
                 </>
               ))}
+              {filteredEveryoneStickers.length ? row("everyone's stickers", filteredEveryoneStickers.map((s) => stickerCell(s))) : null}
               {packs.map((p) => row(p.title.toLowerCase(), p.stickers.map((s) => stickerCell(s))))}
             </>
           )}
+          {uploadError ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 13, paddingHorizontal: 4 }}>{uploadError}</Text> : null}
         </ScrollView>
       </Animated.View>
 
@@ -651,80 +665,6 @@ export function StickerPicker({
         </Pressable>
       </Animated.View>
 
-      {/* ID Assignment Dialog for custom emojis & stickers */}
-      {namingDialog ? (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
-          <Pressable
-            onPress={() => setNamingDialog(null)}
-            style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.82)' }]}
-          />
-          <View
-            style={{
-              position: 'absolute',
-              left: 24,
-              right: 24,
-              top: '30%',
-              alignSelf: 'center',
-              maxWidth: 340,
-              backgroundColor: '#1E1E20',
-              borderRadius: 26,
-              borderCurve: 'continuous',
-              padding: 20,
-              gap: 14,
-            }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 18, textAlign: 'center' }}>
-              {namingDialog.isEmoji ? 'name your emoji' : 'name your sticker'}
-            </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 13, textAlign: 'center' }}>
-              type :{assignedId || 'name'}: in chat to use it
-            </Text>
-            <View style={{ alignItems: 'center' }}>
-              <Image
-                source={namingDialog.uri}
-                style={{ width: namingDialog.isEmoji ? 52 : 96, height: namingDialog.isEmoji ? 52 : 96, borderRadius: namingDialog.isEmoji ? 14 : 10 }}
-                contentFit="contain"
-              />
-            </View>
-            <View
-              style={{
-                height: 46,
-                borderRadius: 23,
-                backgroundColor: 'rgba(255,255,255,0.08)',
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 16,
-              }}>
-              <Text style={{ color: C.red, fontFamily: F.black, fontSize: 16 }}>:</Text>
-              <TextInput
-                value={assignedId}
-                onChangeText={(t) => {
-                  setAssignedId(t.toLowerCase().replace(/[^a-z0-9_-]/g, ''));
-                  setNamingError('');
-                }}
-                placeholder="name"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardAppearance="dark"
-                maxLength={32}
-                style={{ flex: 1, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 4, paddingVertical: 0 }}
-              />
-              <Text style={{ color: C.red, fontFamily: F.black, fontSize: 16 }}>:</Text>
-            </View>
-            {namingError ? (
-              <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 12, textAlign: 'center' }}>{namingError}</Text>
-            ) : null}
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-              <View style={{ flex: 1 }}>
-                <Pill title="cancel" ghost onPress={() => setNamingDialog(null)} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Pill title={busy ? 'saving…' : 'save'} loading={busy} onPress={handleConfirmNaming} />
-              </View>
-            </View>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }

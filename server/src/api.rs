@@ -1,5 +1,6 @@
 use crate::{db, util::*, AppState};
 use axum::{
+    body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         DefaultBodyLimit, FromRequestParts, Path, Query, State,
@@ -1726,8 +1727,13 @@ async fn invite_page(State(st): State<S>, Path(seg): Path<String>) -> Response {
     let Some(u) = u else { return StatusCode::NOT_FOUND.into_response() };
     let shown = if u.display_name.is_empty() { name.clone() } else { u.display_name.clone() };
     let pic = u.pfp.clone().or(u.avatar.clone()).map(|k| {
-        let cdn = k.len() > 2 && matches!(k.as_bytes()[0], b'p' | b'q' | b'b' | b'c') && k.as_bytes()[1] == b'-';
-        let url = if cdn { format!("https://cdn.kreatix.dev/{k}") } else { format!("/avatars/{k}") };
+        let url = if crate::storage::valid_media_key(&k) {
+            crate::storage::get()
+                .map(|store| store.url(&k))
+                .unwrap_or_else(|| format!("https://yap.kreatix.dev/m/{k}"))
+        } else {
+            format!("/avatars/{k}")
+        };
         format!("<img src=\"{}\" alt=\"\">", esc(&url))
     }).unwrap_or_else(|| {
         let l: String = shown.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
@@ -2168,7 +2174,7 @@ async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<S
 
 fn sticker_exists(st: &S, id: &str) -> bool {
     st.db()
-        .query_row("SELECT 1 FROM stickers WHERE id=?", [id], |_| Ok(()))
+        .query_row("SELECT 1 FROM stickers WHERE id=? AND status='ok'", [id], |_| Ok(()))
         .optional()
         .ok()
         .flatten()
@@ -2738,6 +2744,8 @@ pub struct StickerItem {
     pub alt_emoji: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2795,25 +2803,67 @@ async fn upload_sticker(
     let store = crate::storage::get().ok_or_else(|| bad("Sticker storage is currently unavailable"))?;
     let key = crate::storage::key_for("s", &converted.webp_bytes, "webp");
 
-    let known: Option<(u32, u32, i64, u32, Option<String>)> = {
+    let known: Option<(u32, u32, i64, u32, Option<String>, Option<String>, Option<String>)> = {
         let c = st.db();
         c.query_row(
-            "SELECT width, height, is_animated, size_bytes, name FROM stickers WHERE id=?",
+            "SELECT width, height, is_animated, size_bytes, name, status, owner_id FROM stickers WHERE id=?",
             [&key],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
         ).optional()?
     };
 
-    let (width, height, is_anim, size_bytes, final_name) = if let Some((w, h, a, s, existing_name)) = known {
-        let n = if name.is_some() {
-            let _ = st.db().execute("UPDATE stickers SET name=? WHERE id=?", params![&name, &key]);
-            name
+    if known.as_ref().is_some_and(|(_, _, _, _, _, status, _)| status.as_deref() == Some("blocked")) {
+        return Err(bad("this can't be used as a sticker"));
+    }
+
+    let should_scan = known.as_ref().map_or(true, |(_, _, _, _, _, status, _)| status.as_deref() != Some("ok"));
+    if should_scan {
+        match crate::moderation::review(&body).await {
+            Ok(crate::moderation::Verdict::Allow) => {}
+            Ok(crate::moderation::Verdict::Block(category)) => {
+                let now = now_ms();
+                st.db().execute(
+                    "INSERT INTO stickers(id, hash, mime, is_animated, is_emoji, width, height, size_bytes, name, created_at, owner_id, status, mod_category)
+                     VALUES (?1, ?1, 'image/webp', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'blocked', ?10)
+                     ON CONFLICT(id) DO UPDATE SET status='blocked', mod_category=excluded.mod_category",
+                    params![
+                        key,
+                        converted.is_animated as i64,
+                        is_emoji as i64,
+                        converted.width,
+                        converted.height,
+                        converted.webp_bytes.len() as u32,
+                        &name,
+                        now,
+                        me,
+                        category
+                    ],
+                )?;
+                return Err(bad("this can't be used as a sticker"));
+            }
+            Err(crate::moderation::ReviewError::Unreadable(_)) => {
+                return Err(bad("couldn't read this image"));
+            }
+            Err(crate::moderation::ReviewError::Unavailable(error)) => {
+                tracing::warn!(error = %error, "sticker moderation failed");
+                return Err(err(StatusCode::SERVICE_UNAVAILABLE, "ModerationUnavailable", "couldn't check this image, try again"));
+            }
+        }
+    }
+
+    let (width, height, is_anim, size_bytes, final_name, owner_id) = if let Some((w, h, a, s, existing_name, _, owner)) = known {
+        let n = name.or(existing_name);
+        let owner = owner.or_else(|| Some(me.clone()));
+        st.db().execute(
+            "UPDATE stickers SET name=COALESCE(?1, name), owner_id=COALESCE(owner_id, ?2), status='ok', mod_category=NULL WHERE id=?3",
+            params![&n, me, &key],
+        )?;
+        if a != 0 {
+            (w, h, true, s, n, owner)
         } else {
-            existing_name
-        };
-        (w, h, a != 0, s, n)
+            (w, h, false, s, n, owner)
+        }
     } else {
-        // Upload to B2
         store
             .put(&key, converted.webp_bytes.clone(), "image/webp")
             .await
@@ -2825,11 +2875,11 @@ async fn upload_sticker(
         let now = now_ms();
         let size = converted.webp_bytes.len() as u32;
         st.db().execute(
-            "INSERT OR IGNORE INTO stickers(id, hash, mime, is_animated, is_emoji, width, height, size_bytes, name, created_at)
-             VALUES (?1, ?1, 'image/webp', ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![key, converted.is_animated as i64, is_emoji as i64, converted.width, converted.height, size, &name, now],
+            "INSERT OR IGNORE INTO stickers(id, hash, mime, is_animated, is_emoji, width, height, size_bytes, name, created_at, owner_id, status)
+             VALUES (?1, ?1, 'image/webp', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ok')",
+            params![key, converted.is_animated as i64, is_emoji as i64, converted.width, converted.height, size, &name, now, me],
         )?;
-        (converted.width, converted.height, converted.is_animated, size, name)
+        (converted.width, converted.height, converted.is_animated, size, name, Some(me.clone()))
     };
 
     Ok(Json(StickerItem {
@@ -2842,6 +2892,7 @@ async fn upload_sticker(
         size_bytes,
         alt_emoji: q.alt_emoji,
         name: final_name,
+        owner_id,
     }))
 }
 
@@ -2868,7 +2919,7 @@ async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<V
     let mut out = Vec::new();
     for (id, slug, title, owner_id, is_emoji_pack, thumb) in pack_rows {
         let mut sq = c.prepare(
-            "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name
+            "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name, s.owner_id
              FROM sticker_pack_items i
              JOIN stickers s ON s.id = i.sticker_id
              WHERE i.pack_id = ?
@@ -2887,6 +2938,7 @@ async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<V
                 size_bytes: r.get(5)?,
                 alt_emoji: r.get(6)?,
                 name: r.get(7)?,
+                owner_id: r.get(8)?,
             })
         })?.collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -2980,7 +3032,7 @@ async fn get_sticker_pack(
 
     let store = crate::storage::get();
     let mut sq = c.prepare(
-        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name, s.owner_id
          FROM sticker_pack_items i
          JOIN stickers s ON s.id = i.sticker_id
          WHERE i.pack_id = ?
@@ -2999,6 +3051,7 @@ async fn get_sticker_pack(
             size_bytes: r.get(5)?,
             alt_emoji: r.get(6)?,
             name: r.get(7)?,
+            owner_id: r.get(8)?,
         })
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -3038,10 +3091,10 @@ async fn list_recent_stickers(
     let c = st.db();
     let store = crate::storage::get();
     let mut q = c.prepare(
-        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, s.name
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, s.name, s.owner_id
          FROM user_recent_stickers r
          JOIN stickers s ON s.id = r.sticker_id
-         WHERE r.user_id = ?
+         WHERE r.user_id = ? AND s.status='ok'
          ORDER BY r.used_at DESC LIMIT 50",
     )?;
     let items = q.query_map([&me], |r| {
@@ -3057,6 +3110,7 @@ async fn list_recent_stickers(
             size_bytes: r.get(5)?,
             alt_emoji: None,
             name: r.get(6)?,
+            owner_id: r.get(7)?,
         })
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Json(items))
@@ -3071,7 +3125,7 @@ async fn resolve_sticker(
     let store = crate::storage::get();
     let clean = name.trim().to_lowercase();
     let item = c.query_row(
-        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name FROM stickers WHERE name = ?1 OR id = ?1 LIMIT 1",
+        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name, owner_id FROM stickers WHERE status='ok' AND (name = ?1 OR id = ?1) LIMIT 1",
         [&clean],
         |r| {
             let sid: String = r.get(0)?;
@@ -3086,6 +3140,7 @@ async fn resolve_sticker(
                 size_bytes: r.get(5)?,
                 alt_emoji: None,
                 name: r.get(6)?,
+                owner_id: r.get(7)?,
             })
         },
     ).optional()?;
@@ -3100,7 +3155,7 @@ async fn list_all_stickers(
     let c = st.db();
     let store = crate::storage::get();
     let mut q = c.prepare(
-        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name FROM stickers WHERE name IS NOT NULL AND name != '' ORDER BY created_at DESC LIMIT 200",
+        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name, owner_id FROM stickers WHERE status='ok' ORDER BY created_at DESC LIMIT 400",
     )?;
     let items = q.query_map([], |r| {
         let sid: String = r.get(0)?;
@@ -3115,9 +3170,78 @@ async fn list_all_stickers(
             size_bytes: r.get(5)?,
             alt_emoji: None,
             name: r.get(6)?,
+            owner_id: r.get(7)?,
         })
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Json(items))
+}
+
+pub async fn backfill_stickers(st: S) {
+    loop {
+        let next = {
+            let c = st.db();
+            c.query_row(
+                "SELECT id FROM stickers WHERE status IS NULL ORDER BY created_at ASC LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+        };
+        let key = match next {
+            Ok(Some(key)) => key,
+            Ok(None) => {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "sticker backfill query");
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+        };
+        let Some(store) = crate::storage::get() else {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            continue;
+        };
+        let category = match store.get_plain(&key).await {
+            Ok(None) => Some("missing".to_owned()),
+            Ok(Some((bytes, _))) => match crate::moderation::review(&bytes).await {
+                Ok(crate::moderation::Verdict::Allow) => None,
+                Ok(crate::moderation::Verdict::Block(category)) => Some(category),
+                Err(crate::moderation::ReviewError::Unreadable(error)) => {
+                    tracing::warn!(error = %error, "sticker backfill unreadable");
+                    Some("unreadable".to_owned())
+                }
+                Err(crate::moderation::ReviewError::Unavailable(error)) => {
+                    tracing::warn!(error = %error, "sticker backfill moderation unavailable");
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    continue;
+                }
+            },
+            Err(error) => {
+                tracing::warn!(error = %error, "sticker backfill media fetch");
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+        };
+        let update = if let Some(category) = category {
+            st.db().execute(
+                "UPDATE stickers SET status='blocked', mod_category=?1 WHERE id=?2 AND status IS NULL",
+                params![category, key],
+            )
+        } else {
+            st.db().execute(
+                "UPDATE stickers SET status='ok', mod_category=NULL WHERE id=?1 AND status IS NULL",
+                [&key],
+            )
+        };
+        if let Err(error) = update {
+            tracing::warn!(error = %error, "sticker backfill update");
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            continue;
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
 }
 
 
@@ -3190,6 +3314,7 @@ async fn react_group(
 pub fn router(st: S) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/m/{key}", get(get_media))
         .route("/v1/version", get(version))
         .route("/v1/auth/start", post(auth_start))
         .route("/v1/auth/confirm", post(auth_confirm))
@@ -3277,6 +3402,57 @@ pub fn router(st: S) -> Router {
         .route("/v1/stream", get(stream))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(st)
+}
+
+async fn get_media(State(st): State<S>, Path(key): Path<String>) -> R<Response> {
+    if !crate::storage::valid_media_key(&key) {
+        return Err(not_found("Media not found"));
+    }
+    if let Some(cached) = st.media_cache.get(&key) {
+        return media_response(cached.0.clone(), cached.1);
+    }
+    let store = crate::storage::get()
+        .ok_or_else(|| err(StatusCode::SERVICE_UNAVAILABLE, "MediaUnavailable", "Media is unavailable"))?;
+    let Some((body, content_type)) = store
+        .get_plain(&key)
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, "media fetch");
+            err(StatusCode::BAD_GATEWAY, "MediaUnavailable", "Media is unavailable")
+        })?
+    else {
+        return Err(not_found("Media not found"));
+    };
+    let bytes = axum::body::Bytes::from(body);
+    if bytes.len() <= 64 * 1024 * 1024 {
+        let previous = st.media_cache.insert(key, (bytes.clone(), content_type, Instant::now()));
+        if let Some((old, _, _)) = previous {
+            st.media_cache_bytes.fetch_sub(old.len(), std::sync::atomic::Ordering::Relaxed);
+        }
+        let total = st.media_cache_bytes.fetch_add(bytes.len(), std::sync::atomic::Ordering::Relaxed) + bytes.len();
+        let mut total = total;
+        while total > 64 * 1024 * 1024 {
+            let oldest = st.media_cache.iter().min_by_key(|entry| entry.value().2).map(|entry| {
+                (entry.key().clone(), entry.value().0.len())
+            });
+            let Some((old_key, _)) = oldest else { break };
+            if let Some((_, (old, _, _))) = st.media_cache.remove(&old_key) {
+                total = st.media_cache_bytes.fetch_sub(old.len(), std::sync::atomic::Ordering::Relaxed) - old.len();
+            } else {
+                break;
+            }
+        }
+    }
+    media_response(bytes, content_type)
+}
+
+fn media_response(bytes: axum::body::Bytes, content_type: &'static str) -> R<Response> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(Body::from(bytes))
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "InternalServerError", "Something went wrong"))
 }
 
 #[cfg(test)]
