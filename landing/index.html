@@ -15,168 +15,117 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #000;
-    --surface: #111;
-    --surface2: #1c1c1c;
-    --line: #2a2a2a;
-    --dim: #9a9a9a;
-    --faint: #5c5c5c;
-    --red: #ff1f1f;
-    --green: #acfc69;
+    --bg: #000; --surface: #111; --surface2: #1c1c1c; --line: #2a2a2a;
+    --dim: #9a9a9a; --faint: #5c5c5c; --red: #ff1f1f; --green: #acfc69;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
   body {
-    background: var(--bg);
-    color: #fff;
-    font-family: 'Nunito', system-ui, sans-serif;
-    font-weight: 600;
-    min-height: 100dvh;
-    overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
+    background: var(--bg); color: #fff;
+    font-family: 'Nunito', system-ui, sans-serif; font-weight: 600;
+    min-height: 100dvh; overflow-x: hidden; -webkit-font-smoothing: antialiased;
   }
   ::selection { background: var(--red); color: #fff; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
 
-  .wrap { max-width: 640px; margin: 0 auto; padding: 0 24px; }
-
-  /* ambient red glow */
   .glow {
-    position: fixed;
-    top: -20dvh; left: 50%;
+    position: fixed; top: -20dvh; left: 50%;
     width: 120vw; max-width: 900px; height: 55dvh;
     transform: translateX(-50%);
-    background: radial-gradient(ellipse at center, rgba(255,31,31,0.16), transparent 65%);
-    pointer-events: none;
-    z-index: 0;
+    background: radial-gradient(ellipse at center, rgba(255,31,31,0.18), transparent 65%);
+    pointer-events: none; z-index: 0; will-change: transform;
   }
 
-  nav {
-    position: relative; z-index: 2;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 22px 0;
-  }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
   nav img { height: 30px; }
   nav a.pill {
     color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
     background: var(--surface2); padding: 10px 18px; border-radius: 999px;
-    transition: background .2s;
+    display: inline-block; will-change: transform;
   }
-  nav a.pill:hover { background: #262626; }
 
-  header {
-    position: relative; z-index: 1;
-    padding: 9dvh 0 6dvh;
-    text-align: center;
-  }
+  header { padding: 8dvh 0 5dvh; text-align: center; }
   .hero-mark {
-    width: min(280px, 64vw);
-    margin: 0 auto 26px;
-    display: block;
+    width: min(280px, 64vw); margin: 0 auto 26px; display: block;
     filter: drop-shadow(0 18px 60px rgba(255,31,31,0.35));
+    will-change: transform;
   }
-  h1 {
-    font-weight: 900;
-    font-size: clamp(34px, 8vw, 54px);
-    line-height: 1.02;
-    letter-spacing: -0.02em;
-  }
+  h1 { font-weight: 900; font-size: clamp(34px, 8vw, 54px); line-height: 1.04; letter-spacing: -0.02em; }
+  h1 .line { display: block; overflow: hidden; }
+  h1 .line > span { display: inline-block; will-change: transform; }
   h1 em { font-style: normal; color: var(--red); }
-  .tag {
-    color: var(--dim);
-    font-size: 17px;
-    font-weight: 600;
-    margin-top: 14px;
-    line-height: 1.5;
-  }
+  .tag { color: var(--dim); font-size: 17px; margin-top: 16px; line-height: 1.55; }
+  .tag .line { display: block; overflow: hidden; }
+  .tag .line > span { display: inline-block; }
 
-  .cta { margin-top: 34px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .cta { margin-top: 36px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
   a.store {
     display: inline-flex; align-items: center; gap: 10px;
-    background: var(--red); color: #fff;
-    font-weight: 900; font-size: 16px; text-decoration: none;
+    background: var(--red); color: #fff; font-weight: 900; font-size: 16px; text-decoration: none;
     padding: 16px 30px; border-radius: 999px;
     box-shadow: 0 10px 40px rgba(255,31,31,0.35);
-    transition: transform .16s cubic-bezier(.23,1,.32,1), box-shadow .16s;
+    will-change: transform; position: relative;
   }
-  a.store:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 14px 50px rgba(255,31,31,0.5); }
-  a.store:active { transform: scale(0.97); }
   a.store svg { width: 20px; height: 20px; }
   .soon { color: var(--faint); font-size: 13px; font-weight: 800; }
 
-  /* feature pills */
-  .feats {
-    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-    margin-top: 44px;
-  }
+  .feats { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 44px; }
   .feat {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: 999px; padding: 10px 18px;
-    font-weight: 800; font-size: 14px; color: var(--dim);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 10px 18px; font-weight: 800; font-size: 14px; color: var(--dim);
+    will-change: transform, opacity;
   }
-  .feat b { color: #fff; font-weight: 800; }
+  .feat b { color: #fff; }
 
-  /* phone-ish mock: hold to talk */
   .demo {
-    margin: 60px auto 0;
-    max-width: 360px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 34px;
-    padding: 26px 20px 30px;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
+    margin: 64px auto 0; max-width: 360px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 34px; padding: 26px 20px 30px;
+    text-align: center; position: relative; overflow: hidden;
+    will-change: transform;
   }
   .demo::before {
-    content: ''; position: absolute; inset: 0 0 auto;
-    height: 90px;
+    content: ''; position: absolute; inset: 0 0 auto; height: 90px;
     background: linear-gradient(rgba(0,0,0,0.5), transparent);
   }
   .demo .avatar {
     width: 84px; height: 84px; border-radius: 50%;
     background: linear-gradient(135deg, #333, #1a1a1a);
-    margin: 8px auto 14px;
-    display: flex; align-items: center; justify-content: center;
+    margin: 8px auto 14px; display: flex; align-items: center; justify-content: center;
     font-weight: 900; font-size: 34px; color: var(--green);
     border: 3px solid var(--green);
-    box-shadow: 0 0 0 6px rgba(172,252,105,0.08), 0 0 40px rgba(172,252,105,0.15);
+    will-change: transform, border-color, box-shadow;
   }
   .demo .who { font-weight: 900; font-size: 20px; }
-  .demo .st { color: var(--green); font-size: 13px; font-weight: 800; margin-top: 2px; }
+  .demo .st { color: var(--green); font-size: 13px; font-weight: 800; margin-top: 3px; min-height: 17px; }
+  .demo .st.talking { color: var(--red); }
   .demo .talkbtn {
-    margin: 22px auto 0;
-    width: 88px; height: 88px; border-radius: 50%;
-    background: var(--red);
-    display: flex; align-items: center; justify-content: center;
+    margin: 22px auto 0; width: 88px; height: 88px; border-radius: 50%;
+    background: var(--red); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
     box-shadow: 0 0 0 10px rgba(255,31,31,0.12), 0 10px 36px rgba(255,31,31,0.4);
-    animation: pulse 2.2s infinite cubic-bezier(.23,1,.32,1);
+    will-change: transform, border-radius; touch-action: none;
   }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 10px rgba(255,31,31,0.12), 0 10px 36px rgba(255,31,31,0.4); }
-    50% { box-shadow: 0 0 0 16px rgba(255,31,31,0.06), 0 10px 36px rgba(255,31,31,0.55); }
+  .demo .talkbtn svg { width: 34px; height: 34px; pointer-events: none; }
+  .demo .hold { color: var(--faint); font-size: 12px; font-weight: 800; margin-top: 14px; letter-spacing: .04em; min-height: 15px; }
+  .waves { position: absolute; left: 50%; top: 60%; transform: translate(-50%,-50%); pointer-events: none; }
+  .waves i {
+    position: absolute; left: 0; top: 0; width: 88px; height: 88px;
+    margin: -44px; border-radius: 50%; border: 2px solid rgba(255,31,31,0.4);
+    opacity: 0;
   }
-  .demo .talkbtn svg { width: 34px; height: 34px; }
-  .demo .hold { color: var(--faint); font-size: 12px; font-weight: 800; margin-top: 14px; letter-spacing: .04em; }
 
-  section.more { padding: 8dvh 0 4dvh; }
+  section.more { padding: 9dvh 0 3dvh; }
   .grid { display: grid; gap: 10px; }
+  @media (min-width: 560px) { .grid { grid-template-columns: 1fr 1fr; } }
   .card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 24px;
-    padding: 22px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 24px; padding: 22px; will-change: transform, opacity;
   }
   .card h3 { font-weight: 900; font-size: 18px; letter-spacing: -0.01em; }
   .card h3 span { color: var(--red); }
   .card p { color: var(--dim); font-size: 14px; margin-top: 6px; line-height: 1.55; }
-  @media (min-width: 560px) { .grid { grid-template-columns: 1fr 1fr; } }
 
-  footer {
-    padding: 8dvh 0 40px;
-    text-align: center;
-    color: var(--faint);
-    font-size: 13px; font-weight: 800;
-  }
+  footer { padding: 8dvh 0 42px; text-align: center; color: var(--faint); font-size: 13px; font-weight: 800; }
   footer a { color: var(--dim); text-decoration: none; margin: 0 10px; }
   footer a:hover { color: #fff; }
   footer .footmark { height: 18px; opacity: .5; vertical-align: -4px; margin-right: 8px; }
@@ -186,16 +135,22 @@
 <div class="glow"></div>
 <div class="wrap">
   <nav>
-    <img src="/yapp-mark.png" alt="yapp">
-    <a class="pill" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">get the app</a>
+    <img src="/yapp-mark.png" alt="yapp" id="navmark">
+    <a class="pill" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp" id="navcta">get the app</a>
   </nav>
 
   <header>
-    <img class="hero-mark" src="/yapp-mark.png" alt="yapp">
-    <h1>hold to talk.<br><em>that's it.</em></h1>
-    <p class="tag">photos, chats, stickers and live voice with your friends.<br>the ten ten vibe — back.</p>
+    <img class="hero-mark" src="/yapp-mark.png" alt="yapp" id="heromark">
+    <h1 id="headline">
+      <span class="line"><span>hold to talk.</span></span>
+      <span class="line"><span><em>that's it.</em></span></span>
+    </h1>
+    <p class="tag" id="tagline">
+      <span class="line"><span>photos, chats, stickers and live voice with your friends.</span></span>
+      <span class="line"><span>the ten ten vibe — back.</span></span>
+    </p>
     <div class="cta">
-      <a class="store" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">
+      <a class="store" id="storecta" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.6 1.8 13.4 12 3.6 22.2c-.3-.3-.5-.7-.5-1.2V3c0-.5.2-.9.5-1.2Zm11.4 8.6L4.9 1.9l10.4 5.9-.3 2.6Zm3.4 1.6c.5.3.8.7.8 1.2s-.3.9-.8 1.2l-2.9 1.6-2.3-2.8 2.3-2.8 2.9 1.6Zm-13.5 8.5L15 13.6l.3 2.6-10.4 5.9Z"/></svg>
         get it on google play
       </a>
@@ -211,34 +166,23 @@
     </div>
   </header>
 
-  <div class="demo">
-    <div class="avatar">e</div>
+  <div class="demo" id="demo">
+    <div class="avatar" id="avatar">e</div>
     <div class="who">eetu</div>
-    <div class="st">online</div>
-    <div class="talkbtn">
+    <div class="st" id="status">online</div>
+    <div class="talkbtn" id="talkbtn">
       <svg viewBox="0 0 24 24" fill="#fff"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6.5-3.5a6.5 6.5 0 0 1-13 0H4a8 8 0 0 0 7 7.94V21H6.5v1.5h11V21H13v-1.56A8 8 0 0 0 20 11.5h-1.5Z"/></svg>
     </div>
-    <div class="hold">hold to talk · slide up to lock</div>
+    <div class="waves" id="waves"><i></i><i></i><i></i></div>
+    <div class="hold" id="holdlabel">hold to talk · slide up to lock</div>
   </div>
 
   <section class="more">
     <div class="grid">
-      <div class="card">
-        <h3>your people <span>only</span></h3>
-        <p>no feed, no strangers. add friends with a link, talk instantly.</p>
-      </div>
-      <div class="card">
-        <h3>encrypted <span>media</span></h3>
-        <p>photos and stickers are encrypted before they leave the server — storage only ever sees scrambled bytes.</p>
-      </div>
-      <div class="card">
-        <h3>safe <span>stickers</span></h3>
-        <p>every custom sticker and emoji passes an ai safety check before anyone can use it.</p>
-      </div>
-      <div class="card">
-        <h3>always <span>free</span></h3>
-        <p>no tiers, no ads, no paywall. just talk.</p>
-      </div>
+      <div class="card"><h3>your people <span>only</span></h3><p>no feed, no strangers. add friends with a link, talk instantly.</p></div>
+      <div class="card"><h3>encrypted <span>media</span></h3><p>photos and stickers are encrypted before they leave the server — storage only ever sees scrambled bytes.</p></div>
+      <div class="card"><h3>safe <span>stickers</span></h3><p>every custom sticker and emoji passes an ai safety check before anyone can use it.</p></div>
+      <div class="card"><h3>always <span>free</span></h3><p>no tiers, no ads, no paywall. just talk.</p></div>
     </div>
   </section>
 
@@ -249,5 +193,127 @@
     <div style="margin-top:10px">made by kreatix</div>
   </footer>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<script>
+gsap.registerPlugin(ScrollTrigger);
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const spring = { type: 'spring', stiffness: 260, damping: 24, mass: 0.9 };
+const expo = 'expo.out';
+
+/* ---------- entrance ---------- */
+const intro = gsap.timeline({ defaults: { ease: expo } });
+intro
+  .from('#navmark', { y: -26, opacity: 0, duration: .8, clearProps: 'all' }, .05)
+  .from('#navcta', { y: -26, opacity: 0, scale: .8, duration: .7, clearProps: 'all' }, .15)
+  .from('#heromark', {
+    scale: .4, y: 60, rotation: -14, opacity: 0, duration: 1.1,
+    ease: 'elastic.out(1, 0.55)', clearProps: 'opacity'
+  }, .1)
+  .from('#headline .line > span', {
+    yPercent: 110, duration: .9, stagger: .09, ease: expo
+  }, '-=0.7')
+  .from('#tagline .line > span', {
+    yPercent: 110, duration: .8, stagger: .08, ease: expo
+  }, '-=0.6')
+  .from('#storecta', { scale: .5, opacity: 0, duration: .8, ease: 'elastic.out(1, 0.5)' }, '-=0.45')
+  .from('.soon', { opacity: 0, y: 10, duration: .5 }, '-=0.4')
+  .from('.feat', {
+    scale: .6, opacity: 0, duration: .55, stagger: { each: .055, from: 'random' },
+    ease: 'back.out(2.2)', clearProps: 'opacity'
+  }, '-=0.35')
+  .from('#demo', { y: 70, scale: .92, opacity: 0, duration: .9, ease: expo }, '-=0.3')
+  .from('.card', { y: 40, opacity: 0, scale: .95, duration: .7, stagger: .08, ease: expo }, '-=0.5')
+  .from('footer', { opacity: 0, duration: .6 }, '-=0.4');
+
+/* ---------- hero float + glow parallax ---------- */
+if (!reduce) {
+  gsap.to('#heromark', { y: -8, duration: 2.6, ease: 'sine.inOut', yoyo: true, repeat: -1 });
+  gsap.to('.glow', {
+    yPercent: 26, scale: 1.15, ease: 'none',
+    scrollTrigger: { trigger: 'body', start: 'top top', end: 'bottom top', scrub: 1.2 }
+  });
+  gsap.to('#demo', {
+    y: -30, ease: 'none',
+    scrollTrigger: { trigger: '#demo', start: 'top bottom', end: 'bottom top', scrub: 1 }
+  });
+}
+
+/* ---------- magnetic CTA ---------- */
+document.querySelectorAll('a.store, #navcta').forEach(btn => {
+  const xTo = gsap.quickTo(btn, 'x', { duration: .35, ease: 'power3.out' });
+  const yTo = gsap.quickTo(btn, 'y', { duration: .35, ease: 'power3.out' });
+  btn.addEventListener('pointermove', e => {
+    const r = btn.getBoundingClientRect();
+    xTo((e.clientX - r.left - r.width / 2) * 0.28);
+    yTo((e.clientY - r.top - r.height / 2) * 0.32);
+  });
+  btn.addEventListener('pointerleave', () => { xTo(0); yTo(0); gsap.to(btn, { scale: 1, ...spring }); });
+  btn.addEventListener('pointerdown', () => gsap.to(btn, { scale: .93, ...spring }));
+  btn.addEventListener('pointerup', () => gsap.to(btn, { scale: 1, ...spring }));
+});
+
+/* ---------- feature pills: hover morph ---------- */
+document.querySelectorAll('.feat').forEach(f => {
+  f.addEventListener('pointerenter', () => gsap.to(f, { y: -4, scale: 1.06, ...spring }));
+  f.addEventListener('pointerleave', () => gsap.to(f, { y: 0, scale: 1, ...spring }));
+});
+document.querySelectorAll('.card').forEach(c => {
+  c.addEventListener('pointerenter', () => gsap.to(c, { y: -5, scale: 1.02, ...spring }));
+  c.addEventListener('pointerleave', () => gsap.to(c, { y: 0, scale: 1, ...spring }));
+});
+
+/* ---------- live hold-to-talk demo ---------- */
+const btn = document.getElementById('talkbtn');
+const avatar = document.getElementById('avatar');
+const statusEl = document.getElementById('status');
+const hold = document.getElementById('holdlabel');
+const waveEls = document.querySelectorAll('#waves i');
+let holding = false, waveTl = null;
+
+function morphText(el, text) {
+  gsap.to(el, { opacity: 0, y: -8, duration: .18, ease: 'power2.in', onComplete() {
+    el.textContent = text;
+    gsap.fromTo(el, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: .25, ease: 'power2.out' });
+  }});
+}
+
+function startTalk() {
+  if (holding) return; holding = true;
+  gsap.to(btn, { scale: 1.18, borderRadius: '34%', duration: .35, ease: 'power3.out' });
+  gsap.to(avatar, {
+    borderColor: '#ff1f1f', scale: 1.06,
+    boxShadow: '0 0 0 10px rgba(255,31,31,0.10), 0 0 50px rgba(255,31,31,0.3)',
+    ...spring
+  });
+  statusEl.classList.add('talking');
+  morphText(statusEl, 'you\u2019re talking');
+  morphText(hold, 'release to send');
+  waveTl = gsap.timeline({ repeat: -1 });
+  waveEls.forEach((w, i) => {
+    waveTl.fromTo(w, { scale: 1, opacity: .55 },
+      { scale: 3.2, opacity: 0, duration: 1.5, ease: 'power1.out' }, i * 0.5);
+  });
+}
+function endTalk() {
+  if (!holding) return; holding = false;
+  gsap.to(btn, { scale: 1, borderRadius: '50%', ...spring });
+  gsap.to(avatar, {
+    borderColor: '#acfc69', scale: 1,
+    boxShadow: '0 0 0 6px rgba(172,252,105,0.08), 0 0 40px rgba(172,252,105,0.15)',
+    ...spring
+  });
+  statusEl.classList.remove('talking');
+  morphText(statusEl, 'online');
+  morphText(hold, 'hold to talk · slide up to lock');
+  if (waveTl) { waveTl.kill(); waveTl = null; }
+  gsap.to(waveEls, { opacity: 0, duration: .25 });
+}
+btn.addEventListener('pointerdown', e => { e.preventDefault(); btn.setPointerCapture(e.pointerId); startTalk(); });
+btn.addEventListener('pointerup', endTalk);
+btn.addEventListener('pointercancel', endTalk);
+btn.addEventListener('lostpointercapture', endTalk);
+</script>
 </body>
 </html>
