@@ -651,7 +651,7 @@ export function StickerPicker({
         <Animated.View
           entering={SlideInDown.duration(240)}
           exiting={FadeOut.duration(160)}
-          style={{ position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' }}
+          style={{ position: 'absolute', bottom: bottomInset + 62, left: 0, right: 0, alignItems: 'center' }}
           pointerEvents="none">
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(28,28,32,0.97)', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, maxWidth: '88%', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 12 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.danger }} />
