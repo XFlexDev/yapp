@@ -479,7 +479,7 @@ export function StickerPicker({
   const row = (title: string, items: React.ReactNode) => (
     <View style={{ gap: 8 }} key={title}>
       <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 12, paddingLeft: 4 }}>
-        {busyType === (title === 'custom emojis' ? 'emoji' : 'stickers') && (title === 'custom emojis' || title === 'my stickers') ? 'checking…' : title}
+        {title}
       </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 8 }}>
         {items}
@@ -643,9 +643,22 @@ export function StickerPicker({
               {packs.map((p) => row(p.title.toLowerCase(), p.stickers.map((s) => stickerCell(s))))}
             </>
           )}
-          {uploadError ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 13, paddingHorizontal: 4 }}>{uploadError}</Text> : null}
+
         </ScrollView>
       </Animated.View>
+
+      {uploadError ? (
+        <Animated.View
+          entering={SlideInDown.duration(240)}
+          exiting={FadeOut.duration(160)}
+          style={{ position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' }}
+          pointerEvents="none">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(28,28,32,0.97)', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, maxWidth: '88%', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 12 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.danger }} />
+            <Text style={{ color: '#fff', fontFamily: F.bold, fontSize: 13 }}>{uploadError}</Text>
+          </View>
+        </Animated.View>
+      ) : null}
 
       <Animated.View entering={FadeIn.delay(120).duration(180)} exiting={FadeOut.duration(120)} style={{ position: 'absolute', bottom: bottomInset + 10, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
         <View style={{ flexDirection: 'row', backgroundColor: 'rgba(30,30,34,0.96)', borderRadius: 24, padding: 4 }}>

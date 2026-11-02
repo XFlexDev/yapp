@@ -2813,7 +2813,7 @@ async fn upload_sticker(
     };
 
     if known.as_ref().is_some_and(|(_, _, _, _, _, status, _)| status.as_deref() == Some("blocked")) {
-        return Err(bad("this can't be used as a sticker"));
+        return Err(bad(if is_emoji { "this can't be used as an emoji" } else { "this can't be used as a sticker" }));
     }
 
     let should_scan = known.as_ref().map_or(true, |(_, _, _, _, _, status, _)| status.as_deref() != Some("ok"));
@@ -2839,7 +2839,7 @@ async fn upload_sticker(
                         category
                     ],
                 )?;
-                return Err(bad("this can't be used as a sticker"));
+                return Err(bad(if is_emoji { "this can't be used as an emoji" } else { "this can't be used as a sticker" }));
             }
             Err(crate::moderation::ReviewError::Unreadable(_)) => {
                 return Err(bad("couldn't read this image"));
