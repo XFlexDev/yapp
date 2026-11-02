@@ -17,6 +17,7 @@ import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { StickerPicker } from '../components/StickerPicker';
+import { InlineBody } from '../components/MsgInline';
 import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, saveSticker, type Sticker } from '../lib/stickers';
 import { BlurView } from 'expo-blur';
 
@@ -51,6 +52,48 @@ export function SectionLabel({ children }: { children: string }) {
 
 export function Glyph({ g, size = 20, color = '#fff' }: { g: keyof typeof G; size?: number; color?: string }) {
   return <SymbolView name={G[g][0] as any} tintColor={color} size={size} weight="bold" fallback={<MaterialCommunityIcons name={G[g][1] as any} size={size + 4} color={color} />} />;
+}
+
+const ZWSP = '​';
+const ID_TOKEN_RE = /:s-[0-9a-f]{32}:/;
+
+/** Composer pill: text input plus inline custom-emoji chips. `text` keeps the raw
+ * `:s-<id>:` tokens so messages stay plain strings; the chips are display-only. */
+export function ComposerPill({ text, onChange, placeholder, onSticker }: { text: string; onChange: (t: string) => void; placeholder: string; onSticker: () => void }) {
+  const segs = useMemo(() => text.split(/(:s-[0-9a-f]{32}:)/g), [text]);
+  const lastSeg = segs[segs.length - 1] ?? '';
+  const head = text.slice(0, text.length - lastSeg.length);
+  const change = (v: string) => {
+    if (!v.startsWith(ZWSP)) {
+      // The zero-width sentinel was deleted: backspace at the edge pops the last emoji chip.
+      let idx = -1;
+      const re = /:s-[0-9a-f]{32}:/g;
+      let mm;
+      while ((mm = re.exec(head)) !== null) idx = mm.index;
+      onChange(idx >= 0 ? head.slice(0, idx) : head);
+      return;
+    }
+    onChange(head + v.slice(1));
+  };
+  return (
+    <View style={{ flex: 1, minHeight: 44, maxHeight: 130, flexDirection: 'row', alignItems: 'center', borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', paddingLeft: 16, paddingRight: 4 }}>
+      <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+        {segs.map((s, i) => {
+          if (ID_TOKEN_RE.test(s)) {
+            return <Image key={i} source={mediaUrl(`${s.slice(1, -1)}.webp`)} style={{ width: 26, height: 26, marginRight: 3, borderRadius: 6 }} contentFit="contain" cachePolicy="memory-disk" />;
+          }
+          if (i === segs.length - 1) {
+            return (
+              <TextInput key={i} value={ZWSP + lastSeg} onChangeText={change} placeholder={placeholder} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
+                style={{ flexGrow: 1, minWidth: 56, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 0, paddingTop: 11, paddingBottom: 11 }} />
+            );
+          }
+          return <Text key={i} style={{ color: '#fff', fontFamily: F.bold, fontSize: 16, paddingTop: 11, paddingBottom: 11 }}>{s}</Text>;
+        })}
+      </View>
+      <Squish onPress={onSticker} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={19} /></Squish>
+    </View>
+  );
 }
 
 export function Backdrop({ bg, photo }: { bg: string | null; photo: string | null }) {
@@ -721,7 +764,9 @@ export default function ChatScreen() {
             <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.red }} />
             <View style={{ flex: 1 }}>
               <Text style={{ color: C.red, fontFamily: F.black, fontSize: 12 }}>{replyingTo.from === meId ? 'you' : nameOf(friend)}</Text>
-              <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{replyingTo.kind === 'image' ? '\ud83d\udcf7 photo' : replyingTo.kind === 'sticker' ? 'sticker' : replyingTo.body}</Text>
+              {replyingTo.kind === 'image' ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{'\ud83d\udcf7 photo'}</Text>
+                : replyingTo.kind === 'sticker' ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>sticker</Text>
+                : <InlineBody body={replyingTo.body} singleLine emojiSize={14} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }} />}
             </View>
             <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ paddingHorizontal: 4, paddingVertical: 6 }}>
               <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>cancel</Text>
@@ -730,11 +775,7 @@ export default function ChatScreen() {
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
-          <View style={{ flex: 1, minHeight: 44, maxHeight: 130, flexDirection: 'row', alignItems: 'center', borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', paddingLeft: 16, paddingRight: 4 }}>
-            <TextInput value={text} onChangeText={setText} placeholder="message" placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
-              style={{ flex: 1, minHeight: 44, maxHeight: 130, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 0, paddingTop: 11, paddingBottom: 11 }} />
-            <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={19} /></Squish>
-          </View>
+          <ComposerPill text={text} onChange={setText} placeholder="message" onSticker={() => { Haptics.selectionAsync(); setStickersVisible(true); }} />
           <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
             {sendVisible ? <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish> : null}
           </Animated.View>

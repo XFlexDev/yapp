@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,13 +9,21 @@ import { acceptInvite, createGroup, declineInvite } from '../lib/groups';
 import { useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
+import { InlineBody } from '../components/MsgInline';
 import { Avatar } from '../lib/ui';
 import { Glyph } from './chat';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
-const preview = (m: ChatMsg | null | undefined, me?: string) => (m ? `${m.from === me ? 'you: ' : ''}${m.kind === 'image' ? 'photo' : m.body}` : 'say hi');
+const preview = (m: ChatMsg | null | undefined, me?: string): React.ReactNode => {
+  if (!m) return 'say hi';
+  const pre = m.from === me ? 'you: ' : '';
+  if (m.kind === 'image') return `${pre}photo`;
+  if (m.kind === 'sticker') return `${pre}sticker`;
+  const st = { color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 };
+  return <InlineBody body={m.body} singleLine emojiSize={15} style={st} prefix={pre} />;
+};
 
-function Row({ title, sub, unread, left, onPress }: { title: string; sub: string; unread: number; left: React.ReactNode; onPress: (from?: { x: number; y: number; s: number }) => void }) {
+function Row({ title, sub, unread, left, onPress }: { title: string; sub: React.ReactNode; unread: number; left: React.ReactNode; onPress: (from?: { x: number; y: number; s: number }) => void }) {
   const ref = useRef<React.ComponentRef<typeof View>>(null);
   const press = () => (ref.current ? ref.current.measureInWindow((x, y, w) => onPress({ x, y, s: w })) : onPress());
   return (
@@ -23,7 +31,9 @@ function Row({ title, sub, unread, left, onPress }: { title: string; sub: string
       <View ref={ref}>{left}</View>
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }}>{title}</Text>
-        <Text numberOfLines={1} style={{ color: unread ? '#fff' : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 }}>{sub}</Text>
+        {typeof sub === 'string'
+          ? <Text numberOfLines={1} style={{ color: unread ? '#fff' : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 14 }}>{sub}</Text>
+          : sub}
       </View>
       {unread ? <View style={{ minWidth: 22, height: 22, borderRadius: 11, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 12 }}>{unread}</Text></View> : null}
     </Squish>

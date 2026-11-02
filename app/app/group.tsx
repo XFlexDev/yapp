@@ -15,7 +15,8 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
+import { Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
+import { InlineBody } from '../components/MsgInline';
 import { req } from '../lib/api';
 import { StickerPicker } from '../components/StickerPicker';
 import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
@@ -189,7 +190,9 @@ export default function GroupScreen() {
             <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.red }} />
             <View style={{ flex: 1 }}>
               <Text style={{ color: C.red, fontFamily: F.black, fontSize: 12 }}>{replyingTo.from === me?.id ? 'you' : nameOf(who(replyingTo.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}</Text>
-              <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{replyingTo.kind === 'image' ? '\ud83d\udcf7 photo' : replyingTo.kind === 'sticker' ? 'sticker' : replyingTo.body}</Text>
+              {replyingTo.kind === 'image' ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>{'\ud83d\udcf7 photo'}</Text>
+                : replyingTo.kind === 'sticker' ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }}>sticker</Text>
+                : <InlineBody body={replyingTo.body} singleLine emojiSize={14} style={{ color: 'rgba(255,255,255,0.7)', fontFamily: F.bold, fontSize: 13 }} />}
             </View>
             <Pressable onPress={() => setReplyingTo(null)} hitSlop={10} style={{ paddingHorizontal: 4, paddingVertical: 6 }}>
               <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>cancel</Text>
@@ -198,11 +201,7 @@ export default function GroupScreen() {
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
-          <View style={{ flex: 1, minHeight: 44, maxHeight: 130, flexDirection: 'row', alignItems: 'center', borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', paddingLeft: 16, paddingRight: 4 }}>
-            <TextInput value={text} onChangeText={setText} placeholder={`message ${g.name}`} placeholderTextColor="rgba(255,255,255,0.35)" multiline maxLength={2000} keyboardAppearance="dark" selectionColor={C.red}
-              style={{ flex: 1, minHeight: 44, maxHeight: 130, color: '#fff', fontFamily: F.bold, fontSize: 16, paddingHorizontal: 0, paddingTop: 11, paddingBottom: 11 }} />
-            <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(true); }} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="sticker" size={19} /></Squish>
-          </View>
+          <ComposerPill text={text} onChange={setText} placeholder={`message ${g.name}`} onSticker={() => { Haptics.selectionAsync(); setStickersVisible(true); }} />
           {sendVisible ? (
             <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
               <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish>
