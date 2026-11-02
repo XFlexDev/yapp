@@ -3,317 +3,377 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>yapp — talk like ten ten</title>
-<meta name="description" content="hold to talk, send photos, chat. the ten ten vibe, back.">
+<title>yapp: your friends, one hold away</title>
+<meta name="description" content="hold a friend's photo and talk. they hear you live. free walkie-talkie for your friends, on android.">
 <meta property="og:title" content="yapp">
-<meta property="og:description" content="hold to talk, send photos, chat. the ten ten vibe, back.">
-<meta property="og:image" content="https://yap.kreatix.dev/yapp-mark.png">
+<meta property="og:description" content="hold a friend's photo and talk. they hear you live.">
+<meta property="og:image" content="https://yap.kreatix.dev/l/icon.png">
 <meta name="theme-color" content="#000000">
-<link rel="icon" href="/yapp-mark.png">
+<link rel="icon" href="/l/icon.png">
+<link rel="apple-touch-icon" href="/l/icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #000; --surface: #111; --surface2: #1c1c1c; --line: #2a2a2a;
-    --dim: #9a9a9a; --faint: #5c5c5c; --red: #ff1f1f; --green: #acfc69;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: var(--bg); color: #fff;
-    font-family: 'Nunito', system-ui, sans-serif; font-weight: 600;
-    min-height: 100dvh; overflow-x: hidden; -webkit-font-smoothing: antialiased;
-  }
-  ::selection { background: var(--red); color: #fff; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+:root{
+  --bg:#000;--s1:#0d0d0d;--s2:#1c1c1c;--line:#222;
+  --text:#fff;--dim:#a3a3a3;--faint:#858585;
+  --red:#ff1f1f;--green:#5ee05e;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{background:var(--bg);scrollbar-color:#2a2a2a #000}
+body{color:var(--text);font-family:'Nunito',system-ui,sans-serif;font-weight:700;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:var(--red);color:#fff}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--red);outline-offset:3px;border-radius:999px}
+.container{max-width:1120px;margin:0 auto;padding:0 24px}
 
-  .glow {
-    position: fixed; top: -20dvh; left: 50%;
-    width: 120vw; max-width: 900px; height: 55dvh;
-    transform: translateX(-50%);
-    background: radial-gradient(ellipse at center, rgba(255,31,31,0.18), transparent 65%);
-    pointer-events: none; z-index: 0; will-change: transform;
-  }
+/* nav */
+nav{position:sticky;top:0;z-index:50;transition:background .3s var(--ease),backdrop-filter .3s}
+nav.scrolled{background:rgba(0,0,0,.72);backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4)}
+nav .container{display:flex;align-items:center;justify-content:space-between;height:68px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.logo img{width:34px;height:34px;border-radius:10px}
+.logo span{font-weight:900;font-size:22px;letter-spacing:-.02em}
+.nav-cta{font-size:14px;font-weight:800;text-decoration:none;background:#fff;color:#000;padding:9px 16px;border-radius:999px;display:inline-block}
 
-  nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
-  nav img { height: 30px; }
-  nav a.pill {
-    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
-    background: var(--surface2); padding: 10px 18px; border-radius: 999px;
-    display: inline-block; will-change: transform;
-  }
+/* hero */
+.hero{padding:56px 0 96px}
+.hero .container{display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:56px}
+h1{font-weight:900;font-size:clamp(44px,5.6vw,72px);line-height:.98;letter-spacing:-.035em;text-wrap:balance}
+h1 .red{color:var(--red)}
+.lede{color:var(--dim);font-size:clamp(17px,1.6vw,20px);line-height:1.5;margin-top:22px;max-width:34ch;font-weight:700}
+.actions{display:flex;align-items:center;gap:16px;margin-top:36px;flex-wrap:wrap}
+.play{display:inline-flex;align-items:center;gap:12px;background:#fff;color:#000;text-decoration:none;padding:12px 22px 12px 16px;border-radius:16px;box-shadow:0 8px 30px rgba(255,255,255,.08)}
+.play svg{width:26px;height:26px;flex:none}
+.play small{display:block;font-size:11px;font-weight:800;color:#555;line-height:1;text-transform:uppercase;letter-spacing:.06em}
+.play b{display:block;font-size:19px;font-weight:900;line-height:1.15;letter-spacing:-.01em}
+.note{color:var(--faint);font-size:14px;font-weight:800}
 
-  header { padding: 8dvh 0 5dvh; text-align: center; }
-  .hero-mark {
-    width: min(280px, 64vw); margin: 0 auto 26px; display: block;
-    filter: drop-shadow(0 18px 60px rgba(255,31,31,0.35));
-    will-change: transform;
-  }
-  h1 { font-weight: 900; font-size: clamp(34px, 8vw, 54px); line-height: 1.04; letter-spacing: -0.02em; }
-  h1 .line { display: block; overflow: hidden; }
-  h1 .line > span { display: inline-block; will-change: transform; }
-  h1 em { font-style: normal; color: var(--red); }
-  .tag { color: var(--dim); font-size: 17px; margin-top: 16px; line-height: 1.55; }
-  .tag .line { display: block; overflow: hidden; }
-  .tag .line > span { display: inline-block; }
+/* phone */
+.phone-wrap{display:flex;justify-content:center;position:relative}
+.phone-wrap::before{content:'';position:absolute;width:520px;height:520px;max-width:120%;border-radius:50%;background:radial-gradient(circle,rgba(255,31,31,.22),transparent 62%);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none}
+.phone{position:relative;width:300px;height:620px;border-radius:52px;background:#000;border:1px solid #2b2b2b;box-shadow:0 0 0 7px #0b0b0b,0 0 0 8px #262626,0 40px 90px -20px rgba(0,0,0,.9);overflow:hidden;flex:none}
+.island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:96px;height:28px;border-radius:20px;background:#000;z-index:5;box-shadow:0 0 0 1px #111}
+.sbar{display:flex;justify-content:space-between;padding:16px 28px 0;font-size:14px;font-weight:900;height:44px}
+.sbar i{display:inline-block;width:22px;height:11px;border:1.5px solid #fff;border-radius:3px;position:relative;top:1px}
+.sbar i::after{content:'';position:absolute;inset:1.5px 5px 1.5px 1.5px;background:#fff;border-radius:1px}
+.ph-top{display:flex;justify-content:space-between;align-items:center;padding:14px 20px 0}
+.ph-dot{width:34px;height:34px;border-radius:50%;background:var(--s2);display:flex;align-items:center;justify-content:center}
+.ph-dot svg{width:16px;height:16px}
 
-  .cta { margin-top: 36px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  a.store {
-    display: inline-flex; align-items: center; gap: 10px;
-    background: var(--red); color: #fff; font-weight: 900; font-size: 16px; text-decoration: none;
-    padding: 16px 30px; border-radius: 999px;
-    box-shadow: 0 10px 40px rgba(255,31,31,0.35);
-    will-change: transform; position: relative;
-  }
-  a.store svg { width: 20px; height: 20px; }
-  .soon { color: var(--faint); font-size: 13px; font-weight: 800; }
+.stage{position:relative;height:330px;display:flex;align-items:center;justify-content:center;margin-top:18px}
+.big{position:absolute;width:212px;height:212px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:92px;font-weight:900;color:#fff;will-change:transform}
+.big .ring{position:absolute;inset:-9px;border-radius:50%;border:4px solid var(--red);opacity:0}
+.big .on{position:absolute;right:14px;bottom:14px;width:30px;height:30px;border-radius:50%;background:var(--green);border:5px solid #000}
+.pulse{position:absolute;width:212px;height:212px;border-radius:50%;border:2px solid rgba(255,31,31,.55);opacity:0;pointer-events:none}
+.who{text-align:center;font-size:24px;font-weight:900;letter-spacing:-.02em;height:32px;position:relative}
+.who span{position:absolute;left:0;right:0}
+.bubble-row{display:flex;justify-content:center;margin-top:14px;height:40px}
+.bubble{background:var(--s2);border-radius:999px;height:40px;display:flex;align-items:center;justify-content:center;padding:0 18px;font-size:15px;font-weight:900;white-space:nowrap;overflow:hidden;gap:8px}
+.bubble svg{width:13px;height:13px;flex:none}
+.carousel{display:flex;justify-content:center;gap:12px;margin-top:34px}
+.mini{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:900;opacity:.45;transition:none}
+.finger{position:absolute;width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);opacity:0;pointer-events:none;z-index:4}
 
-  .feats { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 44px; }
-  .feat {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
-    padding: 10px 18px; font-weight: 800; font-size: 14px; color: var(--dim);
-    will-change: transform, opacity;
-  }
-  .feat b { color: #fff; }
+/* sections */
+section.feature{padding:120px 0}
+.feature .container{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:72px}
+.feature.flip .text{order:2}
+h2{font-weight:900;font-size:clamp(36px,4.6vw,58px);line-height:1;letter-spacing:-.035em;text-wrap:balance}
+.feature p{color:var(--dim);font-size:18px;line-height:1.55;margin-top:18px;max-width:36ch}
+.ticks{list-style:none;margin-top:26px;display:grid;gap:12px}
+.ticks li{display:flex;align-items:center;gap:12px;font-size:16px;font-weight:800}
+.ticks svg{width:20px;height:20px;flex:none}
 
-  .demo {
-    margin: 64px auto 0; max-width: 360px;
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: 34px; padding: 26px 20px 30px;
-    text-align: center; position: relative; overflow: hidden;
-    will-change: transform;
-  }
-  .demo::before {
-    content: ''; position: absolute; inset: 0 0 auto; height: 90px;
-    background: linear-gradient(rgba(0,0,0,0.5), transparent);
-  }
-  .demo .avatar {
-    width: 84px; height: 84px; border-radius: 50%;
-    background: linear-gradient(135deg, #333, #1a1a1a);
-    margin: 8px auto 14px; display: flex; align-items: center; justify-content: center;
-    font-weight: 900; font-size: 34px; color: var(--green);
-    border: 3px solid var(--green);
-    will-change: transform, border-color, box-shadow;
-  }
-  .demo .who { font-weight: 900; font-size: 20px; }
-  .demo .st { color: var(--green); font-size: 13px; font-weight: 800; margin-top: 3px; min-height: 17px; }
-  .demo .st.talking { color: var(--red); }
-  .demo .talkbtn {
-    margin: 22px auto 0; width: 88px; height: 88px; border-radius: 50%;
-    background: var(--red); display: flex; align-items: center; justify-content: center;
-    cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
-    box-shadow: 0 0 0 10px rgba(255,31,31,0.12), 0 10px 36px rgba(255,31,31,0.4);
-    will-change: transform, border-radius; touch-action: none;
-  }
-  .demo .talkbtn svg { width: 34px; height: 34px; pointer-events: none; }
-  .demo .hold { color: var(--faint); font-size: 12px; font-weight: 800; margin-top: 14px; letter-spacing: .04em; min-height: 15px; }
-  .waves { position: absolute; left: 50%; top: 60%; transform: translate(-50%,-50%); pointer-events: none; }
-  .waves i {
-    position: absolute; left: 0; top: 0; width: 88px; height: 88px;
-    margin: -44px; border-radius: 50%; border: 2px solid rgba(255,31,31,0.4);
-    opacity: 0;
-  }
+/* chat mock */
+.chat{width:100%;max-width:420px;margin:0 auto;background:var(--s1);border:1px solid var(--line);border-radius:36px;padding:22px 18px 18px;position:relative;overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:12px;padding:0 4px 18px;border-bottom:1px solid var(--line)}
+.av{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;flex:none}
+.chat-head b{display:block;font-size:17px;font-weight:900}
+.chat-head small{color:var(--green);font-size:13px;font-weight:800}
+.msgs{display:flex;flex-direction:column;gap:6px;padding:20px 2px 16px;min-height:300px;justify-content:flex-end}
+.m{max-width:72%;padding:10px 16px;border-radius:22px;font-size:16px;font-weight:800;line-height:1.3}
+.m.them{background:var(--s2);align-self:flex-start;border-bottom-left-radius:8px}
+.m.me{background:var(--red);align-self:flex-end;border-bottom-right-radius:8px}
+.m.sticker{background:none;padding:0}
+.m.sticker img{width:96px;height:96px;display:block}
+.react{align-self:flex-end;margin-top:-12px;margin-right:6px;background:#262626;border:2px solid var(--s1);border-radius:999px;font-size:13px;padding:2px 8px;font-weight:900}
+.composer{display:flex;gap:8px;align-items:center}
+.composer div{flex:1;height:44px;border-radius:999px;background:var(--s2);color:var(--faint);display:flex;align-items:center;padding:0 18px;font-size:15px;font-weight:800}
+.composer span{width:44px;height:44px;border-radius:50%;background:var(--s2);display:flex;align-items:center;justify-content:center}
+.composer svg{width:18px;height:18px}
 
-  section.more { padding: 9dvh 0 3dvh; }
-  .grid { display: grid; gap: 10px; }
-  @media (min-width: 560px) { .grid { grid-template-columns: 1fr 1fr; } }
-  .card {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: 24px; padding: 22px; will-change: transform, opacity;
-  }
-  .card h3 { font-weight: 900; font-size: 18px; letter-spacing: -0.01em; }
-  .card h3 span { color: var(--red); }
-  .card p { color: var(--dim); font-size: 14px; margin-top: 6px; line-height: 1.55; }
+/* wave */
+.wave-card{position:relative;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1;border-radius:36px;background:radial-gradient(circle at 50% 42%,#1d1d1d,#0a0a0a 70%);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.wave-card img{width:58%;filter:drop-shadow(0 30px 40px rgba(0,0,0,.6));transform-origin:70% 90%}
+.notif{position:absolute;top:22px;left:22px;right:22px;background:rgba(40,40,40,.78);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:22px;padding:13px 14px;display:flex;gap:12px;align-items:center}
+.notif img{width:38px;height:38px;border-radius:10px;filter:none}
+.notif b{display:block;font-size:14px;font-weight:900}
+.notif span{font-size:14px;color:#d0d0d0;font-weight:700}
+.notif em{margin-left:auto;align-self:flex-start;font-style:normal;color:#9a9a9a;font-size:12px;font-weight:800}
 
-  footer { padding: 8dvh 0 42px; text-align: center; color: var(--faint); font-size: 13px; font-weight: 800; }
-  footer a { color: var(--dim); text-decoration: none; margin: 0 10px; }
-  footer a:hover { color: #fff; }
-  footer .footmark { height: 18px; opacity: .5; vertical-align: -4px; margin-right: 8px; }
+/* trust */
+.trust{padding:110px 0 120px}
+.trust h2{max-width:14ch}
+.trust-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:56px}
+.trust-grid div{border-top:1px solid #2a2a2a;padding-top:22px}
+.trust-grid b{font-size:20px;font-weight:900;letter-spacing:-.01em;display:block}
+.trust-grid p{color:var(--dim);font-size:16px;line-height:1.55;margin-top:8px}
+
+/* final */
+.final{margin:0 24px 24px;border-radius:40px;background:var(--red);padding:110px 24px;text-align:center;position:relative;overflow:hidden}
+.final h2{font-size:clamp(44px,7vw,92px);color:#fff}
+.final p{color:#fff;font-size:19px;margin:18px auto 0;max-width:32ch;line-height:1.5}
+.final .play{margin-top:36px;box-shadow:0 18px 40px rgba(120,0,0,.45)}
+.final .fire{position:absolute;width:150px;right:6%;bottom:-24px;transform:rotate(12deg);opacity:.95}
+.final .hand{position:absolute;width:130px;left:5%;top:30px;transform:rotate(-14deg)}
+
+footer .container{display:flex;justify-content:space-between;align-items:center;padding:28px 24px 40px;color:var(--faint);font-size:14px;font-weight:800;flex-wrap:wrap;gap:12px}
+footer nav{position:static;display:flex;gap:22px}
+footer a{text-decoration:none;color:var(--dim)}
+footer a:hover{color:#fff}
+
+@media (max-width:900px){
+  .hero{padding:28px 0 72px}
+  .hero .container,.feature .container{grid-template-columns:1fr;gap:56px}
+  .hero .text{text-align:center}
+  .lede{margin-left:auto;margin-right:auto}
+  .actions{justify-content:center}
+  .feature.flip .text{order:0}
+  section.feature{padding:72px 0}
+  .trust-grid{grid-template-columns:1fr;gap:28px}
+  .final .fire{width:96px}.final .hand{width:84px;top:20px}
+  .final{padding:96px 20px 110px;margin:0 12px 12px;border-radius:32px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<div class="glow"></div>
-<div class="wrap">
-  <nav>
-    <img src="/yapp-mark.png" alt="yapp" id="navmark">
-    <a class="pill" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp" id="navcta">get the app</a>
-  </nav>
 
-  <header>
-    <img class="hero-mark" src="/yapp-mark.png" alt="yapp" id="heromark">
-    <h1 id="headline">
-      <span class="line"><span>hold to talk.</span></span>
-      <span class="line"><span><em>that's it.</em></span></span>
-    </h1>
-    <p class="tag" id="tagline">
-      <span class="line"><span>photos, chats, stickers and live voice with your friends.</span></span>
-      <span class="line"><span>the ten ten vibe — back.</span></span>
-    </p>
-    <div class="cta">
-      <a class="store" id="storecta" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.6 1.8 13.4 12 3.6 22.2c-.3-.3-.5-.7-.5-1.2V3c0-.5.2-.9.5-1.2Zm11.4 8.6L4.9 1.9l10.4 5.9-.3 2.6Zm3.4 1.6c.5.3.8.7.8 1.2s-.3.9-.8 1.2l-2.9 1.6-2.3-2.8 2.3-2.8 2.9 1.6Zm-13.5 8.5L15 13.6l.3 2.6-10.4 5.9Z"/></svg>
-        get it on google play
-      </a>
-      <span class="soon">ios soon · free, no ads</span>
-    </div>
-    <div class="feats">
-      <div class="feat"><b>hold to talk</b> live voice</div>
-      <div class="feat"><b>photos</b> full-bleed</div>
-      <div class="feat"><b>chats</b> dms + groups</div>
-      <div class="feat"><b>stickers</b> + custom emoji</div>
-      <div class="feat"><b>pokes</b> and waves</div>
-      <div class="feat"><b>calls</b> voice + video</div>
-    </div>
-  </header>
-
-  <div class="demo" id="demo">
-    <div class="avatar" id="avatar">e</div>
-    <div class="who">eetu</div>
-    <div class="st" id="status">online</div>
-    <div class="talkbtn" id="talkbtn">
-      <svg viewBox="0 0 24 24" fill="#fff"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6.5-3.5a6.5 6.5 0 0 1-13 0H4a8 8 0 0 0 7 7.94V21H6.5v1.5h11V21H13v-1.56A8 8 0 0 0 20 11.5h-1.5Z"/></svg>
-    </div>
-    <div class="waves" id="waves"><i></i><i></i><i></i></div>
-    <div class="hold" id="holdlabel">hold to talk · slide up to lock</div>
+<nav id="nav">
+  <div class="container">
+    <a class="logo" href="/"><img src="/l/icon.png" alt=""><span>yapp</span></a>
+    <a class="nav-cta" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">get yapp</a>
   </div>
+</nav>
 
-  <section class="more">
-    <div class="grid">
-      <div class="card"><h3>your people <span>only</span></h3><p>no feed, no strangers. add friends with a link, talk instantly.</p></div>
-      <div class="card"><h3>encrypted <span>media</span></h3><p>photos and stickers are encrypted before they leave the server — storage only ever sees scrambled bytes.</p></div>
-      <div class="card"><h3>safe <span>stickers</span></h3><p>every custom sticker and emoji passes an ai safety check before anyone can use it.</p></div>
-      <div class="card"><h3>always <span>free</span></h3><p>no tiers, no ads, no paywall. just talk.</p></div>
+<header class="hero">
+  <div class="container">
+    <div class="text">
+      <h1 class="reveal-h">your friends,<br><span class="red" style="white-space:nowrap">one hold away.</span></h1>
+      <p class="lede reveal">hold a friend's photo and talk. they hear you live, no calling, no waiting.</p>
+      <div class="actions reveal">
+        <a class="play" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">
+          <svg viewBox="0 0 24 24"><path fill="#00d7fe" d="M3.6 1.8 13.4 12 3.6 22.2c-.3-.3-.5-.7-.5-1.2V3c0-.5.2-.9.5-1.2Z"/><path fill="#ffce00" d="m18.4 10.4-3.1-1.8L13.4 12l1.9 3.4 3.1-1.8c.5-.3.8-.9.8-1.6s-.3-1.3-.8-1.6Z"/><path fill="#00f076" d="M15.3 8.6 4.9 1.9c-.5-.3-.9-.3-1.3-.1L13.4 12l1.9-3.4Z"/><path fill="#ff3a44" d="M3.6 22.2c.4.2.8.2 1.3-.1l10.4-6.7-1.9-3.4-9.8 10.2Z"/></svg>
+          <span><small>get it on</small><b>Google Play</b></span>
+        </a>
+        <span class="note">free · ios coming soon</span>
+      </div>
     </div>
-  </section>
 
-  <footer>
-    <img class="footmark" src="/yapp-mark.png" alt="">
-    <a href="/privacy">privacy</a>
-    <a href="/terms">terms</a>
-    <div style="margin-top:10px">made by kreatix</div>
-  </footer>
-</div>
+    <div class="phone-wrap reveal-phone">
+      <div class="phone" id="phone">
+        <div class="island"></div>
+        <div class="sbar"><span>9:41</span><i></i></div>
+        <div class="ph-top">
+          <div class="ph-dot"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+          <div class="ph-dot"><svg viewBox="0 0 24 24" fill="#fff"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.4 3.6c-.6.5-1.6 0-1.6-.8Z"/></svg></div>
+        </div>
+        <div class="stage" id="stage">
+          <div class="pulse"></div><div class="pulse"></div>
+          <div class="big" id="big" style="background:#e94fbf"><span id="bigL">e</span><div class="ring" id="ring"></div><div class="on"></div></div>
+          <div class="finger" id="finger"></div>
+        </div>
+        <div class="who" id="who"><span>eetu</span></div>
+        <div class="bubble-row"><div class="bubble" id="bubble"><span id="bubbleT">hold to talk</span></div></div>
+        <div class="carousel" id="carousel">
+          <div class="mini" style="background:#e94fbf;opacity:1">e</div>
+          <div class="mini" style="background:#6c5cf5">l</div>
+          <div class="mini" style="background:#c2410c">a</div>
+          <div class="mini" style="background:#047857">m</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="feature">
+  <div class="container">
+    <div class="text reveal">
+      <h2>chats that feel like yours.</h2>
+      <p>dms and group chats with your own photo backgrounds, reactions, replies and stickers anyone can make.</p>
+      <ul class="ticks">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="#ff1f1f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>custom stickers and emoji</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="#ff1f1f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>voice and video calls</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="#ff1f1f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>missed talks saved for later</li>
+      </ul>
+    </div>
+    <div class="chat reveal-up" id="chat">
+      <div class="chat-head"><div class="av" style="background:#6c5cf5">l</div><div><b>lumi</b><small>online</small></div></div>
+      <div class="msgs">
+        <div class="m them">u up?</div>
+        <div class="m me">ya</div>
+        <div class="m me">hold my pic i'll pick up</div>
+        <div class="react">❤️ 1</div>
+        <div class="m them sticker"><img src="/l/fire.png" alt="fire sticker"></div>
+        <div class="m them">omw</div>
+      </div>
+      <div class="composer"><div>message lumi</div><span><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6.5-3.5a6.5 6.5 0 0 1-13 0H4a8 8 0 0 0 7 7.94V21H6.5v1.5h11V21H13v-1.56A8 8 0 0 0 20 11.5h-1.5Z"/></svg></span></div>
+    </div>
+  </div>
+</section>
+
+<section class="feature flip">
+  <div class="container">
+    <div class="wave-card reveal-up" id="waveCard">
+      <div class="notif" id="notif"><img src="/l/icon.png" alt=""><div><b>eetu</b><span>waved at you</span></div><em>now</em></div>
+      <img id="waveHand" src="/l/wave_3d.png" alt="waving hand">
+    </div>
+    <div class="text reveal">
+      <h2>not in the mood to talk? wave.</h2>
+      <p>pokes and waves land on their screen instantly. turn on do not disturb when you need quiet, or mute someone for an hour.</p>
+    </div>
+  </div>
+</section>
+
+<section class="trust">
+  <div class="container">
+    <h2 class="reveal">built for friends, not feeds.</h2>
+    <div class="trust-grid">
+      <div class="reveal"><b>only people you add</b><p>no strangers, no feed, no followers. you add friends with a link or their username.</p></div>
+      <div class="reveal"><b>encrypted media</b><p>your photos and stickers are encrypted on our server before they're stored anywhere.</p></div>
+      <div class="reveal"><b>free, for real</b><p>no ads, no paid tier, no subscriptions. just talk.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="final reveal-up" id="final">
+  <img class="hand" src="/l/wave_3d.png" alt="">
+  <img class="fire" src="/l/fire.png" alt="">
+  <h2>start yapping.</h2>
+  <p>get yapp on android and add your friends in a minute.</p>
+  <a class="play" href="https://play.google.com/store/apps/details?id=dev.kreatix.yapp">
+    <svg viewBox="0 0 24 24"><path fill="#00d7fe" d="M3.6 1.8 13.4 12 3.6 22.2c-.3-.3-.5-.7-.5-1.2V3c0-.5.2-.9.5-1.2Z"/><path fill="#ffce00" d="m18.4 10.4-3.1-1.8L13.4 12l1.9 3.4 3.1-1.8c.5-.3.8-.9.8-1.6s-.3-1.3-.8-1.6Z"/><path fill="#00f076" d="M15.3 8.6 4.9 1.9c-.5-.3-.9-.3-1.3-.1L13.4 12l1.9-3.4Z"/><path fill="#ff3a44" d="M3.6 22.2c.4.2.8.2 1.3-.1l10.4-6.7-1.9-3.4-9.8 10.2Z"/></svg>
+    <span><small>get it on</small><b>Google Play</b></span>
+  </a>
+</section>
+
+<footer>
+  <div class="container">
+    <span>© 2026 kreatix</span>
+    <nav><a href="/privacy">privacy</a><a href="/terms">terms</a><a href="mailto:info@kreatix.dev">contact</a></nav>
+  </div>
+</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
 <script>
+(() => {
+const nav = document.getElementById('nav');
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
+if (!window.gsap || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 gsap.registerPlugin(ScrollTrigger);
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const spring = { type: 'spring', stiffness: 260, damping: 24, mass: 0.9 };
-const expo = 'expo.out';
+const E = 'expo.out';
 
-/* ---------- entrance ---------- */
-const intro = gsap.timeline({ defaults: { ease: expo } });
-intro
-  .from('#navmark', { y: -26, opacity: 0, duration: .8, clearProps: 'all' }, .05)
-  .from('#navcta', { y: -26, opacity: 0, scale: .8, duration: .7, clearProps: 'all' }, .15)
-  .from('#heromark', {
-    scale: .4, y: 60, rotation: -14, opacity: 0, duration: 1.1,
-    ease: 'elastic.out(1, 0.55)', clearProps: 'opacity'
-  }, .1)
-  .from('#headline .line > span', {
-    yPercent: 110, duration: .9, stagger: .09, ease: expo
-  }, '-=0.7')
-  .from('#tagline .line > span', {
-    yPercent: 110, duration: .8, stagger: .08, ease: expo
-  }, '-=0.6')
-  .from('#storecta', { scale: .5, opacity: 0, duration: .8, ease: 'elastic.out(1, 0.5)' }, '-=0.45')
-  .from('.soon', { opacity: 0, y: 10, duration: .5 }, '-=0.4')
-  .from('.feat', {
-    scale: .6, opacity: 0, duration: .55, stagger: { each: .055, from: 'random' },
-    ease: 'back.out(2.2)', clearProps: 'opacity'
-  }, '-=0.35')
-  .from('#demo', { y: 70, scale: .92, opacity: 0, duration: .9, ease: expo }, '-=0.3')
-  .from('.card', { y: 40, opacity: 0, scale: .95, duration: .7, stagger: .08, ease: expo }, '-=0.5')
-  .from('footer', { opacity: 0, duration: .6 }, '-=0.4');
+/* hero entrance */
+gsap.timeline({ defaults: { ease: E } })
+  .from('.reveal-h', { y: 40, autoAlpha: 0, filter: 'blur(14px)', duration: 1.2 })
+  .from('.hero .reveal', { y: 24, autoAlpha: 0, filter: 'blur(10px)', duration: 1, stagger: .1 }, '-=0.9')
+  .from('.reveal-phone', { y: 80, scale: .94, autoAlpha: 0, filter: 'blur(16px)', duration: 1.4 }, '-=1.1');
 
-/* ---------- hero float + glow parallax ---------- */
-if (!reduce) {
-  gsap.to('#heromark', { y: -8, duration: 2.6, ease: 'sine.inOut', yoyo: true, repeat: -1 });
-  gsap.to('.glow', {
-    yPercent: 26, scale: 1.15, ease: 'none',
-    scrollTrigger: { trigger: 'body', start: 'top top', end: 'bottom top', scrub: 1.2 }
-  });
-  gsap.to('#demo', {
-    y: -30, ease: 'none',
-    scrollTrigger: { trigger: '#demo', start: 'top bottom', end: 'bottom top', scrub: 1 }
-  });
-}
-
-/* ---------- magnetic CTA ---------- */
-document.querySelectorAll('a.store, #navcta').forEach(btn => {
-  const xTo = gsap.quickTo(btn, 'x', { duration: .35, ease: 'power3.out' });
-  const yTo = gsap.quickTo(btn, 'y', { duration: .35, ease: 'power3.out' });
-  btn.addEventListener('pointermove', e => {
-    const r = btn.getBoundingClientRect();
-    xTo((e.clientX - r.left - r.width / 2) * 0.28);
-    yTo((e.clientY - r.top - r.height / 2) * 0.32);
-  });
-  btn.addEventListener('pointerleave', () => { xTo(0); yTo(0); gsap.to(btn, { scale: 1, ...spring }); });
-  btn.addEventListener('pointerdown', () => gsap.to(btn, { scale: .93, ...spring }));
-  btn.addEventListener('pointerup', () => gsap.to(btn, { scale: 1, ...spring }));
+/* scroll reveals */
+gsap.utils.toArray('section .reveal').forEach(el => {
+  gsap.from(el, { y: 32, autoAlpha: 0, filter: 'blur(10px)', duration: 1.1, ease: E,
+    scrollTrigger: { trigger: el, start: 'top 86%' } });
+});
+gsap.utils.toArray('.reveal-up').forEach(el => {
+  gsap.from(el, { y: 70, scale: .96, autoAlpha: 0, duration: 1.3, ease: E,
+    scrollTrigger: { trigger: el, start: 'top 88%' } });
 });
 
-/* ---------- feature pills: hover morph ---------- */
-document.querySelectorAll('.feat').forEach(f => {
-  f.addEventListener('pointerenter', () => gsap.to(f, { y: -4, scale: 1.06, ...spring }));
-  f.addEventListener('pointerleave', () => gsap.to(f, { y: 0, scale: 1, ...spring }));
-});
-document.querySelectorAll('.card').forEach(c => {
-  c.addEventListener('pointerenter', () => gsap.to(c, { y: -5, scale: 1.02, ...spring }));
-  c.addEventListener('pointerleave', () => gsap.to(c, { y: 0, scale: 1, ...spring }));
+/* chat bubbles pop in */
+gsap.from('#chat .msgs > *', {
+  scale: .6, autoAlpha: 0, y: 14, duration: .6, ease: 'back.out(1.8)', stagger: .22,
+  transformOrigin: (i, el) => el.classList.contains('me') ? '100% 100%' : '0% 100%',
+  scrollTrigger: { trigger: '#chat', start: 'top 70%' }
 });
 
-/* ---------- live hold-to-talk demo ---------- */
-const btn = document.getElementById('talkbtn');
-const avatar = document.getElementById('avatar');
-const statusEl = document.getElementById('status');
-const hold = document.getElementById('holdlabel');
-const waveEls = document.querySelectorAll('#waves i');
-let holding = false, waveTl = null;
+/* wave: notification drops, hand waves */
+const wv = gsap.timeline({ paused: true, repeat: -1, repeatDelay: 1.6 })
+  .fromTo('#notif', { y: -90, autoAlpha: 0, scale: .9 }, { y: 0, autoAlpha: 1, scale: 1, duration: .8, ease: E })
+  .to('#waveHand', { keyframes: { rotation: [0, -16, 12, -12, 8, 0] }, duration: 1.3, ease: 'sine.inOut' }, '-=0.4')
+  .to('#notif', { y: -90, autoAlpha: 0, scale: .9, duration: .6, ease: 'power3.in' }, '+=1.2');
+ScrollTrigger.create({ trigger: '#waveCard', start: 'top 80%', end: 'bottom top',
+  onEnter: () => wv.play(), onEnterBack: () => wv.play(), onLeave: () => wv.pause(), onLeaveBack: () => wv.pause() });
 
-function morphText(el, text) {
-  gsap.to(el, { opacity: 0, y: -8, duration: .18, ease: 'power2.in', onComplete() {
-    el.textContent = text;
-    gsap.fromTo(el, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: .25, ease: 'power2.out' });
-  }});
+/* final band */
+gsap.to('#final .fire', { y: -40, rotation: 4, ease: 'none', scrollTrigger: { trigger: '#final', start: 'top bottom', end: 'bottom top', scrub: 1 } });
+gsap.to('#final .hand', { y: 30, rotation: -4, ease: 'none', scrollTrigger: { trigger: '#final', start: 'top bottom', end: 'bottom top', scrub: 1 } });
+
+/* buttons: springy press */
+document.querySelectorAll('.play,.nav-cta').forEach(b => {
+  b.addEventListener('pointerenter', () => gsap.to(b, { y: -2, scale: 1.03, duration: .4, ease: E }));
+  b.addEventListener('pointerleave', () => gsap.to(b, { y: 0, scale: 1, duration: .5, ease: E }));
+  b.addEventListener('pointerdown', () => gsap.to(b, { scale: .96, duration: .15, ease: 'power2.out' }));
+  b.addEventListener('pointerup', () => gsap.to(b, { scale: 1.03, duration: .5, ease: 'elastic.out(1,.6)' }));
+});
+
+/* hero phone: the authored moment. press-to-talk, lock hint, release, swipe to next friend */
+const friends = [
+  { n: 'eetu', l: 'e', c: '#e94fbf' },
+  { n: 'lumi', l: 'l', c: '#6c5cf5' },
+  { n: 'aino', l: 'a', c: '#c2410c' },
+  { n: 'miro', l: 'm', c: '#047857' }
+];
+const big = document.getElementById('big'), bigL = document.getElementById('bigL');
+const who = document.getElementById('who'), bubble = document.getElementById('bubble'), bubbleT = document.getElementById('bubbleT');
+const minis = gsap.utils.toArray('.mini'), pulses = gsap.utils.toArray('.pulse');
+const finger = document.getElementById('finger');
+let idx = 0;
+
+function setBubble(text, red) {
+  const from = bubble.offsetWidth;
+  bubbleT.textContent = text;
+  bubble.style.width = 'auto';
+  const to = bubble.offsetWidth;
+  gsap.fromTo(bubble, { width: from }, { width: to, duration: .5, ease: E, onComplete: () => bubble.style.width = 'auto' });
+  gsap.to(bubble, { backgroundColor: red ? '#ff1f1f' : '#1c1c1c', duration: .35 });
+  gsap.fromTo(bubbleT, { autoAlpha: 0, y: 8, filter: 'blur(4px)' }, { autoAlpha: 1, y: 0, filter: 'blur(0px)', duration: .4, ease: E });
 }
 
-function startTalk() {
-  if (holding) return; holding = true;
-  gsap.to(btn, { scale: 1.18, borderRadius: '34%', duration: .35, ease: 'power3.out' });
-  gsap.to(avatar, {
-    borderColor: '#ff1f1f', scale: 1.06,
-    boxShadow: '0 0 0 10px rgba(255,31,31,0.10), 0 0 50px rgba(255,31,31,0.3)',
-    ...spring
-  });
-  statusEl.classList.add('talking');
-  morphText(statusEl, 'you\u2019re talking');
-  morphText(hold, 'release to send');
-  waveTl = gsap.timeline({ repeat: -1 });
-  waveEls.forEach((w, i) => {
-    waveTl.fromTo(w, { scale: 1, opacity: .55 },
-      { scale: 3.2, opacity: 0, duration: 1.5, ease: 'power1.out' }, i * 0.5);
-  });
+function cycle() {
+  const f = friends[idx], next = friends[(idx + 1) % friends.length];
+  const tl = gsap.timeline({ onComplete: () => { idx = (idx + 1) % friends.length; cycle(); } });
+  tl.to({}, { duration: 1.1 })
+    .fromTo(finger, { autoAlpha: 0, scale: 1.4, x: 30, y: 40 }, { autoAlpha: 1, scale: 1, x: 44, y: 52, duration: .45, ease: E, immediateRender: false })
+    .to(big, { scale: .92, duration: .25, ease: 'power2.out' }, '<.25')
+    .to('#ring', { autoAlpha: 1, duration: .25 }, '<')
+    .call(() => setBubble('talking to ' + f.n, true))
+    .to(big, { scale: 1.04, duration: .6, ease: 'elastic.out(1,.7)' })
+    .fromTo(pulses, { scale: 1, autoAlpha: .7 }, { scale: 1.55, autoAlpha: 0, duration: 1.4, ease: 'power1.out', stagger: { each: .55, repeat: 1 }, immediateRender: false }, '<')
+    .call(() => setBubble('slide up to lock'), null, '+=0.3')
+    .to(finger, { y: 22, duration: .5, ease: 'sine.inOut', yoyo: true, repeat: 1 }, '<.2')
+    .to({}, { duration: .6 })
+    .to(finger, { autoAlpha: 0, scale: 1.3, duration: .35, ease: 'power2.in' })
+    .to(big, { scale: 1, duration: .6, ease: 'elastic.out(1,.6)' }, '<')
+    .to('#ring', { autoAlpha: 0, duration: .3 }, '<')
+    .call(() => setBubble('sent'), null, '<')
+    .to({}, { duration: 1 })
+    /* swipe to next friend */
+    .to([big, who], { x: -70, autoAlpha: 0, filter: 'blur(8px)', scale: .9, duration: .4, ease: 'power3.in' })
+    .call(() => {
+      bigL.textContent = next.l; big.style.background = next.c;
+      who.firstElementChild.textContent = next.n;
+      minis.forEach((m, i) => gsap.to(m, { autoAlpha: i === (idx + 1) % friends.length ? 1 : .45, scale: i === (idx + 1) % friends.length ? 1.1 : 1, duration: .5, ease: E }));
+      setBubble('hold to talk');
+    })
+    .fromTo([big, who], { x: 70, autoAlpha: 0, filter: 'blur(8px)', scale: .9 }, { x: 0, autoAlpha: 1, filter: 'blur(0px)', scale: 1, duration: .7, ease: E, immediateRender: false });
 }
-function endTalk() {
-  if (!holding) return; holding = false;
-  gsap.to(btn, { scale: 1, borderRadius: '50%', ...spring });
-  gsap.to(avatar, {
-    borderColor: '#acfc69', scale: 1,
-    boxShadow: '0 0 0 6px rgba(172,252,105,0.08), 0 0 40px rgba(172,252,105,0.15)',
-    ...spring
-  });
-  statusEl.classList.remove('talking');
-  morphText(statusEl, 'online');
-  morphText(hold, 'hold to talk · slide up to lock');
-  if (waveTl) { waveTl.kill(); waveTl = null; }
-  gsap.to(waveEls, { opacity: 0, duration: .25 });
-}
-btn.addEventListener('pointerdown', e => { e.preventDefault(); btn.setPointerCapture(e.pointerId); startTalk(); });
-btn.addEventListener('pointerup', endTalk);
-btn.addEventListener('pointercancel', endTalk);
-btn.addEventListener('lostpointercapture', endTalk);
+gsap.set(minis[0], { scale: 1.1 });
+gsap.delayedCall(1.2, cycle);
+})();
 </script>
 </body>
 </html>
