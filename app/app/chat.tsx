@@ -7,7 +7,7 @@ import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay } from 'react-native-reanimated';;
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
@@ -339,8 +339,14 @@ export function ReplyQuote({ reply, name }: { reply: { from: string; kind: strin
   );
 }
 
-export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string }) {
-  const hold = !m.pending && onMenu ? (e: any) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onMenu(m, e.nativeEvent.pageY, e.nativeEvent.pageX); } : undefined;
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number, r?: MenuRect) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string }) {
+  const hold = !m.pending && onMenu ? (e: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const py = e.nativeEvent.pageY, px = e.nativeEvent.pageX;
+    const t = e.currentTarget;
+    if (t?.measureInWindow) t.measureInWindow((x: number, y: number, w: number, h: number) => onMenu(m, py, px, w && h ? { x, y, w, h } : undefined));
+    else onMenu(m, py, px);
+  } : undefined;
   const chips = m.reactions ?? [];
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 8 }}>
@@ -398,30 +404,43 @@ export function DatePill({ timestamp }: { timestamp: number }) {
   );
 }
 
+const MENU_SPRING = { damping: 36, stiffness: 360, mass: 0.9 };
+
+export type MenuRect = { x: number; y: number; w: number; h: number };
+
 export function MsgMenu({
-  m, mine, y, x, friendName, onClose, onReply, onDelete, onReact, onForward,
+  m, mine, y, x, rect, friendName, onClose, onReply, onDelete, onReact, onForward,
 }: {
-  m: ChatMsg; mine: boolean; y: number; x: number; friendName?: string;
+  m: ChatMsg; mine: boolean; y: number; x: number; rect?: MenuRect; friendName?: string;
   onClose: () => void; onReply: () => void; onDelete?: () => void;
   onReact: (emoji: string) => void; onForward: () => void;
 }) {
   const [saved, setSaved] = useState(false);
+  const p = useSharedValue(0);
+  const closing = useRef(false);
+  useEffect(() => { p.value = withSpring(1, MENU_SPRING); }, []);
+  const finish = (after?: () => void) => { after?.(); onClose(); };
+  const close = (after?: () => void) => {
+    if (closing.current) return;
+    closing.current = true;
+    p.value = withTiming(0, { duration: 190, easing: Easing.bezier(0.4, 0, 0.2, 1) }, (done) => { if (done) runOnJS(finish)(after); });
+  };
   const rows: { icon: [string, string]; label: string; danger?: boolean; go: () => void }[] = [];
-  rows.push({ icon: ['arrowshape.turn.up.left.fill', 'arrow-undo'], label: 'reply', go: onReply });
-  if (m.kind === 'text' && Clipboard) rows.push({ icon: ['doc.on.doc.fill', 'content-copy'], label: 'copy', go: () => { Clipboard.setStringAsync(m.body).catch(() => {}); onClose(); } });
+  rows.push({ icon: ['arrowshape.turn.up.left.fill', 'arrow-undo'], label: 'reply', go: () => close(onReply) });
+  if (m.kind === 'text' && Clipboard) rows.push({ icon: ['doc.on.doc.fill', 'content-copy'], label: 'copy', go: () => { Clipboard.setStringAsync(m.body).catch(() => {}); close(); } });
   if (m.kind === 'sticker' || m.kind === 'image') {
     rows.push({
       icon: ['plus.square.fill', 'sticker-plus-outline'],
       label: saved ? 'saved' : m.kind === 'sticker' ? 'save sticker' : 'save as sticker',
       go: async () => {
-        if (saved) { onClose(); return; }
+        if (saved) { close(); return; }
         try {
           if (m.kind === 'sticker') await saveSticker(m.body);
           else await saveImageAsSticker(m.body);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           setSaved(true);
-          setTimeout(onClose, 500);
-        } catch { onClose(); }
+          setTimeout(() => close(), 500);
+        } catch { close(); }
       },
     });
   }
@@ -433,120 +452,75 @@ export function MsgMenu({
           const r = await MediaLibrary.requestPermissionsAsync(true);
           if (r.granted) { await MediaLibrary.saveToLibraryAsync(url); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
         } catch {}
-        onClose();
+        close();
       },
     });
   }
-  rows.push({ icon: ['arrowshape.turn.up.right.fill', 'arrow-redo'], label: 'forward', go: onForward });
-  if (onDelete) rows.push({ icon: ['trash.fill', 'delete'], label: 'delete', danger: true, go: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); onDelete(); onClose(); } });
+  rows.push({ icon: ['arrowshape.turn.up.right.fill', 'arrow-redo'], label: 'forward', go: () => close(onForward) });
+  if (onDelete) rows.push({ icon: ['trash.fill', 'delete'], label: 'delete', danger: true, go: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); close(onDelete); } });
 
-  const W = 230, ROW = 46, MENU_H = rows.length * ROW + 14;
-  const SCREEN_H = Dimensions.get('window').height;
-  const CLONE_H = m.kind === 'image' ? 200 : m.kind === 'sticker' ? 150 : 60;
-  // enough room below the tap → clone at tap, pill+card underneath; otherwise flip so the card lands above
-  const below = y + CLONE_H / 2 + 56 + MENU_H + 30 < SCREEN_H;
-  const cloneTop = below ? Math.max(y - CLONE_H / 2, 70) : Math.max(y - CLONE_H / 2 - 56 - MENU_H - 10, 70);
-  const springIn = FadeIn.duration(1);
-  const morph = { damping: 26, stiffness: 320, mass: 0.9 };
+  const SW = Dimensions.get('window').width;
+  const SH = Dimensions.get('window').height;
+  const W = 220, ROW = 44, MENU_H = rows.length * ROW, PILL_H = 52, GAP = 8, TOP = 100, BOTTOM = 34;
+  const r = rect ?? { x: mine ? SW - 212 : 12, y: y - 22, w: 200, h: 44 };
+  const room = SH - TOP - BOTTOM - PILL_H - MENU_H - GAP * 2;
+  const sc = Math.min(1, room / r.h);
+  const total = PILL_H + GAP + r.h * sc + GAP + MENU_H;
+  const top = Math.min(Math.max(r.y - PILL_H - GAP, TOP), SH - BOTTOM - total);
+  const cloneY = top + PILL_H + GAP;
+  const dy = cloneY - r.y;
+  const side = mine ? { right: 12 } : { left: 12 };
+  const name = m.reply ? (m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')) : '';
+  const src = m.body.startsWith('c-') ? mediaUrl(m.body) : m.body;
 
-  const clone = (
-    <Animated.View
-      entering={(s: any) => {
-        'worklet';
-        return {
-          initialValues: { opacity: 0, transform: [{ scale: 0.55 }, { translateY: 14 }] },
-          animations: {
-            opacity: withTiming(1, { duration: 110 }),
-            transform: [{ scale: withSpring(1, morph) }, { translateY: withSpring(0, morph) }],
-          },
-        };
-      }}
-      exiting={FadeOut.duration(90)}
-      style={{ alignItems: mine ? 'flex-end' : 'flex-start', paddingHorizontal: 12 }}>
-      {m.kind === 'image' ? (
-        <Image source={mediaUrl(m.body)} style={{ width: 200, height: 200 }} contentFit="contain" cachePolicy="memory-disk" />
-      ) : m.kind === 'sticker' ? (
-        <Image source={mediaUrl(m.body)} style={{ width: 150, height: 150 }} contentFit="contain" cachePolicy="memory-disk" />
-      ) : (
-        <View style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.2)' }}>
-          <FormattedMessageText text={m.body} />
-        </View>
-      )}
-    </Animated.View>
-  );
-
-  const pill = (
-    <Animated.View
-      entering={(s: any) => {
-        'worklet';
-        return {
-          initialValues: { opacity: 0, transform: [{ scale: 0.6 }, { translateY: below ? -8 : 8 }] },
-          animations: {
-            opacity: withTiming(1, { duration: 120 }),
-            transform: [{ scale: withDelay(50, withSpring(1, morph)) }, { translateY: withDelay(50, withSpring(0, morph)) }],
-          },
-        };
-      }}
-      exiting={FadeOut.duration(90)}
-      style={{ flexDirection: 'row', alignSelf: 'center', gap: 2, backgroundColor: 'rgba(40,40,44,0.95)', borderRadius: 24, paddingHorizontal: 6, paddingVertical: 4, marginVertical: 10 }}>
-      {QUICK_REACTIONS.map((e) => (
-        <Pressable key={e} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onReact(e); onClose(); }} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.15)' : 'transparent' })}>
-          <Text style={{ fontSize: 22 }}>{e}</Text>
-        </Pressable>
-      ))}
-    </Animated.View>
-  );
-
-  const card = (
-    <Animated.View
-      entering={(s: any) => {
-        'worklet';
-        return {
-          initialValues: { opacity: 0, transform: [{ scaleY: 0.6 }, { scaleX: 0.85 }, { translateY: below ? -10 : 10 }] },
-          animations: {
-            opacity: withTiming(1, { duration: 110 }),
-            transform: [{ scaleY: withDelay(80, withSpring(1, morph)) }, { scaleX: withDelay(80, withSpring(1, morph)) }, { translateY: withDelay(80, withSpring(0, morph)) }],
-          },
-        };
-      }}
-      exiting={FadeOut.duration(90)}
-      style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginRight: mine ? 12 : 0, marginLeft: mine ? 0 : 12, width: W, borderRadius: 18, borderCurve: 'continuous', backgroundColor: 'rgba(30,30,34,0.97)', overflow: 'hidden' }}>
-      {rows.map((r, i) => (
-        <Animated.View
-          key={r.label}
-          entering={(s: any) => {
-            'worklet';
-            return { initialValues: { opacity: 0 }, animations: { opacity: withDelay(110 + i * 28, withTiming(1, { duration: 110 })) } };
-          }}>
-          <Pressable onPress={() => { Haptics.selectionAsync(); r.go(); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: ROW, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderBottomWidth: i === rows.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.08)' })}>
-            <SymbolView name={r.icon[0] as any} size={17} tintColor={r.danger ? C.danger : '#fff'} fallback={<MaterialCommunityIcons name={r.icon[1] as any} size={19} color={r.danger ? C.danger : '#fff'} />} />
-            <Text style={{ color: r.danger ? C.danger : '#fff', fontFamily: F.bold, fontSize: 16 }}>{r.label}</Text>
-          </Pressable>
-        </Animated.View>
-      ))}
-    </Animated.View>
-  );
+  const back = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, p.value)) }));
+  const cloneStyle = useAnimatedStyle(() => ({ transform: [{ translateY: dy * p.value }, { scaleX: 1 + (sc * 1.0 - 1) * p.value }, { scaleY: 1 + (sc - 1) * p.value }] }));
+  const pillStyle = useAnimatedStyle(() => {
+    const k = Math.min(1, Math.max(0, (p.value - 0.12) / 0.88));
+    return { opacity: k, transform: [{ translateY: (1 - k) * 14 }, { scaleX: 0.5 + k * 0.5 }, { scaleY: 0.5 + k * 0.5 }] };
+  });
+  const cardStyle = useAnimatedStyle(() => {
+    const k = Math.min(1, Math.max(0, (p.value - 0.2) / 0.8));
+    return { opacity: k, transform: [{ translateY: (1 - k) * -14 }, { scaleX: 0.6 + k * 0.4 }, { scaleY: 0.4 + k * 0.6 }] };
+  });
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
-        <BlurView intensity={30} tint="dark" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
-      </Pressable>
-      <View style={{ position: 'absolute', top: cloneTop, left: 0, right: 0 }}>
-        {below ? (
-          <>
-            {clone}
-            {pill}
-            {card}
-          </>
+      <Animated.View style={[StyleSheet.absoluteFill, back]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => close()}>
+          <BlurView intensity={36} tint="dark" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
+        </Pressable>
+      </Animated.View>
+
+      <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, transformOrigin: mine ? '100% 0%' : '0% 0%' }, cloneStyle]}>
+        {m.kind === 'image' ? (
+          <Image source={src} style={{ width: r.w, height: r.h, borderRadius: 20, borderCurve: 'continuous' }} contentFit="cover" cachePolicy="memory-disk" />
+        ) : m.kind === 'sticker' ? (
+          <Image source={src} style={{ width: r.w, height: r.h }} contentFit="contain" cachePolicy="memory-disk" />
         ) : (
-          <>
-            {pill}
-            {card}
-            {clone}
-          </>
+          <View style={{ width: r.w, minHeight: r.h, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.2)' }}>
+            {m.reply ? <ReplyQuote reply={m.reply} name={name} /> : null}
+            <FormattedMessageText text={m.body} />
+          </View>
         )}
-      </View>
+      </Animated.View>
+
+      <Animated.View style={[{ position: 'absolute', top, ...side, flexDirection: 'row', height: PILL_H, alignItems: 'center', paddingHorizontal: 5, borderRadius: PILL_H / 2, backgroundColor: '#1c1c1f', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.08)', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 14, transformOrigin: mine ? '100% 100%' : '0% 100%' }, pillStyle]}>
+        {QUICK_REACTIONS.map((e) => (
+          <Pressable key={e} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); close(() => onReact(e)); }} style={({ pressed }) => ({ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent', transform: [{ scaleX: pressed ? 1.18 : 1 }, { scaleY: pressed ? 1.18 : 1 }] })}>
+            <Text style={{ fontSize: 26 }}>{e}</Text>
+          </Pressable>
+        ))}
+      </Animated.View>
+
+      <Animated.View style={[{ position: 'absolute', top: cloneY + r.h * sc + GAP, ...side, width: W, borderRadius: 16, borderCurve: 'continuous', backgroundColor: '#1c1c1f', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden', transformOrigin: mine ? '100% 0%' : '0% 0%' }, cardStyle]}>
+        {rows.map((row, i) => (
+          <Pressable key={row.label} onPress={() => { Haptics.selectionAsync(); row.go(); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: ROW, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.08)' })}>
+            <Text style={{ flex: 1, color: row.danger ? C.danger : '#fff', fontFamily: F.bold, fontSize: 16 }}>{row.label}</Text>
+            <SymbolView name={row.icon[0] as any} size={17} tintColor={row.danger ? C.danger : '#fff'} fallback={<MaterialCommunityIcons name={row.icon[1] as any} size={19} color={row.danger ? C.danger : '#fff'} />} />
+          </Pressable>
+        ))}
+      </Animated.View>
     </View>
   );
 }
@@ -634,7 +608,7 @@ export default function ChatScreen() {
     transform: [{ scale: withTiming(sendVisible ? 1 : 0.82, { duration: 160, easing: out }) }],
   }));
   const [picker, setPicker] = useState(false);
-  const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number } | null>(null);
+  const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number; r?: MenuRect } | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMsg | null>(null);
   const [forwarding, setForwarding] = useState<ChatMsg | null>(null);
   const [stickersVisible, setStickersVisible] = useState(false);
@@ -728,7 +702,7 @@ export default function ChatScreen() {
                 <Bubble m={item} mine={item.from === meId} joined={joined} fresh={item.created_at > opened.current} friendName={nameOf(friend)}
                   seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView}
                   onReact={(e: string) => reactMsg(id!, item.id, e).catch(() => {})}
-                  onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
+                  onMenu={(mm, y, x, r) => setMenu({ m: mm, y, x, r })}
                   onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
                 {older && !sameCalendarDay(item.created_at, older.created_at) ? <DatePill timestamp={older.created_at} /> : null}
               </View>
@@ -787,7 +761,7 @@ export default function ChatScreen() {
       </View>
       {menu ? (
         <MsgMenu
-          m={menu.m} mine={menu.m.from === meId} y={menu.y} x={menu.x} friendName={nameOf(friend)}
+          m={menu.m} mine={menu.m.from === meId} y={menu.y} x={menu.x} rect={menu.r} friendName={nameOf(friend)}
           onClose={() => setMenu(null)}
           onReply={() => { setReplyingTo(menu.m); setMenu(null); }}
           onDelete={menu.m.from === meId ? () => deleteMessage(id!, menu.m).catch(() => {}) : undefined}

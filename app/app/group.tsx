@@ -15,7 +15,7 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
+import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
 import { req } from '../lib/api';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
@@ -86,7 +86,7 @@ export default function GroupScreen() {
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
   const [stickersVisible, setStickersVisible] = useState(false);
-  const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number } | null>(null);
+  const [menu, setMenu] = useState<{ m: ChatMsg; y: number; x: number; r?: MenuRect } | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMsg | null>(null);
   const [forwarding, setForwarding] = useState<ChatMsg | null>(null);
   const [customList, setCustomList] = useState<Sticker[]>([]);
@@ -159,7 +159,7 @@ export default function GroupScreen() {
                   seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView}
                   friendName={item.from === me?.id ? 'you' : nameOf(who(item.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
                   onReact={(e: string) => reactGroup(id!, item.id, e).catch(() => {})}
-                  onMenu={(mm, y, x) => setMenu({ m: mm, y, x })}
+                  onMenu={(mm, y, x, r) => setMenu({ m: mm, y, x, r })}
                   onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />
                 {older && !sameCalendarDay(item.created_at, older.created_at) ? <DatePill timestamp={older.created_at} /> : null}
               </View>
@@ -214,7 +214,7 @@ export default function GroupScreen() {
       </Animated.View>
       {menu ? (
         <MsgMenu
-          m={menu.m} mine={menu.m.from === me?.id} y={menu.y} x={menu.x} friendName={menu.m.from === me?.id ? 'you' : nameOf(who(menu.m.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
+          m={menu.m} mine={menu.m.from === me?.id} y={menu.y} x={menu.x} rect={menu.r} friendName={menu.m.from === me?.id ? 'you' : nameOf(who(menu.m.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
           onClose={() => setMenu(null)}
           onReply={() => { setReplyingTo(menu.m); setMenu(null); }}
           onDelete={menu.m.from === me?.id ? () => deleteGroupMessage(id!, menu.m).catch(() => {}) : undefined}
