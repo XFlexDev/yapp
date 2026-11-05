@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
 import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
@@ -18,7 +18,7 @@ import { Avatar } from '../lib/ui';
 import { Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
 import { req } from '../lib/api';
-import { StickerPicker } from '../components/StickerPicker';
+import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
@@ -93,7 +93,10 @@ export default function GroupScreen() {
   const talker = useStore((s) => s.groupTalk[id!] ?? null);
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
-  const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom) + 8 }));
+  const pk = useSharedValue(0);
+  useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H + insets.bottom : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible, insets.bottom]);
+  useEffect(() => { const a = Keyboard.addListener('keyboardWillShow', () => setStickersVisible(false)); const b = Keyboard.addListener('keyboardDidShow', () => setStickersVisible(false)); return () => { a.remove(); b.remove(); }; }, []);
+  const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom, pk.value) + 8 }));
 
   useEffect(() => {
     set({ openChat: `g:${id}` });
@@ -201,7 +204,7 @@ export default function GroupScreen() {
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
-          <ComposerPill text={text} onChange={setText} placeholder={`message ${g.name}`} onSticker={() => { Haptics.selectionAsync(); setStickersVisible(true); }} />
+          <ComposerPill text={text} onChange={setText} placeholder={`message ${g.name}`} onSticker={() => { Haptics.selectionAsync(); Keyboard.dismiss(); setStickersVisible((v) => !v); }} />
           {sendVisible ? (
             <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
               <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish>
@@ -223,7 +226,8 @@ export default function GroupScreen() {
       <StickerPicker
         visible={stickersVisible}
         onClose={() => setStickersVisible(false)}
-        bottomInset={insets.bottom + 8}
+        bottomInset={insets.bottom}
+        onBackspace={() => setText((prev) => dropLast(prev))}
         onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
         onPickSticker={(stk) => {
           setStickersVisible(false);

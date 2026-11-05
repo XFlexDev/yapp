@@ -16,7 +16,7 @@ import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { StickerPicker } from '../components/StickerPicker';
+import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { InlineBody } from '../components/MsgInline';
 import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, saveSticker, type Sticker } from '../lib/stickers';
 import { BlurView } from 'expo-blur';
@@ -649,11 +649,14 @@ export default function ChatScreen() {
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
   useEffect(() => {
-    const a = Keyboard.addListener('keyboardWillShow', (e) => setKbPad(Math.max(0, e.endCoordinates.height - insets.bottom)));
+    const a = Keyboard.addListener('keyboardWillShow', (e) => { setStickersVisible(false); setKbPad(Math.max(0, e.endCoordinates.height - insets.bottom)); });
+    const c = Keyboard.addListener('keyboardDidShow', () => setStickersVisible(false));
     const b = Keyboard.addListener('keyboardDidHide', () => setKbPad(0));
-    return () => { a.remove(); b.remove(); };
+    return () => { a.remove(); b.remove(); c.remove(); };
   }, [insets.bottom]);
-  const lift = useAnimatedStyle(() => ({ transform: [{ translateY: -Math.max(kb.height.value - insets.bottom, 0) }] }));
+  const pk = useSharedValue(0);
+  useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible]);
+  const lift = useAnimatedStyle(() => ({ transform: [{ translateY: -Math.max(kb.height.value - insets.bottom, pk.value, 0) }] }));
 
   useEffect(() => {
     set({ openChat: id });
@@ -733,7 +736,7 @@ export default function ChatScreen() {
           }}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 + kbPad, flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 + Math.max(kbPad, stickersVisible ? PICKER_H : 0), flexGrow: 1 }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
@@ -775,7 +778,7 @@ export default function ChatScreen() {
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
           <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
-          <ComposerPill text={text} onChange={setText} placeholder="message" onSticker={() => { Haptics.selectionAsync(); setStickersVisible(true); }} />
+          <ComposerPill text={text} onChange={setText} placeholder="message" onSticker={() => { Haptics.selectionAsync(); Keyboard.dismiss(); setStickersVisible((v) => !v); }} />
           <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
             {sendVisible ? <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish> : null}
           </Animated.View>
@@ -796,7 +799,8 @@ export default function ChatScreen() {
       <StickerPicker
         visible={stickersVisible}
         onClose={() => setStickersVisible(false)}
-        bottomInset={insets.bottom + 8}
+        bottomInset={insets.bottom}
+        onBackspace={() => setText((prev) => dropLast(prev))}
         onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
         onPickSticker={(stk) => {
           setStickersVisible(false);
