@@ -724,7 +724,7 @@ export default function Home() {
       {call?.state === 'active' ? <LocalVideo top={insets.top + 64} bottom={bottomH + 12} friendId={friend.id} /> : null}
       <View pointerEvents="none" style={{ flex: 1 }} />
       <View onLayout={(e) => setBottomH(e.nativeEvent.layout.height)}>
-      <Pressable disabled={!clipText || !!talkingTo[friend.id]} onPress={() => playClip(friend.id)} style={{ alignItems: 'center', paddingHorizontal: 24 }}>
+      <Pressable disabled={!clipText || !!talkingTo[friend.id]} onPress={() => playClip(friend.id)} style={{ alignItems: 'center', paddingHorizontal: 24, marginBottom: 8 }}>
         <Bubble text={bubble} lock={talking && !connecting && !call} loading={talking && showConnecting && !call} lift={lift} icon={<Glyph g="lock" size={14} />} />
       </Pressable>
         <GestureDetector gesture={swipe}>

@@ -16,7 +16,7 @@ const MORPH = { damping: 17, stiffness: 260, mass: 1 };
 const JELLY = { damping: 8, stiffness: 220, mass: 1 };
 const PAD = 22;
 const ICON = 22;
-const DOTS = 22;
+const DOTS = 30;
 const BAND = 52;
 const label = { fontFamily: F.black, fontSize: 17, letterSpacing: -0.2 } as const;
 
@@ -147,7 +147,7 @@ function Dot({ i, t }: { i: number; t: SharedValue<number> }) {
 }
 
 const styles = StyleSheet.create({
-  dots: { position: 'absolute', right: 0, top: 0, bottom: 0, width: DOTS, paddingLeft: 2, paddingTop: 6, flexDirection: 'row', alignItems: 'center', gap: 3 },
+  dots: { position: 'absolute', right: 0, top: 0, bottom: 0, width: DOTS, paddingLeft: 7, paddingTop: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#000' },
   band: { position: 'absolute', left: 0, top: -6, bottom: -6, width: BAND },
   measure: { position: 'absolute', opacity: 0, left: -9999, top: 0 },
