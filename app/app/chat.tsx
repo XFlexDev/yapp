@@ -7,7 +7,7 @@ import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS, useAnimatedProps, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
@@ -404,7 +404,8 @@ export function DatePill({ timestamp }: { timestamp: number }) {
   );
 }
 
-const MENU_SPRING = { damping: 36, stiffness: 360, mass: 0.9 };
+const MENU_SPRING = { damping: 30, stiffness: 230, mass: 1 };
+const ABlur = Animated.createAnimatedComponent(BlurView);
 
 export type MenuRect = { x: number; y: number; w: number; h: number };
 
@@ -423,7 +424,7 @@ export function MsgMenu({
   const close = (after?: () => void) => {
     if (closing.current) return;
     closing.current = true;
-    p.value = withTiming(0, { duration: 190, easing: Easing.bezier(0.4, 0, 0.2, 1) }, (done) => { if (done) runOnJS(finish)(after); });
+    p.value = withTiming(0, { duration: 260, easing: Easing.bezier(0.4, 0, 0.2, 1) }, (done) => { if (done) runOnJS(finish)(after); });
   };
   const rows: { icon: [string, string]; label: string; danger?: boolean; go: () => void }[] = [];
   rows.push({ icon: ['arrowshape.turn.up.left.fill', 'arrow-undo'], label: 'reply', go: () => close(onReply) });
@@ -473,26 +474,34 @@ export function MsgMenu({
   const name = m.reply ? (m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')) : '';
   const src = m.body.startsWith('c-') ? mediaUrl(m.body) : m.body;
 
-  const back = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, p.value)) }));
-  const cloneStyle = useAnimatedStyle(() => ({ transform: [{ translateY: dy * p.value }, { scaleX: 1 + (sc * 1.0 - 1) * p.value }, { scaleY: 1 + (sc - 1) * p.value }] }));
+  const PILL_W = QUICK_REACTIONS.length * 42 + 10;
+  const clamp = (v: number) => { 'worklet'; return Math.min(1, Math.max(0, v)); };
+  const shade = useAnimatedStyle(() => ({ opacity: clamp(p.value) }));
+  const blurProps = useAnimatedProps(() => ({ intensity: 40 * clamp(p.value) }));
+  const cloneStyle = useAnimatedStyle(() => {
+    const k = p.value;
+    const pop = 1 + Math.sin(clamp(k) * Math.PI) * 0.05;
+    const s1 = (1 + (sc - 1) * k) * pop;
+    return { transform: [{ translateY: dy * k }, { scaleX: s1 }, { scaleY: s1 }], shadowOpacity: 0.5 * clamp(k) };
+  });
   const pillStyle = useAnimatedStyle(() => {
-    const k = Math.min(1, Math.max(0, (p.value - 0.12) / 0.88));
-    return { opacity: k, transform: [{ translateY: (1 - k) * 14 }, { scaleX: 0.5 + k * 0.5 }, { scaleY: 0.5 + k * 0.5 }] };
+    const k = clamp((p.value - 0.05) / 0.95);
+    return { width: 52 + (PILL_W - 52) * k, opacity: clamp(k * 3), transform: [{ translateY: (1 - k) * 18 }] };
   });
   const cardStyle = useAnimatedStyle(() => {
-    const k = Math.min(1, Math.max(0, (p.value - 0.2) / 0.8));
-    return { opacity: k, transform: [{ translateY: (1 - k) * -14 }, { scaleX: 0.6 + k * 0.4 }, { scaleY: 0.4 + k * 0.6 }] };
+    const k = clamp((p.value - 0.1) / 0.9);
+    const sx = 0.3 + k * 0.7, sy = 0.15 + k * 0.85;
+    return { opacity: clamp(k * 2.5), transform: [{ translateY: (1 - k) * -22 }, { scaleX: sx }, { scaleY: sy }] };
   });
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <Animated.View style={[StyleSheet.absoluteFill, back]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => close()}>
-          <BlurView intensity={36} tint="dark" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
-        </Pressable>
-      </Animated.View>
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => close()}>
+        <ABlur animatedProps={blurProps} intensity={0} tint="dark" style={StyleSheet.absoluteFill} />
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }, shade]} />
+      </Pressable>
 
-      <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, transformOrigin: mine ? '100% 0%' : '0% 0%' }, cloneStyle]}>
+      <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, transformOrigin: mine ? '100% 50%' : '0% 50%', shadowColor: '#000', shadowRadius: 20, shadowOffset: { width: 0, height: 10 } }, cloneStyle]}>
         {m.kind === 'image' ? (
           <Image source={src} style={{ width: r.w, height: r.h, borderRadius: 20, borderCurve: 'continuous' }} contentFit="cover" cachePolicy="memory-disk" />
         ) : m.kind === 'sticker' ? (
@@ -505,23 +514,50 @@ export function MsgMenu({
         )}
       </Animated.View>
 
-      <Animated.View style={[{ position: 'absolute', top, ...side, flexDirection: 'row', height: PILL_H, alignItems: 'center', paddingHorizontal: 5, borderRadius: PILL_H / 2, backgroundColor: '#1c1c1f', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.08)', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 14, transformOrigin: mine ? '100% 100%' : '0% 100%' }, pillStyle]}>
-        {QUICK_REACTIONS.map((e) => (
-          <Pressable key={e} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); close(() => onReact(e)); }} style={({ pressed }) => ({ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent', transform: [{ scaleX: pressed ? 1.18 : 1 }, { scaleY: pressed ? 1.18 : 1 }] })}>
-            <Text style={{ fontSize: 26 }}>{e}</Text>
-          </Pressable>
-        ))}
+      <Animated.View style={[{ position: 'absolute', top, ...side, height: PILL_H, borderRadius: PILL_H / 2, backgroundColor: '#1c1c1f', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden', alignItems: mine ? 'flex-end' : 'flex-start', justifyContent: 'center' }, pillStyle]}>
+        <View style={{ width: PILL_W, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5 }}>
+          {QUICK_REACTIONS.map((e, i) => (
+            <ReactionChip key={e} e={e} i={mine ? QUICK_REACTIONS.length - 1 - i : i} p={p} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); close(() => onReact(e)); }} />
+          ))}
+        </View>
       </Animated.View>
 
       <Animated.View style={[{ position: 'absolute', top: cloneY + r.h * sc + GAP, ...side, width: W, borderRadius: 16, borderCurve: 'continuous', backgroundColor: '#1c1c1f', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden', transformOrigin: mine ? '100% 0%' : '0% 0%' }, cardStyle]}>
         {rows.map((row, i) => (
-          <Pressable key={row.label} onPress={() => { Haptics.selectionAsync(); row.go(); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: ROW, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.08)' })}>
-            <Text style={{ flex: 1, color: row.danger ? C.danger : '#fff', fontFamily: F.bold, fontSize: 16 }}>{row.label}</Text>
-            <SymbolView name={row.icon[0] as any} size={17} tintColor={row.danger ? C.danger : '#fff'} fallback={<MaterialCommunityIcons name={row.icon[1] as any} size={19} color={row.danger ? C.danger : '#fff'} />} />
-          </Pressable>
+          <MenuRow key={row.label} i={i} p={p} first={i === 0} label={row.label} icon={row.icon} danger={row.danger} h={ROW} onPress={() => { Haptics.selectionAsync(); row.go(); }} />
         ))}
       </Animated.View>
     </View>
+  );
+}
+
+function ReactionChip({ e, i, p, onPress }: { e: string; i: number; p: SharedValue<number>; onPress: () => void }) {
+  const st = useAnimatedStyle(() => {
+    const k = Math.min(1, Math.max(0, (p.value - 0.15 - i * 0.07) / 0.5));
+    return { opacity: k, transform: [{ scaleX: 0.3 + k * 0.7 }, { scaleY: 0.3 + k * 0.7 }, { translateY: (1 - k) * 8 }] };
+  });
+  return (
+    <Animated.View style={st}>
+      <Pressable onPress={onPress} style={({ pressed }) => ({ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent', transform: [{ scaleX: pressed ? 1.18 : 1 }, { scaleY: pressed ? 1.18 : 1 }] })}>
+        <Text style={{ fontSize: 26 }}>{e}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function MenuRow({ i, p, first, label, icon, danger, h, onPress }: { i: number; p: SharedValue<number>; first: boolean; label: string; icon: [string, string]; danger?: boolean; h: number; onPress: () => void }) {
+  const st = useAnimatedStyle(() => {
+    const k = Math.min(1, Math.max(0, (p.value - 0.35 - i * 0.08) / 0.45));
+    return { opacity: k, transform: [{ translateY: (1 - k) * -6 }] };
+  });
+  const col = danger ? C.danger : '#fff';
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ height: h, backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent', borderTopWidth: first ? 0 : StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.08)' })}>
+      <Animated.View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 }, st]}>
+        <Text style={{ flex: 1, color: col, fontFamily: F.bold, fontSize: 16 }}>{label}</Text>
+        <SymbolView name={icon[0] as any} size={17} tintColor={col} fallback={<MaterialCommunityIcons name={icon[1] as any} size={19} color={col} />} />
+      </Animated.View>
+    </Pressable>
   );
 }
 
