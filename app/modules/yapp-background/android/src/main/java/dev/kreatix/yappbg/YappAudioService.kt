@@ -65,6 +65,12 @@ class YappAudioService : Service() {
       stopSelf()
       return START_STICKY
     }
+    if (listen == null) {
+      // Held for the whole session: without it the CPU sleeps with the screen off, LiveKit's
+      // keepalive stalls and the server drops us, so friends' talks never arrive.
+      listen = (applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "yapp:listening").apply { setReferenceCounted(false); acquire() }
+    }
     if (wifi == null) {
       wifi = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
         .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "yapp:voice").apply { setReferenceCounted(false); acquire() }
@@ -76,7 +82,13 @@ class YappAudioService : Service() {
     stopSelf()
   }
 
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    // Swiping the app away must not end listening.
+  }
+
   override fun onDestroy() {
+    listen?.let { if (it.isHeld) it.release() }
+    listen = null
     wifi?.let { if (it.isHeld) it.release() }
     wifi = null
     setActive(this, false)
@@ -87,6 +99,7 @@ class YappAudioService : Service() {
     private const val CHANNEL = "yapp_voice"
     private const val ID = 4207
     private var wifi: WifiManager.WifiLock? = null
+    private var listen: PowerManager.WakeLock? = null
     private var wake: PowerManager.WakeLock? = null
 
     fun setActive(ctx: Context, active: Boolean) {

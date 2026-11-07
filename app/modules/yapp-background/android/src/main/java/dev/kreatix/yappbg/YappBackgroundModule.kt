@@ -49,6 +49,17 @@ class YappBackgroundModule : Module() {
       }
     }
 
+    Function("openAppSettings") {
+      val ctx = appContext.reactContext ?: return@Function false
+      try {
+        val i = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        i.data = android.net.Uri.parse("package:" + ctx.packageName)
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(i)
+        true
+      } catch (e: Exception) { false }
+    }
+
     Function("setActive") { active: Boolean ->
       val ctx = appContext.reactContext ?: return@Function null
       YappAudioService.setActive(ctx, active)

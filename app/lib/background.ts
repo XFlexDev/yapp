@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { useStore } from './store';
 
-type Bg = { start(title: string, text: string): boolean; stop(): void; setActive(active: boolean): void; isBatteryExcluded(): boolean; excludeBattery(): boolean };
+type Bg = { start(title: string, text: string): boolean; stop(): void; setActive(active: boolean): void; isBatteryExcluded(): boolean; excludeBattery(): boolean; openAppSettings?(): boolean };
 // Missing on iOS and on Android builds made before the module existed; every call is then a no-op.
 const native = Platform.OS === 'android' ? requireOptionalNativeModule<Bg>('YappBackground') : null;
 
@@ -53,3 +53,11 @@ export function batteryExcluded(): boolean {
 export function excludeBattery(): boolean {
   try { return native ? native.excludeBattery() : false; } catch { return false; }
 }
+
+/** App info screen, where OEM skins (OnePlus, Xiaomi, Samsung) hide "unrestricted" battery. */
+export function openAppSettings(): boolean {
+  try { return native?.openAppSettings ? native.openAppSettings() : false; } catch { return false; }
+}
+
+/** True when the background helper is in this build at all. */
+export const hasBackground = !!native;

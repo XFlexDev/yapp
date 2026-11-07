@@ -2,15 +2,14 @@ import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
 import { router, Stack, type ErrorBoundaryProps, DarkTheme, ThemeProvider } from 'expo-router';
 import { requireOptionalNativeModule } from 'expo';
-import { Appearance, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Appearance, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { restore, setSignedOutHandler } from '../lib/api';
-import { batteryExcluded, excludeBattery, startBackground, stopBackground } from '../lib/background';
+import { batteryExcluded, excludeBattery, openAppSettings, startBackground, stopBackground } from '../lib/background';
 import { registerPush } from '../lib/push';
-import * as SecureStore from 'expo-secure-store';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { startRealtime, stopRealtime } from '../lib/realtime';
 import { set, useStore } from '../lib/store';
@@ -61,6 +60,7 @@ export default function Root() {
   const [fonts] = useFonts({ Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black });
   const status = useStore((s) => s.status);
   const [askBattery, setAskBattery] = useState(false);
+  const battery = useRef<{ snooze: () => void }>({ snooze: () => {} });
   const me = useStore((s) => s.me);
 
   useEffect(() => {
@@ -72,9 +72,11 @@ export default function Root() {
 
   useEffect(() => {
     if (status !== 'in') return;
-    if (Platform.OS === 'android' && !batteryExcluded()) {
-      SecureStore.getItemAsync('battery-asked').then((v) => { if (!v) setAskBattery(true); }).catch(() => {});
-    }
+    let snoozed = false;
+    const check = () => { if (Platform.OS === 'android' && !snoozed && !batteryExcluded()) setAskBattery(true); else if (batteryExcluded()) setAskBattery(false); };
+    battery.current = { snooze: () => { snoozed = true; } };
+    check();
+    const bsub = AppState.addEventListener('change', (st) => { if (st === 'active') setTimeout(check, 400); });
     startRealtime();
     startListening().catch(() => {});
     startBackground();
@@ -86,7 +88,7 @@ export default function Root() {
     const last = Notifications.getLastNotificationResponse();
     if (last) open(last.notification.request.content.data);
     const sub = Notifications.addNotificationResponseReceivedListener((r) => open(r.notification.request.content.data));
-    return () => sub.remove();
+    return () => { sub.remove(); bsub.remove(); };
   }, [status]);
 
   const ready = fonts && status !== 'loading';
@@ -126,14 +128,17 @@ export default function Root() {
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]} />
           <Animated.View entering={SlideInDown.duration(300)} style={{ position: 'absolute', left: 10, right: 10, bottom: 30, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 24, gap: 12 }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>keep yapp awake</Text>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>let yapp run in the background</Text>
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
-              android may put yapp to sleep to save battery, which means friends can't talk or call you while the app is closed. tap continue, then hit allow on the next dialog. if you skip this, yapp can only reach you while it's open.
+              android puts apps to sleep to save battery. if yapp sleeps, friends can't talk to you or call you while your screen is off or the app is closed.
             </Text>
-            <Squish onPress={() => { excludeBattery(); setAskBattery(false); SecureStore.setItemAsync('battery-asked', '1').catch(() => {}); }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>continue</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
+              tap allow, then pick allow on the next popup. if it shows a list instead, choose "unrestricted". skip it and yapp only works while it's open.
+            </Text>
+            <Squish onPress={() => { if (!excludeBattery()) openAppSettings(); setAskBattery(false); }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>allow</Text>
             </Squish>
-            <Pressable onPress={() => setAskBattery(false)} style={{ alignSelf: 'center', padding: 6 }}>
+            <Pressable onPress={() => { battery.current.snooze(); setAskBattery(false); }} style={{ alignSelf: 'center', padding: 6 }}>
               <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 14 }}>not now</Text>
             </Pressable>
           </Animated.View>
