@@ -19,6 +19,7 @@ import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
 import { block, report, REASONS } from '../lib/safety';
 import { haptic } from '../lib/haptic';
+import { choose, confirm } from '../lib/native';
 import { muteFriend, unmuteFriend, useMuted } from '../lib/notifs';
 import { BlurView } from 'expo-blur';
 import { playClip } from '../lib/clips';
@@ -328,24 +329,24 @@ function CallControls({ cp, ca, on, incoming, muted, cam, onMute, onCam, onEnd, 
 
 function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void }) {
   const insets = useSafeAreaInsets();
-  const [sure, setSure] = useState<'remove' | 'block' | null>(null);
   const [mode, setMode] = useState<'main' | 'mute' | 'report' | 'reported'>('main');
   const [busy, setBusy] = useState(false);
   const muted = useMuted(friend.id);
   const muteUntil = useStore((s) => s.muteUntil[friend.id]);
-  const confirm = (k: 'remove' | 'block') => { if (sure === k) return true; Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setSure(k); return false; };
-  const remove = async () => {
-    if (!confirm('remove')) return;
+  const who = nameOf(friend).toLowerCase();
+  const remove = () => confirm(`remove ${who}?`, 'they won’t be able to talk to you until you add each other again.', 'remove', async () => {
     setBusy(true);
     try { await req(`/v1/friends/${friend.id}`, { method: 'DELETE' }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); removeFriend(friend.id); onClose(); }
-    catch { setBusy(false); setSure(null); }
-  };
-  const doBlock = async () => {
-    if (!confirm('block')) return;
+    catch { setBusy(false); }
+  });
+  const doBlock = () => confirm(`block ${who}?`, 'they can’t talk to you, call you or find you.', 'block', async () => {
     setBusy(true);
     try { await block(friend.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); onClose(); }
-    catch { setBusy(false); setSure(null); }
-  };
+    catch { setBusy(false); }
+  });
+  const MUTES = [60, 480, 1440, null] as const;
+  const openMute = () => { if (!choose(`mute ${who}`, ['for 1 hour', 'for 8 hours', 'for 24 hours', 'until i turn it back on'], (i) => chooseMute(MUTES[i]))) setMode('mute'); };
+  const openReport = () => { if (!choose(`report ${who}`, REASONS, (i) => doReport(REASONS[i]))) setMode('report'); };
   const doReport = async (reason: string) => {
     setBusy(true);
     try { await report(friend.id, reason); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setMode('reported'); }
@@ -411,18 +412,18 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
                   <Pressable onPress={chat} style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
                     <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>chat</Text>
                   </Pressable>
-                  <Pressable onPress={() => { if (muted) { unmuteFriend(friend.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } else setMode('mute'); }} style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
+                  <Pressable onPress={() => { if (muted) { unmuteFriend(friend.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } else openMute(); }} style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
                     <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{muted ? 'unmute' : 'mute'}</Text>
                   </Pressable>
                 </View>
                 {row('reorder friends', () => { onClose(); router.push('/order'); })}
-                {row('report', () => setMode('report'))}
+                {row('report', openReport)}
               </>
             ) : (
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', paddingHorizontal: 24, paddingVertical: 8 }}>thanks, we’ll look at it. you can also block them.</Text>
             )}
-            {row(sure === 'block' ? 'tap again to block' : 'block', doBlock, C.danger)}
-            {mode === 'main' ? row(sure === 'remove' ? 'tap again to remove' : 'remove friend', remove, C.danger) : null}
+            {row('block', doBlock, C.danger)}
+            {mode === 'main' ? row('remove friend', remove, C.danger) : null}
             {row('close', onClose, 'rgba(255,255,255,0.5)')}
           </>
         )}

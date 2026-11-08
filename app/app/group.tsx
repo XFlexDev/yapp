@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { confirm } from '../lib/native';
 import { FlatList, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
@@ -81,7 +82,6 @@ export default function GroupScreen() {
     transform: [{ scale: withTiming(sendVisible ? 1 : 0.82, { duration: 160, easing: out }) }],
   }));
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
-  const [sure, setSure] = useState(false);
   const [view, setView] = useState<string | null>(null);
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
@@ -131,7 +131,7 @@ export default function GroupScreen() {
   const seenBy = lastMine ? g.members.filter((u) => u.id !== me?.id && (g.reads[u.id] ?? 0) >= lastMine.created_at).map((u) => nameOf(u).toLowerCase()) : [];
   const others = friends.filter((f) => !g.members.some((u) => u.id === f.id));
   const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b, replyingTo?.id); setReplyingTo(null); };
-  const close = () => { setSheet(null); setSure(false); setOpen(null); };
+  const close = () => { setSheet(null); setOpen(null); };
   const renameGroup = (name: string) => { const n = name.trim(); if (!n || n === g.name) return; req(`/v1/groups/${id}`, { method: 'PATCH', body: { name: n } }).catch(() => {}); };
   const removeMember = (uid: string) => { Haptics.selectionAsync(); req(`/v1/groups/${id}/members/${uid}`, { method: 'DELETE' }).catch(() => {}); };
 
@@ -286,8 +286,8 @@ export default function GroupScreen() {
               <NavRow title="background" value="" onPress={() => setOpen('bg')} />
               <SectionLabel>notifications</SectionLabel>
               <MuteRow chat={`g:${id}`} />
-              <Squish onPress={() => { if (!sure) { Haptics.selectionAsync(); setSure(true); return; } leaveGroup(id!).catch(() => {}); }} style={{ marginHorizontal: 18, marginTop: 4, height: 50, borderRadius: 25, backgroundColor: sure ? C.danger : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{sure ? 'tap again to leave' : 'leave group'}</Text>
+              <Squish onPress={() => confirm('leave this group?', 'you won’t get its messages or talks anymore.', 'leave', () => { leaveGroup(id!).catch(() => {}); })} style={{ marginHorizontal: 18, marginTop: 4, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,69,58,0.18)', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: C.danger, fontFamily: F.black, fontSize: 16 }}>leave group</Text>
               </Squish>
             </ScrollView>
               </Animated.View>

@@ -8,7 +8,8 @@ import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Dimensions, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { Dimensions, Linking, Platform, Pressable, Share, StyleSheet, Switch, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { confirm, openLink } from '../lib/native';
 import Animated, { Easing, FadeIn, FadeInLeft, FadeInRight, FadeOut, LinearTransition, interpolate, interpolateColor, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, type Me, type User } from '../lib/api';
@@ -55,17 +56,7 @@ function Row({ label, sub, onPress, right, color = '#fff', first }: { label: str
 }
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  const v = useSharedValue(on ? 1 : 0);
-  useEffect(() => { v.value = withSpring(on ? 1 : 0, SPRING); }, [on]);
-  const track = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(v.value, [0, 1], ['rgba(255,255,255,0.14)', C.red]) }));
-  const knob = useAnimatedStyle(() => ({ transform: [{ translateX: v.value * 22 }] }));
-  return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onChange(!on); }} hitSlop={8}>
-      <Animated.View style={[{ width: 52, height: 30, borderRadius: 15, padding: 3 }, track]}>
-        <Animated.View style={[{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' }, knob]} />
-      </Animated.View>
-    </Pressable>
-  );
+  return <Switch value={on} onValueChange={(v) => { Haptics.selectionAsync(); onChange(v); }} trackColor={{ false: 'rgba(255,255,255,0.16)', true: C.red }} thumbColor="#fff" ios_backgroundColor="rgba(255,255,255,0.16)" />;
 }
 
 function Chip({ title, onPress, strong, danger }: { title: string; onPress: () => void; strong?: boolean; danger?: boolean }) {
@@ -90,14 +81,11 @@ function Person({ user, first, right }: { user: User; first?: boolean; right: Re
 }
 
 function FriendRow({ f, first }: { f: Friend; first: boolean }) {
-  const [sure, setSure] = useState(false);
-  useEffect(() => { if (sure) { const t = setTimeout(() => setSure(false), 3000); return () => clearTimeout(t); } }, [sure]);
-  const remove = () => {
-    if (!sure) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setSure(true); return; }
+  const remove = () => confirm(`remove ${nameOf(f).toLowerCase()}?`, 'they won’t be able to talk to you until you add each other again.', 'remove', () => {
     removeFriend(f.id);
     req(`/v1/friends/${f.id}`, { method: 'DELETE' }).catch(() => syncAll().catch(() => {}));
-  };
-  return <Person user={f} first={first} right={<Chip title={sure ? 'sure?' : 'remove'} danger={sure} onPress={remove} />} />;
+  });
+  return <Person user={f} first={first} right={<Chip title="remove" onPress={remove} />} />;
 }
 
 function Inline({ value, onSave, prefix, placeholder, max, clean }: { value: string; onSave: (v: string) => Promise<void>; prefix?: string; placeholder: string; max: number; clean?: (v: string) => string }) {
@@ -254,9 +242,7 @@ export default function Settings() {
   const doUnblock = (u: User) => { setBlocked((b) => b.filter((x) => x.id !== u.id)); unblock(u.id).catch(() => loadBlocks().then(setBlocked).catch(() => {})); };
   const [error, setError] = useState('');
   const [bgOk, setBgOk] = useState(() => batteryExcluded());
-  const [sureDelete, setSureDelete] = useState(false);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 3500); return () => clearTimeout(t); } }, [error]);
-  useEffect(() => { if (sureDelete) { const t = setTimeout(() => setSureDelete(false), 3500); return () => clearTimeout(t); } }, [sureDelete]);
   if (!me) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 
   const patch = async (body: Partial<Me>) => {
@@ -278,11 +264,10 @@ export default function Settings() {
     set((s) => ({ incoming: s.incoming.filter((x) => x.id !== r.id), outgoing: s.outgoing.filter((x) => x.id !== r.id) }));
     req(`/v1/friends/requests/${r.id}`, { method: 'DELETE' }).catch(() => syncAll().catch(() => {}));
   };
-  const del = async () => {
-    if (!sureDelete) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); setSureDelete(true); return; }
+  const del = () => confirm('delete your account?', 'your profile, photo, friends and chats are removed forever. this can’t be undone.', 'delete forever', async () => {
     await req('/v1/me', { method: 'DELETE' }).catch(() => {});
     await clear(); signOutLocal();
-  };
+  });
   const version = `${Constants.expoConfig?.version ?? '1.0.0'}${Updates.updateId ? ` · ${Updates.updateId.slice(0, 7)}` : ''}`;
 
   const scrollY = useSharedValue(0);
@@ -524,14 +509,14 @@ export default function Settings() {
             {/* Support and legal */}
             <Section title="help & legal">
               <Row first label="contact support" sub="info@kreatix.dev" onPress={() => Linking.openURL('mailto:info@kreatix.dev?subject=Yapp')} />
-              <Row label="privacy policy" onPress={() => Linking.openURL(`${API}/privacy`)} />
-              <Row label="terms of service" onPress={() => Linking.openURL(`${API}/terms`)} />
+              <Row label="privacy policy" onPress={() => openLink(`${API}/privacy`)} />
+              <Row label="terms of service" onPress={() => openLink(`${API}/terms`)} />
             </Section>
 
             {/* Account Danger Zone */}
             <Section title="account">
-              <Row first label="sign out" onPress={async () => { await logout(); signOutLocal(); }} right={null} />
-              <Row label={sureDelete ? 'tap again to delete forever' : 'delete account'} sub="removes your profile, photo and friends" color={C.danger} onPress={del} right={null} />
+              <Row first label="sign out" onPress={() => confirm('sign out?', 'friends can’t reach you until you sign back in.', 'sign out', async () => { await logout(); signOutLocal(); })} right={null} />
+              <Row label="delete account" sub="removes your profile, photo and friends" color={C.danger} onPress={del} right={null} />
             </Section>
           </Animated.View>
         )}

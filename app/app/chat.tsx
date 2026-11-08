@@ -4,9 +4,10 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
+import { confirm } from '../lib/native';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS, useAnimatedProps, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
@@ -31,9 +32,10 @@ export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalet
 export function MuteRow({ chat }: { chat: string }) {
   const muted = useMuted(chat);
   return (
-    <Squish onPress={() => { Haptics.selectionAsync(); setMuted(chat, !muted); }} style={{ marginHorizontal: 18, height: 48, borderRadius: 24, backgroundColor: muted ? '#fff' : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: muted ? '#000' : '#fff', fontFamily: F.black, fontSize: 16 }}>{muted ? 'muted · tap to unmute' : 'mute notifications'}</Text>
-    </Squish>
+    <View style={{ marginHorizontal: 10, height: 52, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' }}>
+      <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>mute notifications</Text>
+      <Switch value={muted} onValueChange={(v) => { Haptics.selectionAsync(); setMuted(chat, v); }} trackColor={{ false: 'rgba(255,255,255,0.16)', true: C.red }} thumbColor="#fff" ios_backgroundColor="rgba(255,255,255,0.16)" />
+    </View>
   );
 }
 
@@ -651,10 +653,17 @@ export default function ChatScreen() {
   const [view, setView] = useState<string | null>(null);
   const [page, setPage] = useState<null | 'bg' | 'photos' | 'report'>(null);
   const [photos, setPhotos] = useState<ChatMsg[] | null>(null);
-  const [sure, setSure] = useState<null | 'delete' | 'remove' | 'block'>(null);
   const [reported, setReported] = useState(false);
-  const close = () => { setPicker(false); setPage(null); setSure(null); };
-  const arm = (k: 'delete' | 'remove' | 'block', go: () => void) => { if (sure !== k) { Haptics.selectionAsync(); setSure(k); return; } Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); go(); };
+  const close = () => { setPicker(false); setPage(null); };
+  const arm = (k: 'delete' | 'remove' | 'block', go: () => void) => {
+    const who = friend ? nameOf(friend).toLowerCase() : 'them';
+    const ask = {
+      delete: ['delete this chat?', 'messages are removed for you.', 'delete'],
+      remove: [`remove ${who}?`, 'they won’t be able to talk to you until you add each other again.', 'remove'],
+      block: [`block ${who}?`, 'they can’t talk to you, call you or find you.', 'block'],
+    }[k];
+    confirm(ask[0], ask[1], ask[2], go);
+  };
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
@@ -872,10 +881,10 @@ export default function ChatScreen() {
                 <MuteRow chat={id!} />
                 <SettingRow title="background" onPress={() => setPage('bg')} more />
                 <SettingRow title="photos" onPress={() => { setPage('photos'); setPhotos(null); loadChatPhotos(id!).then(setPhotos).catch(() => setPhotos([])); }} more />
-                <SettingRow title={sure === 'delete' ? 'tap again to delete chat' : 'delete chat'} danger={sure === 'delete'} onPress={() => arm('delete', () => { deleteChat(id!).catch(() => {}); close(); router.back(); })} />
+                <SettingRow title="delete chat" danger onPress={() => arm('delete', () => { deleteChat(id!).catch(() => {}); close(); router.back(); })} />
                 <SectionLabel>{nameOf(friend).toLowerCase()}</SectionLabel>
-                <SettingRow title={sure === 'remove' ? 'tap again to remove friend' : 'remove friend'} danger={sure === 'remove'} onPress={() => arm('remove', () => { req(`/v1/friends/${friend.id}`, { method: 'DELETE' }).then(() => removeFriend(friend.id)).catch(() => {}); close(); router.back(); })} />
-                <SettingRow title={sure === 'block' ? 'tap again to block' : 'block'} danger={sure === 'block'} onPress={() => arm('block', () => { block(friend.id).catch(() => {}); close(); router.back(); })} />
+                <SettingRow title="remove friend" danger onPress={() => arm('remove', () => { req(`/v1/friends/${friend.id}`, { method: 'DELETE' }).then(() => removeFriend(friend.id)).catch(() => {}); close(); router.back(); })} />
+                <SettingRow title="block" danger onPress={() => arm('block', () => { block(friend.id).catch(() => {}); close(); router.back(); })} />
                 <SettingRow title={reported ? 'reported, thanks' : 'report'} onPress={() => !reported && setPage('report')} more={!reported} />
               </Animated.View>
             )}
