@@ -15,7 +15,8 @@ build:
           set -eo pipefail
           xcodebuild -workspace Yapp.xcworkspace -scheme Yapp -configuration Release -sdk iphoneos \
             -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -40
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" > xcodebuild.log 2>&1 \
+            || { grep -E "error:|\*\* BUILD FAILED" -A6 xcodebuild.log | head -150; exit 65; }
           APP=$(find build/Build/Products -maxdepth 2 -name "*.app" -type d | head -1)
           echo "built app: $APP"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/

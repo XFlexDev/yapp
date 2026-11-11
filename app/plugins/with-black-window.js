@@ -4,7 +4,7 @@ const { withAppDelegate, withDangerousMod } = require('expo/config-plugins');
 
 const LINES = `    window?.backgroundColor = .black
     window?.overrideUserInterfaceStyle = .dark
-    rootViewController?.view.backgroundColor = .black
+    window?.rootViewController?.view.backgroundColor = .black
 `;
 
 const HOOK = `  override func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
