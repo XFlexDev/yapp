@@ -5,9 +5,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { confirm } from '../lib/native';
+import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Children, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,19 +33,38 @@ export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalet
 export function MuteRow({ chat }: { chat: string }) {
   const muted = useMuted(chat);
   return (
-    <View style={{ marginHorizontal: 10, height: 52, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' }}>
-      <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>mute notifications</Text>
-      <Switch value={muted} onValueChange={(v) => { Haptics.selectionAsync(); setMuted(chat, v); }} trackColor={{ false: 'rgba(255,255,255,0.16)', true: C.red }} thumbColor="#fff" ios_backgroundColor="rgba(255,255,255,0.16)" />
-    </View>
+    <SettingRow title="mute notifications" icon={['bell.slash', 'bell-off-outline']} onPress={() => setMuted(chat, !muted)}
+      right={<Switch value={muted} onValueChange={(v) => { Haptics.selectionAsync(); setMuted(chat, v); }} trackColor={{ false: 'rgba(255,255,255,0.16)', true: C.red }} thumbColor="#fff" ios_backgroundColor="rgba(255,255,255,0.16)" style={{ alignSelf: 'center' }} />} />
   );
 }
 
-export function SettingRow({ title, onPress, more, danger }: { title: string; onPress: () => void; more?: boolean; danger?: boolean }) {
+export function SettingRow({ title, onPress, more, danger, icon, right }: { title: string; onPress: () => void; more?: boolean; danger?: boolean; icon?: [string, string]; right?: ReactNode }) {
+  const col = danger ? C.red : '#fff';
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ marginHorizontal: 10, height: 52, borderRadius: 22, backgroundColor: danger ? C.danger : 'rgba(255,255,255,0.06)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{title}</Text>
-      {more ? <Text style={{ color: 'rgba(255,255,255,0.35)', fontFamily: F.black, fontSize: 18 }}>›</Text> : null}
+    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ height: 54, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
+      {icon ? (
+        <View style={{ width: 28, marginRight: 12, alignItems: 'center' }}>
+          <SymbolView name={icon[0] as any} size={21} weight="medium" tintColor={col} fallback={<MaterialCommunityIcons name={icon[1] as any} size={23} color={col} />} />
+        </View>
+      ) : null}
+      <Text numberOfLines={1} style={{ flex: 1, color: col, fontFamily: F.black, fontSize: 16 }}>{title}</Text>
+      {right ?? (more ? <SymbolView name="chevron.right" size={13} weight="bold" tintColor="rgba(255,255,255,0.3)" fallback={<MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.3)" />} /> : null)}
     </Pressable>
+  );
+}
+
+/** Rounded card that holds setting rows with hairlines between them. */
+export function SettingGroup({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children);
+  return (
+    <View style={{ marginHorizontal: 14, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+      {items.map((c, i) => (
+        <View key={i}>
+          {i ? <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: 'rgba(255,255,255,0.1)' }} /> : null}
+          {c}
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -479,8 +499,9 @@ export function MsgMenu({
     });
 
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }, shade]}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, shade]}>
+        <BlurBackdrop />
         <Pressable style={{ flex: 1 }} onPress={() => close()} />
       </Animated.View>
       <GestureDetector gesture={pan}>
@@ -531,8 +552,9 @@ export function ForwardSheet({ m, onClose }: { m: ChatMsg; onClose: () => void }
     onClose();
   };
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+      <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={StyleSheet.absoluteFill}>
+        <BlurBackdrop />
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
       <Animated.View entering={SlideInDown.duration(260).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '70%', backgroundColor: '#141416', borderTopLeftRadius: 26, borderTopRightRadius: 26, borderCurve: 'continuous', paddingBottom: 30 }}>
@@ -668,8 +690,8 @@ export default function ChatScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop bg={chat.background} photo={avatarUrl(friend)} />
-      <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.75)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 84, zIndex: 1 }} />
-      <View style={{ zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <ProgressiveBlur height={insets.top + 96} style={{ zIndex: 1 }} />
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Animated.View ref={avRef} onLayout={onAvLayout} style={avStyle}><Avatar user={friend} size={AV} /></Animated.View>
         <Animated.View style={[{ flex: 1 }, textIn]}>
@@ -703,11 +725,12 @@ export default function ChatScreen() {
           }}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 + Math.max(kbPad, stickersVisible ? PICKER_H : 0), flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: insets.top + 64 + Math.max(kbPad, stickersVisible ? PICKER_H : 0), flexGrow: 1 }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
+        <View style={{ height: 0, zIndex: 1 }}><ProgressiveBlur edge="bottom" height={44} intensity={30} scrim={0.35} /></View>
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -776,9 +799,9 @@ export default function ChatScreen() {
         }}
       />
       {picker ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
-          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 14, maxHeight: '85%' }}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop /><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
+          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 34, borderCurve: 'continuous', backgroundColor: '#161616', paddingTop: 22, paddingBottom: 14, gap: 14, maxHeight: '85%' }}>
             {page ? (
               <Animated.View key={page} entering={SlideInRight.duration(260).easing(out)} style={{ gap: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
@@ -815,25 +838,29 @@ export default function ChatScreen() {
                       ); })}
                   </ScrollView>
                 ) : (
-                  <View style={{ gap: 8 }}>
+                  <SettingGroup>
                     {REASONS.map((r) => (
                       <SettingRow key={r} title={r} onPress={() => { report(friend.id, r).catch(() => {}); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setPage(null); setReported(true); }} />
                     ))}
-                  </View>
+                  </SettingGroup>
                 )}
               </Animated.View>
             ) : (
               <Animated.View key="main" entering={FadeIn.duration(180)} style={{ gap: 12 }}>
-                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>chat settings</Text>
-                <SectionLabel>notifications</SectionLabel>
-                <MuteRow chat={id!} />
-                <SettingRow title="background" onPress={() => setPage('bg')} more />
-                <SettingRow title="photos" onPress={() => { setPage('photos'); setPhotos(null); loadChatPhotos(id!).then(setPhotos).catch(() => setPhotos([])); }} more />
-                <SettingRow title="delete chat" danger onPress={() => arm('delete', () => { deleteChat(id!).catch(() => {}); close(); router.back(); })} />
-                <SectionLabel>{nameOf(friend).toLowerCase()}</SectionLabel>
-                <SettingRow title="remove friend" danger onPress={() => arm('remove', () => { req(`/v1/friends/${friend.id}`, { method: 'DELETE' }).then(() => removeFriend(friend.id)).catch(() => {}); close(); router.back(); })} />
-                <SettingRow title="block" danger onPress={() => arm('block', () => { block(friend.id).catch(() => {}); close(); router.back(); })} />
-                <SettingRow title={reported ? 'reported, thanks' : 'report'} onPress={() => !reported && setPage('report')} more={!reported} />
+                <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center', marginBottom: 2 }}>chat settings</Text>
+                <SettingGroup>
+                  <MuteRow chat={id!} />
+                  <SettingRow title="background" icon={['paintpalette', 'palette-outline']} onPress={() => setPage('bg')} more />
+                  <SettingRow title="photos" icon={['photo.on.rectangle', 'image-multiple-outline']} onPress={() => { setPage('photos'); setPhotos(null); loadChatPhotos(id!).then(setPhotos).catch(() => setPhotos([])); }} more />
+                </SettingGroup>
+                <SettingGroup>
+                  <SettingRow title={reported ? 'reported, thanks' : `report ${nameOf(friend).toLowerCase()}`} icon={['flag', 'flag-outline']} onPress={() => !reported && setPage('report')} more={!reported} />
+                  <SettingRow title="remove friend" icon={['person.badge.minus', 'account-minus-outline']} danger onPress={() => arm('remove', () => { req(`/v1/friends/${friend.id}`, { method: 'DELETE' }).then(() => removeFriend(friend.id)).catch(() => {}); close(); router.back(); })} />
+                  <SettingRow title="block" icon={['hand.raised', 'hand-back-left-outline']} danger onPress={() => arm('block', () => { block(friend.id).catch(() => {}); close(); router.back(); })} />
+                </SettingGroup>
+                <SettingGroup>
+                  <SettingRow title="delete chat" icon={['trash', 'trash-can-outline']} danger onPress={() => arm('delete', () => { deleteChat(id!).catch(() => {}); close(); router.back(); })} />
+                </SettingGroup>
               </Animated.View>
             )}
           </Animated.View>

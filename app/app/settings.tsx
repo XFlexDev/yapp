@@ -1,6 +1,5 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
+import { ProgressiveBlur } from '../lib/blur';
 import { setPref } from '../lib/notifs';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -317,56 +316,16 @@ export default function Settings() {
               top: 0,
               left: 0,
               right: 0,
-              height: headerHeight,
+              height: headerHeight + 30,
               borderTopLeftRadius: 28,
               borderTopRightRadius: 28,
               overflow: 'hidden',
             },
             borderStyle,
           ]}>
-          <BlurView
-            tint="systemUltraThinMaterialDark"
-            intensity={85}
-            style={StyleSheet.absoluteFill}
-          />
-          <View
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.15)' },
-            ]}
-          />
-          {/* Hairline bottom border */}
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: StyleSheet.hairlineWidth,
-              backgroundColor: SEP,
-            }}
-          />
+          <ProgressiveBlur height={headerHeight + 30} intensity={50} scrim={0.55} />
         </Animated.View>
 
-        {/* Soft bottom gradient feather to melt smoothly into content */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            {
-              position: 'absolute',
-              top: headerHeight,
-              left: 0,
-              right: 0,
-              height: 20,
-            },
-            borderStyle,
-          ]}>
-          <LinearGradient
-            colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0.08)', 'transparent']}
-            locations={[0, 0.5, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
 
         {/* Header Content */}
         <View

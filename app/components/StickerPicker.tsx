@@ -1,3 +1,5 @@
+import { BlurView } from 'expo-blur';
+import { ProgressiveBlur } from '../lib/blur';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
@@ -6,6 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -544,7 +547,8 @@ export function StickerPicker({
     <Animated.View
       entering={SlideInDown.duration(260)}
       exiting={SlideOutDown.duration(200)}
-      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: PICKER_H + bottomInset, backgroundColor: '#121214', borderTopLeftRadius: 22, borderTopRightRadius: 22, borderCurve: 'continuous', overflow: 'hidden' }}>
+      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: PICKER_H + bottomInset, backgroundColor: Platform.OS === 'ios' ? 'rgba(14,14,16,0.72)' : '#121214', borderTopLeftRadius: 22, borderTopRightRadius: 22, borderCurve: 'continuous', overflow: 'hidden' }}>
+      {Platform.OS === 'ios' ? <BlurView tint="dark" intensity={60} style={StyleSheet.absoluteFill} /> : null}
       <Pressable onPress={onClose} hitSlop={8} style={{ alignItems: 'center', paddingTop: 8, paddingBottom: 6 }}>
         <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.25)' }} />
       </Pressable>
@@ -587,6 +591,7 @@ export function StickerPicker({
           </>
         )}
       </ScrollView>
+      <View style={{ height: 0, zIndex: 1 }}><ProgressiveBlur edge="bottom" height={36} intensity={26} scrim={0.4} /></View>
 
       <View style={{ height: RAIL + bottomInset, paddingBottom: bottomInset, flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: '#0c0c0e' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 10 }}>

@@ -1,3 +1,4 @@
+import { BlurBackdrop } from '../lib/blur';
 import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
 import { router, Stack, type ErrorBoundaryProps, DarkTheme, ThemeProvider } from 'expo-router';
@@ -126,7 +127,7 @@ export default function Root() {
       </GestureHandlerRootView>
       {askBattery ? (
         <View style={StyleSheet.absoluteFill}>
-          <Animated.View entering={FadeIn.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]} />
+          <Animated.View entering={FadeIn.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop dim={0.5} /></Animated.View>
           <Animated.View entering={SlideInDown.duration(300)} style={{ position: 'absolute', left: 10, right: 10, bottom: 30, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 24, gap: 12 }}>
             <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>let yapp run in the background</Text>
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>

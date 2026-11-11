@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { confirm } from '../lib/native';
+import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
 import { FlatList, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
@@ -16,7 +17,7 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, sameCalendarDay } from './chat';
+import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
 import { req } from '../lib/api';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
@@ -29,7 +30,7 @@ const SPRING = { damping: 18, stiffness: 320, mass: 0.7 };
 /** Settings row that opens its own page inside the sheet. */
 function NavRow({ title, value, onPress }: { title: string; value: string; onPress: () => void }) {
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ marginHorizontal: 10, height: 52, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
+    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ marginHorizontal: 14, height: 54, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
       <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{title}</Text>
       {value ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, marginRight: 8 }}>{value}</Text> : null}
       <Text style={{ color: 'rgba(255,255,255,0.35)', fontFamily: F.black, fontSize: 18 }}>›</Text>
@@ -138,8 +139,8 @@ export default function GroupScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop bg={g.background} photo={null} />
-      <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.75)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 84, zIndex: 1 }} />
-      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <ProgressiveBlur height={insets.top + 96} style={{ zIndex: 1 }} />
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Pressable style={{ flex: 1 }} onPress={() => setSheet('people')}>
           <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{g.name}</Text>
@@ -166,7 +167,8 @@ export default function GroupScreen() {
             );
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: insets.top + 64, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
+        <View style={{ height: 0, zIndex: 1 }}><ProgressiveBlur edge="bottom" height={44} intensity={30} scrim={0.35} /></View>
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -236,8 +238,8 @@ export default function GroupScreen() {
         }}
       />
       {sheet ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop /><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
           <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, maxHeight: '82%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 12 }}>
             {open ? (
               <Animated.View key={open} entering={SlideInRight.duration(260).easing(out)} style={{ gap: 10 }}>
@@ -285,7 +287,7 @@ export default function GroupScreen() {
               {others.length ? <NavRow title="add people" value={g.invited?.length ? `${g.invited.length} invited` : ''} onPress={() => setOpen('add')} /> : null}
               <NavRow title="background" value="" onPress={() => setOpen('bg')} />
               <SectionLabel>notifications</SectionLabel>
-              <MuteRow chat={`g:${id}`} />
+              <SettingGroup><MuteRow chat={`g:${id}`} /></SettingGroup>
               <Squish onPress={() => confirm('leave this group?', 'you won’t get its messages or talks anymore.', 'leave', () => { leaveGroup(id!).catch(() => {}); })} style={{ marginHorizontal: 18, marginTop: 4, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,69,58,0.18)', alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ color: C.danger, fontFamily: F.black, fontSize: 16 }}>leave group</Text>
               </Squish>

@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import React, { useRef, useState } from 'react';
+import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -101,17 +102,19 @@ export default function Inbox() {
   };
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 6, flexDirection: 'row', alignItems: 'center' }}>
+      <ProgressiveBlur height={insets.top + 84} style={{ zIndex: 1 }} />
+      <ProgressiveBlur edge="bottom" height={insets.bottom + 56} style={{ zIndex: 1 }} />
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 6, flexDirection: 'row', alignItems: 'center' }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 22 }}>chats</Text>
         <Squish onPress={() => { Haptics.selectionAsync(); setMake(true); }} style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Glyph g="people" size={15} /><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 14 }}>new group</Text>
         </Squish>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}><Requests />{items.map((i) => i.node)}</ScrollView>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 54, paddingBottom: insets.bottom + 40 }} scrollIndicatorInsets={{ top: insets.top + 54 }}><Requests />{items.map((i) => i.node)}</ScrollView>
       {make ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]}><Pressable style={{ flex: 1 }} onPress={() => setMake(false)} /></Animated.View>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop /><Pressable style={{ flex: 1 }} onPress={() => setMake(false)} /></Animated.View>
           <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={[lift, { position: 'absolute', left: 8, right: 8, maxHeight: '75%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 20, paddingBottom: 14 }]}>
             <TextInput value={name} onChangeText={setName} placeholder="group name" placeholderTextColor="rgba(255,255,255,0.35)" maxLength={40} keyboardAppearance="dark" selectionColor={C.red} style={{ marginHorizontal: 18, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: F.black, fontSize: 17, paddingHorizontal: 18 }} />
             <ScrollView style={{ marginTop: 10 }} keyboardShouldPersistTaps="handled">

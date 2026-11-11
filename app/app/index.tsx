@@ -22,6 +22,7 @@ import { haptic } from '../lib/haptic';
 import { choose, confirm } from '../lib/native';
 import { muteFriend, unmuteFriend, useMuted } from '../lib/notifs';
 import { BlurView } from 'expo-blur';
+import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
 import { playClip } from '../lib/clips';
 import { acceptCall, endCall, focusFriend, lockCall, pressTalk, releaseTalk, setCamera, setMuted } from '../lib/voice';
 
@@ -118,6 +119,8 @@ function Backdrop({ friend, connecting }: { friend: Friend; connecting: boolean 
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {layers.map((x, i) => <Layer key={x.k} friend={x.f} fade={i > 0} onIn={() => settle(x.k)} />)}
       <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
+      <ProgressiveBlur height={150} intensity={26} scrim={0} />
+      <ProgressiveBlur edge="bottom" height={300} intensity={34} scrim={0} />
 
       {/* 9:16 background photo connection blur overlay */}
       <Animated.View style={[StyleSheet.absoluteFill, blurStyle]}>
@@ -376,7 +379,8 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
   };
   return (
     <View style={StyleSheet.absoluteFill}>
-      <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+      <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(200)} style={StyleSheet.absoluteFill}>
+        <BlurBackdrop />
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
       <Animated.View entering={SlideInDown.duration(340).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6, alignItems: 'stretch' }}>
