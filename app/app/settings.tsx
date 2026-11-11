@@ -323,7 +323,7 @@ export default function Settings() {
             },
             borderStyle,
           ]}>
-          <ProgressiveBlur height={headerHeight + 30} intensity={50} scrim={0.55} />
+          <ProgressiveBlur height={headerHeight + 12} intensity={50} scrim={0.55} />
         </Animated.View>
 
 

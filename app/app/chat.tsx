@@ -691,7 +691,7 @@ export default function ChatScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <Backdrop bg={chat.background} photo={avatarUrl(friend)} />
-      <ProgressiveBlur height={insets.top + 96} style={{ zIndex: 1 }} />
+      <ProgressiveBlur height={insets.top + 68} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Animated.View ref={avRef} onLayout={onAvLayout} style={avStyle}><Avatar user={friend} size={AV} /></Animated.View>
@@ -733,7 +733,7 @@ export default function ChatScreen() {
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-        <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 56} style={{ bottom: -(insets.bottom + 8) }} />
+        <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 20} style={{ bottom: -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (

@@ -102,8 +102,8 @@ export default function Inbox() {
   };
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <ProgressiveBlur height={insets.top + 84} style={{ zIndex: 1 }} />
-      <ProgressiveBlur edge="bottom" height={insets.bottom + 56} style={{ zIndex: 1 }} />
+      <ProgressiveBlur height={insets.top + 64} style={{ zIndex: 1 }} />
+      <ProgressiveBlur edge="bottom" height={insets.bottom + 28} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 6, flexDirection: 'row', alignItems: 'center' }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
         <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 22 }}>chats</Text>

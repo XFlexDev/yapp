@@ -38,7 +38,7 @@ export function ProgressiveBlur({ edge = 'top', height, intensity = 50, scrim = 
   return (
     <View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, height }, top ? { top: 0 } : { bottom: 0 }, style]}>
       {NativeBlur ? (
-        <NativeBlur edge={edge} radius={intensity * 0.4} style={StyleSheet.absoluteFill} />
+        <NativeBlur edge={edge} radius={intensity * 0.18} style={StyleSheet.absoluteFill} />
       ) : ios ? (
         <Safe>
           {LAYERS.map(([k, on, off], i) => (

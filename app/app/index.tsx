@@ -119,8 +119,8 @@ function Backdrop({ friend, connecting }: { friend: Friend; connecting: boolean 
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {layers.map((x, i) => <Layer key={x.k} friend={x.f} fade={i > 0} onIn={() => settle(x.k)} />)}
       <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.85)']} locations={[0, 0.14, 0.55, 0.8, 1]} style={StyleSheet.absoluteFill} />
-      <ProgressiveBlur height={150} intensity={26} scrim={0} />
-      <ProgressiveBlur edge="bottom" height={300} intensity={34} scrim={0} />
+      <ProgressiveBlur height={110} intensity={26} scrim={0} />
+      <ProgressiveBlur edge="bottom" height={200} intensity={34} scrim={0} />
 
       {/* 9:16 background photo connection blur overlay */}
       <Animated.View style={[StyleSheet.absoluteFill, blurStyle]}>
