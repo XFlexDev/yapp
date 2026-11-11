@@ -97,6 +97,7 @@ export default function GroupScreen() {
   const pk = useSharedValue(0);
   useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H + insets.bottom : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible, insets.bottom]);
   useEffect(() => { const a = Keyboard.addListener('keyboardWillShow', () => setStickersVisible(false)); const b = Keyboard.addListener('keyboardDidShow', () => setStickersVisible(false)); return () => { a.remove(); b.remove(); }; }, []);
+  const [barH, setBarH] = useState(50);
   const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom, pk.value) + 8 }));
 
   useEffect(() => {
@@ -167,8 +168,9 @@ export default function GroupScreen() {
             );
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: insets.top + 64, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
-        <View style={{ height: 0, zIndex: 1 }}><ProgressiveBlur edge="bottom" height={44} intensity={30} scrim={0.35} /></View>
+          style={{ marginBottom: -(barH + insets.bottom + 8) }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
+        <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
+        <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 56} style={{ bottom: -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -212,6 +214,7 @@ export default function GroupScreen() {
               <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish>
             </Animated.View>
           ) : <TalkButton onState={setTalk} />}
+        </View>
         </View>
       </Animated.View>
       {menu ? (

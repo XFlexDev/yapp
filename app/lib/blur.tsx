@@ -12,29 +12,36 @@ class Safe extends Component<{ children: ReactNode }, { bad: boolean }> {
   render() { return this.state.bad ? null : this.props.children; }
 }
 
+// [share of full blur, fully on until, gone by] as fractions of the height, weakest layer reaching furthest.
+const LAYERS: readonly [number, number, number][] = [
+  [0.14, 0.72, 1],
+  [0.22, 0.56, 0.84],
+  [0.36, 0.4, 0.68],
+  [0.6, 0.24, 0.52],
+  [1, 0.08, 0.36],
+];
+
 /**
- * Blur that is strongest at the screen edge and fades out into the content.
- * iOS stacks two masked blurs; Android falls back to a dark fade.
+ * Blur whose radius grows towards the screen edge. iOS stacks small blurs that each
+ * reach a bit less far, so the radius adds up step by step; Android gets a dark fade.
  */
-export function ProgressiveBlur({ edge = 'top', height, intensity = 44, scrim = 0.6, style }: { edge?: 'top' | 'bottom'; height: number; intensity?: number; scrim?: number; style?: StyleProp<ViewStyle> }) {
+export function ProgressiveBlur({ edge = 'top', height, intensity = 50, scrim = 0.25, style }: { edge?: 'top' | 'bottom'; height: number; intensity?: number; scrim?: number; style?: StyleProp<ViewStyle> }) {
   const top = edge === 'top';
   const dir = top ? { start: { x: 0, y: 0 }, end: { x: 0, y: 1 } } : { start: { x: 0, y: 1 }, end: { x: 0, y: 0 } };
-  const mask = (stops: readonly [number, number, number, number]) => (
-    <LinearGradient {...dir} colors={['#000', '#000', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0)']} locations={stops} style={StyleSheet.absoluteFill} />
-  );
+  const ios = Platform.OS === 'ios';
+  const shade = ios ? scrim : Math.min(1, scrim + 0.4);
   return (
     <View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, height }, top ? { top: 0 } : { bottom: 0 }, style]}>
-      {Platform.OS === 'ios' ? (
+      {ios ? (
         <Safe>
-          <MaskedView style={StyleSheet.absoluteFill} maskElement={mask([0, 0.45, 0.75, 1])}>
-            <BlurView tint="dark" intensity={intensity * 0.4} style={StyleSheet.absoluteFill} />
-          </MaskedView>
-          <MaskedView style={StyleSheet.absoluteFill} maskElement={mask([0, 0.25, 0.5, 0.75])}>
-            <BlurView tint="dark" intensity={intensity} style={StyleSheet.absoluteFill} />
-          </MaskedView>
+          {LAYERS.map(([k, on, off], i) => (
+            <MaskedView key={i} style={StyleSheet.absoluteFill} maskElement={<LinearGradient {...dir} colors={['#000', '#000', 'rgba(0,0,0,0)']} locations={[0, on, off]} style={StyleSheet.absoluteFill} />}>
+              <BlurView tint="dark" intensity={intensity * k} style={StyleSheet.absoluteFill} />
+            </MaskedView>
+          ))}
         </Safe>
       ) : null}
-      {scrim > 0 ? <LinearGradient {...dir} colors={[`rgba(0,0,0,${Platform.OS === 'ios' ? scrim : Math.min(1, scrim + 0.3)})`, `rgba(0,0,0,${scrim * 0.5})`, 'rgba(0,0,0,0)']} locations={[0, 0.5, 1]} style={StyleSheet.absoluteFill} /> : null}
+      {shade > 0 ? <LinearGradient {...dir} colors={[`rgba(0,0,0,${shade})`, `rgba(0,0,0,${shade * 0.4})`, 'rgba(0,0,0,0)']} locations={[0, 0.5, 1]} style={StyleSheet.absoluteFill} /> : null}
     </View>
   );
 }

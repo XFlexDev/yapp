@@ -637,6 +637,7 @@ export default function ChatScreen() {
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
+  const [barH, setBarH] = useState(50);
   useEffect(() => {
     const a = Keyboard.addListener('keyboardWillShow', (e) => { setStickersVisible(false); setKbPad(Math.max(0, e.endCoordinates.height - insets.bottom)); });
     const c = Keyboard.addListener('keyboardDidShow', () => setStickersVisible(false));
@@ -725,12 +726,14 @@ export default function ChatScreen() {
           }}
           onEndReached={() => loadMessages(id!, true).catch(() => {})}
           onEndReachedThreshold={0.4}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: insets.top + 64 + Math.max(kbPad, stickersVisible ? PICKER_H : 0), flexGrow: 1 }}
+          style={{ marginBottom: -(barH + insets.bottom + 8) }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64 + Math.max(kbPad, stickersVisible ? PICKER_H : 0), flexGrow: 1 }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
-        <View style={{ height: 0, zIndex: 1 }}><ProgressiveBlur edge="bottom" height={44} intensity={30} scrim={0.35} /></View>
+        <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
+        <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 56} style={{ bottom: -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -772,6 +775,7 @@ export default function ChatScreen() {
           <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
             {sendVisible ? <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish> : null}
           </Animated.View>
+        </View>
         </View>
       </Animated.View>
       </View>
