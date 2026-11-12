@@ -14,19 +14,19 @@ import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideI
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
-import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, react as reactMsg, retry, saveImageAsSticker, sendMessage, sendPhoto, sendSticker, setBackground } from '../lib/chat';
+import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, react as reactMsg, retry, saveImageAsSticker, savePhoto, sendMessage, sendPhotoTo, sendSticker, setBackground, type Photo } from '../lib/chat';
 import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { InlineBody } from '../components/MsgInline';
+import { AttachSheet } from '../components/AttachSheet';
+import { PhotoViewer, type Shot } from '../components/PhotoViewer';
 import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, saveSticker, type Sticker } from '../lib/stickers';
 
 let Clipboard: any = null;
 try { Clipboard = require('expo-clipboard'); } catch {}
-let MediaLibrary: any = null;
-try { MediaLibrary = require('expo-media-library'); } catch {}
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
 export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalette.fill', 'palette'], send: ['arrow.up', 'arrow-up'], mic: ['mic.fill', 'microphone'], gear: ['gearshape.fill', 'cog'], minus: ['minus.circle.fill', 'minus-circle'], people: ['person.2.fill', 'account-multiple'], add: ['plus', 'plus'], plus: ['photo.badge.plus', 'image-plus'], photo: ['photo.fill', 'image'], sticker: ['face.smiling.inverse', 'sticker-emoji'] } as const;
@@ -145,12 +145,19 @@ const AV = 38;
 const MORPH = { damping: 24, stiffness: 260, mass: 0.8 };
 
 /** Photo bubble: exact aspect from the start, blurred preview until the WebP arrives from the CDN. */
-function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?: (uri: string) => void; onRetry: () => void; onLongPress?: (e: any) => void }) {
+function PhotoBubble({ m, onOpen, onRetry, onLongPress }: { m: ChatMsg; onOpen?: (s: Shot) => void; onRetry: () => void; onLongPress?: (e: any) => void }) {
   const [w, h, thumb] = (m.meta ?? '').split(',');
   const ratio = +w && +h ? Math.min(1.5, Math.max(0.6, +h / +w)) : 1;
   const src = m.body.startsWith('c-') ? mediaUrl(m.body) : m.body;
+  const box = useRef<any>(null);
+  // The viewer grows out of this bubble, so it needs to know where the bubble is on screen.
+  const measure: NonNullable<Shot['measure']> = (cb) => {
+    if (!box.current?.measureInWindow) return cb(null);
+    box.current.measureInWindow((x: number, y: number, bw: number, bh: number) => cb(bw > 0 && bh > 0 ? { x, y, w: bw, h: bh } : null));
+  };
+  const open = () => measure((rect) => onOpen?.({ uri: src, thumb, iw: +w || undefined, ih: +h || undefined, rect: rect ?? undefined, measure }));
   return (
-    <Pressable onPress={() => (m.failed ? onRetry() : onOpen?.(src))} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.98 : 1 }, { scaleY: pressed ? 0.98 : 1 }] })}>
+    <Pressable ref={box} onPress={() => (m.failed ? onRetry() : open())} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ transform: [{ scaleX: pressed ? 0.98 : 1 }, { scaleY: pressed ? 0.98 : 1 }] })}>
       <Image source={src} placeholder={thumb ? { uri: `data:image/webp;base64,${thumb}` } : undefined} placeholderContentFit="cover" contentFit="cover" transition={200} cachePolicy="memory-disk" recyclingKey={m.cid ?? m.id}
         style={{ width: 230, height: 230 * ratio, borderRadius: 20, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.08)', opacity: m.pending ? 0.6 : 1 }} />
     </Pressable>
@@ -338,16 +345,6 @@ export function FormattedMessageText({ text }: { text: string }) {
   );
 }
 
-export function PhotoViewer({ uri, onClose }: { uri: string | null; onClose: () => void }) {
-  if (!uri) return null;
-  return (
-    <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(150)} style={[StyleSheet.absoluteFill, { backgroundColor: '#000', zIndex: 20 }]}>
-      <Pressable style={{ flex: 1 }} onPress={onClose}><Image source={uri} style={{ flex: 1 }} contentFit="contain" cachePolicy="memory-disk" /></Pressable>
-    </Animated.View>
-  );
-}
-
-
 export function ReplyQuote({ reply, name }: { reply: { from: string; kind: string; body: string }; name: string }) {
   const label = reply.kind === 'image' ? '\ud83d\udcf7 photo' : reply.kind === 'sticker' ? 'sticker' : reply.body;
   return (
@@ -361,7 +358,7 @@ export function ReplyQuote({ reply, name }: { reply: { from: string; kind: strin
   );
 }
 
-export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName, nameFor, onQuote, onAuthor }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number, r?: MenuRect) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string; nameFor?: (uid: string) => string; onQuote?: () => void; onAuthor?: () => void }) {
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName, nameFor, onQuote, onAuthor }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (s: Shot) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number, r?: MenuRect) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string; nameFor?: (uid: string) => string; onQuote?: () => void; onAuthor?: () => void }) {
   const quoteName = !m.reply ? '' : nameFor ? nameFor(m.reply.from) : m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you');
   const hold = !m.pending && onMenu ? (e: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -471,14 +468,11 @@ export function MsgMenu({
       },
     });
   }
-  if (m.kind === 'image' && MediaLibrary) {
+  if (m.kind === 'image') {
     rows.push({
       icon: ['arrow.down.to.line', 'tray-arrow-down'], label: 'save to photos', go: async () => {
-        try {
-          const url = mediaUrl(m.body);
-          const r = await MediaLibrary.requestPermissionsAsync(true);
-          if (r.granted) { await MediaLibrary.saveToLibraryAsync(url); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
-        } catch {}
+        try { if (await savePhoto(m.body)) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
+        catch { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); }
         close();
       },
     });
@@ -646,7 +640,8 @@ export default function ChatScreen() {
   const [replyingTo, setReplyingTo] = useState<ChatMsg | null>(null);
   const [forwarding, setForwarding] = useState<ChatMsg | null>(null);
   const [stickersVisible, setStickersVisible] = useState(false);
-  const [view, setView] = useState<string | null>(null);
+  const [view, setView] = useState<Shot | null>(null);
+  const [attach, setAttach] = useState(false);
   const [page, setPage] = useState<null | 'bg' | 'photos' | 'report'>(null);
   const [photos, setPhotos] = useState<ChatMsg[] | null>(null);
   const [reported, setReported] = useState(false);
@@ -663,6 +658,9 @@ export default function ChatScreen() {
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
+  // Anything that opens over the chat would sit under the keyboard, so the keyboard goes first.
+  const covered = !!menu || picker || !!forwarding || !!view || attach;
+  useEffect(() => { if (covered) Keyboard.dismiss(); }, [covered]);
   const [barH, setBarH] = useState(50);
   useEffect(() => {
     const a = Keyboard.addListener('keyboardWillShow', (e) => { setStickersVisible(false); setKbPad(Math.max(0, e.endCoordinates.height - insets.bottom)); });
@@ -707,6 +705,14 @@ export default function ChatScreen() {
   if (!friend) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
   const nameFor = (uid: string) => (uid === meId ? 'you' : nameOf(friend).toLowerCase());
   const lastMine = msgs.find((m) => m.from === meId && !m.pending && !m.failed);
+  // With the keyboard or the picker up, the blur ends at the typing box instead of running into them.
+  const lifted = kbPad > 0 || stickersVisible;
+  const sendPhotos = async (list: Photo[]) => {
+    const r = replyingTo?.id;
+    setReplyingTo(null);
+    toLatest();
+    for (let i = 0; i < list.length; i++) await sendPhotoTo(id!, list[i], i ? undefined : r);
+  };
   const send = () => {
     const b = text.trim();
     if (!b) return;
@@ -772,7 +778,7 @@ export default function ChatScreen() {
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-        <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 20} style={{ bottom: -(insets.bottom + 8) }} />
+        <ProgressiveBlur edge="bottom" height={lifted ? barH + 20 : barH + insets.bottom + 28} style={{ bottom: lifted ? 0 : -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -809,7 +815,7 @@ export default function ChatScreen() {
           </Animated.View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
-          <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!, replyingTo?.id, () => { setReplyingTo(null); toLatest(); }).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
+          <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(false); setAttach(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="add" size={20} /></Squish>
           <ComposerPill text={text} onChange={setText} placeholder="message" onSticker={() => { Haptics.selectionAsync(); Keyboard.dismiss(); setStickersVisible((v) => !v); }} />
           <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
             {sendVisible ? <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish> : null}
@@ -877,7 +883,7 @@ export default function ChatScreen() {
                     {photos === null ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, padding: 12 }}>loading…</Text>
                       : !photos.length ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, padding: 12 }}>no photos yet</Text>
                       : photos.map((p) => { const [, , t] = (p.meta ?? '').split(','); const src = mediaUrl(p.body); return (
-                        <Pressable key={p.id} onPress={() => setView(src)} style={{ width: '32.4%', aspectRatio: 1 }}>
+                        <Pressable key={p.id} onPress={() => setView({ uri: src })} style={{ width: '32.4%', aspectRatio: 1 }}>
                           <Image source={src} placeholder={t ? { uri: `data:image/webp;base64,${t}` } : undefined} contentFit="cover" cachePolicy="memory-disk" transition={150} style={{ flex: 1, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.08)' }} />
                         </Pressable>
                       ); })}
@@ -911,7 +917,12 @@ export default function ChatScreen() {
           </Animated.View>
         </View>
       ) : null}
-      <PhotoViewer uri={view} onClose={() => setView(null)} />
+      <AttachSheet visible={attach} onClose={() => setAttach(false)} onSend={sendPhotos}
+        actions={[
+          { title: 'stickers and emoji', sub: 'send one or add your own', icon: ['face.smiling', 'sticker-emoji'], onPress: () => setStickersVisible(true) },
+          { title: 'chat background', sub: 'a color or your own photo', icon: ['paintpalette', 'palette-outline'], onPress: () => { setPicker(true); setPage('bg'); } },
+        ]} />
+      <PhotoViewer shot={view} onClose={() => setView(null)} />
     </View>
   );
 }

@@ -11,14 +11,16 @@ import { haptic } from '../lib/haptic';
 import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
-import { BACKGROUNDS, pickBackgroundPhoto } from '../lib/chat';
-import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, reactGroup, sendGroup, setGroupBackground, retryGroup, sendGroupPhoto, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
+import { BACKGROUNDS, pickBackgroundPhoto, type Photo } from '../lib/chat';
+import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, reactGroup, sendGroup, setGroupBackground, retryGroup, groupPhotoTo, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
 import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, drafts, useJump, MuteRow, PhotoViewer, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
+import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, drafts, useJump, MuteRow, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
+import { AttachSheet } from '../components/AttachSheet';
+import { PhotoViewer, type Shot } from '../components/PhotoViewer';
 import { req } from '../lib/api';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
@@ -85,7 +87,9 @@ export default function GroupScreen() {
     transform: [{ scale: withTiming(sendVisible ? 1 : 0.82, { duration: 160, easing: out }) }],
   }));
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
-  const [view, setView] = useState<string | null>(null);
+  const [view, setView] = useState<Shot | null>(null);
+  const [attach, setAttach] = useState(false);
+  const [kbUp, setKbUp] = useState(false);
   const [open, setOpen] = useState<null | 'people' | 'add' | 'bg'>(null);
   const [talk, setTalk] = useState<'idle' | 'connecting' | 'live' | 'hint'>('idle');
   const [stickersVisible, setStickersVisible] = useState(false);
@@ -98,7 +102,10 @@ export default function GroupScreen() {
   const kb = useAnimatedKeyboard();
   const pk = useSharedValue(0);
   useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H + insets.bottom : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible, insets.bottom]);
-  useEffect(() => { const a = Keyboard.addListener('keyboardWillShow', () => setStickersVisible(false)); const b = Keyboard.addListener('keyboardDidShow', () => setStickersVisible(false)); return () => { a.remove(); b.remove(); }; }, []);
+  useEffect(() => { const a = Keyboard.addListener('keyboardWillShow', () => { setStickersVisible(false); setKbUp(true); }); const b = Keyboard.addListener('keyboardDidShow', () => { setStickersVisible(false); setKbUp(true); }); const c = Keyboard.addListener('keyboardDidHide', () => setKbUp(false)); return () => { a.remove(); b.remove(); c.remove(); }; }, []);
+  const covered = !!menu || !!sheet || !!forwarding || !!view || attach;
+  useEffect(() => { if (covered) Keyboard.dismiss(); }, [covered]);
+  const lifted = kbUp || stickersVisible;
   const [barH, setBarH] = useState(50);
   const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom, pk.value) + 8 }));
 
@@ -135,6 +142,12 @@ export default function GroupScreen() {
   const lastMine = msgs.find((m) => m.from === me?.id && !m.pending && !m.failed);
   const seenBy = lastMine ? g.members.filter((u) => u.id !== me?.id && (g.reads[u.id] ?? 0) >= lastMine.created_at).map((u) => nameOf(u).toLowerCase()) : [];
   const others = friends.filter((f) => !g.members.some((u) => u.id === f.id));
+  const sendPhotos = async (list: Photo[]) => {
+    const r = replyingTo?.id;
+    setReplyingTo(null);
+    toLatest();
+    for (let i = 0; i < list.length; i++) await groupPhotoTo(id!, list[i], i ? undefined : r);
+  };
   const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b, replyingTo?.id); setReplyingTo(null); toLatest(); };
   const nameFor = (uid: string) => (uid === me?.id ? 'you' : nameOf(who(uid) ?? ({ display_name: 'someone' } as any)).toLowerCase());
   const profile = (uid: string) => { Haptics.selectionAsync(); router.push({ pathname: '/user', params: { id: uid } }); };
@@ -176,7 +189,7 @@ export default function GroupScreen() {
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           style={{ marginBottom: -(barH + insets.bottom + 8) }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64, flexGrow: 1 }} automaticallyAdjustsScrollIndicatorInsets={false} scrollIndicatorInsets={{ top: barH + insets.bottom + 28, bottom: insets.top + 68 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-        <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 20} style={{ bottom: -(insets.bottom + 8) }} />
+        <ProgressiveBlur edge="bottom" height={lifted ? barH + 20 : barH + insets.bottom + 28} style={{ bottom: lifted ? 0 : -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -213,7 +226,7 @@ export default function GroupScreen() {
           </Animated.View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
-          <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!, replyingTo?.id, () => { setReplyingTo(null); toLatest(); }).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
+          <Squish onPress={() => { Haptics.selectionAsync(); setStickersVisible(false); setAttach(true); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="add" size={20} /></Squish>
           <ComposerPill text={text} onChange={setText} placeholder={`message ${g.name}`} onSticker={() => { Haptics.selectionAsync(); Keyboard.dismiss(); setStickersVisible((v) => !v); }} />
           {sendVisible ? (
             <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
@@ -308,7 +321,12 @@ export default function GroupScreen() {
           </Animated.View>
         </View>
       ) : null}
-      <PhotoViewer uri={view} onClose={() => setView(null)} />
+      <AttachSheet visible={attach} onClose={() => setAttach(false)} onSend={sendPhotos}
+        actions={[
+          { title: 'stickers and emoji', sub: 'send one or add your own', icon: ['face.smiling', 'sticker-emoji'], onPress: () => setStickersVisible(true) },
+          { title: 'chat background', sub: 'a color or your own photo', icon: ['paintpalette', 'palette-outline'], onPress: () => { setSheet('people'); setOpen('bg'); } },
+        ]} />
+      <PhotoViewer shot={view} onClose={() => setView(null)} />
     </View>
   );
 }

@@ -1,5 +1,4 @@
 import { BlurView } from 'expo-blur';
-import { ProgressiveBlur } from '../lib/blur';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
@@ -618,7 +617,6 @@ export function StickerPicker({
           </>
         )}
       </ScrollView>
-      <View style={{ height: 0, zIndex: 1 }}><ProgressiveBlur edge="bottom" height={36} intensity={26} scrim={0.4} /></View>
 
       <View style={{ height: RAIL + bottomInset, paddingBottom: bottomInset, flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: '#0c0c0e' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 10 }}>

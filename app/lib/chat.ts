@@ -59,11 +59,44 @@ export async function pickPhoto(): Promise<Photo | null> {
   const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
   const a = r.assets?.[0];
   if (r.canceled || !a) return null;
-  const wide = a.width >= a.height;
-  const big = Math.max(a.width, a.height) > 1600;
-  const out = await ImageManipulator.manipulateAsync(a.uri, big ? [{ resize: wide ? { width: 1600 } : { height: 1600 } }] : [], { compress: 0.75, format: ACCEPT });
-  const t = await ImageManipulator.manipulateAsync(out.uri, [{ resize: wide ? { width: 20 } : { height: 20 } }], { compress: 0.5, format: ACCEPT, base64: true });
+  return preparePhoto(a.uri, a.width, a.height);
+}
+/** Shrinks any local picture (library, camera) into what a chat photo upload expects. */
+export async function preparePhoto(uri: string, width: number, height: number, flip = false): Promise<Photo> {
+  const wide = width >= height;
+  const big = Math.max(width, height) > 1600;
+  const steps: ImageManipulator.Action[] = big ? [{ resize: wide ? { width: 1600 } : { height: 1600 } }] : [];
+  if (flip) steps.push({ flip: ImageManipulator.FlipType.Horizontal });
+  const out = await ImageManipulator.manipulateAsync(uri, steps, { compress: 0.75, format: ACCEPT });
+  const t = await ImageManipulator.manipulateAsync(out.uri, [{ resize: out.width >= out.height ? { width: 20 } : { height: 20 } }], { compress: 0.5, format: ACCEPT, base64: true });
   return { uri: out.uri, w: out.width, h: out.height, thumb: t.base64 ?? '' };
+}
+/** Several pictures from the system picker, already shrunk. */
+export async function pickPhotos(limit = 10): Promise<Photo[]> {
+  const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsMultipleSelection: true, selectionLimit: limit, orderedSelection: true });
+  if (r.canceled || !r.assets?.length) return [];
+  const out: Photo[] = [];
+  for (const a of r.assets) { try { out.push(await preparePhoto(a.uri, a.width, a.height)); } catch {} }
+  return out;
+}
+/** The phone's own camera screen, for builds without the in-app camera. */
+export async function systemCamera(): Promise<Photo | null> {
+  const ok = await ImagePicker.requestCameraPermissionsAsync();
+  if (!ok.granted) return null;
+  const r = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });
+  const a = r.assets?.[0];
+  if (r.canceled || !a) return null;
+  return preparePhoto(a.uri, a.width, a.height);
+}
+/** Copies a chat photo into the phone's library. */
+export async function savePhoto(body: string) {
+  const Lib = require('expo-media-library/legacy');
+  const ok = await Lib.requestPermissionsAsync(true);
+  if (!ok.granted) return false;
+  const src = body.startsWith('c-') ? mediaUrl(body) : body;
+  const file = await ImageManipulator.manipulateAsync(src, [], { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG });
+  await Lib.saveToLibraryAsync(file.uri);
+  return true;
 }
 export const photoMeta = (p: Photo) => `${p.w},${p.h},${p.thumb}`;
 export async function photoFromMsg(m: ChatMsg): Promise<Photo> {
@@ -76,7 +109,7 @@ export async function uploadPhoto(path: string, p: Photo, replyTo?: string) {
   return req<ChatMsg>(`${path}?w=${p.w}&h=${p.h}&t=${encodeURIComponent(p.thumb)}${replyTo ? `&r=${replyTo}` : ''}`, { method: 'POST', raw: blob, ctype: 'image/webp' });
 }
 
-async function sendPhotoTo(id: string, p: Photo, replyTo?: string) {
+export async function sendPhotoTo(id: string, p: Photo, replyTo?: string) {
   const me = get().me!.id;
   const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), reply_to: replyTo, created_at: Date.now(), pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));

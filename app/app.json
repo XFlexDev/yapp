@@ -11,8 +11,8 @@
       "bundleIdentifier": "dev.kreatix.yapp",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Yapp uses your microphone while you hold to talk.",
-        "NSPhotoLibraryUsageDescription": "Pick a profile photo your friends see.",
-        "NSCameraUsageDescription": "Yapp uses your camera for your profile photo and video calls.",
+        "NSPhotoLibraryUsageDescription": "Yapp shows your recent photos so you can send them in chats and pick a profile photo.",
+        "NSCameraUsageDescription": "Yapp uses your camera for photos you send, your profile photo and video calls.",
         "UIBackgroundModes": [
           "audio",
           "voip",

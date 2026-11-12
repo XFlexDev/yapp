@@ -33,7 +33,7 @@ export async function sendGroup(id: string, body: string, replyTo?: string, kind
   try { const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body, kind, meta, reply_to: replyTo } }); patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) })); }
   catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
 }
-async function groupPhotoTo(id: string, p: Photo, replyTo?: string) {
+export async function groupPhotoTo(id: string, p: Photo, replyTo?: string) {
   const me = get().me!.id;
   const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), reply_to: replyTo, created_at: Date.now(), pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
