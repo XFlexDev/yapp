@@ -17,8 +17,9 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, LookSliders, MsgMenu, drafts, useJump, MuteRow, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
+import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, LookSliders, MsgMenu, drafts, useJump, MuteRow, SectionLabel, SettingGroup, SettingRow, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
+import { Icon } from '../lib/icon';
 import { useLook } from '../lib/look';
 import { AttachSheet } from '../components/AttachSheet';
 import { PhotoViewer, type Shot } from '../components/PhotoViewer';
@@ -32,13 +33,12 @@ const NONE: ChatMsg[] = [];
 const SPRING = { damping: 18, stiffness: 320, mass: 0.7 };
 
 /** Settings row that opens its own page inside the sheet. */
-function NavRow({ title, value, onPress }: { title: string; value: string; onPress: () => void }) {
+function RowValue({ text }: { text: string }) {
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ marginHorizontal: 14, height: 54, borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{title}</Text>
-      {value ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, marginRight: 8 }}>{value}</Text> : null}
-      <Text style={{ color: 'rgba(255,255,255,0.35)', fontFamily: F.black, fontSize: 18 }}>›</Text>
-    </Pressable>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {text ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15 }}>{text}</Text> : null}
+      <Icon sf="chevron.right" md="chevron-right" size={13} mdSize={22} color="rgba(255,255,255,0.3)" />
+    </View>
   );
 }
 
@@ -311,16 +311,20 @@ export default function GroupScreen() {
             <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
               <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>group settings</Text>
               <SectionLabel>name</SectionLabel>
-              <TextInput defaultValue={g.name} onEndEditing={(e) => renameGroup(e.nativeEvent.text)} maxLength={40} keyboardAppearance="dark" selectionColor={C.red} returnKeyType="done"
-                style={{ marginHorizontal: 18, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: F.black, fontSize: 16, paddingHorizontal: 18 }} />
-              <NavRow title="people" value={`${g.members.length}`} onPress={() => setOpen('people')} />
-              {others.length ? <NavRow title="add people" value={g.invited?.length ? `${g.invited.length} invited` : ''} onPress={() => setOpen('add')} /> : null}
-              <NavRow title="background" value="" onPress={() => setOpen('bg')} />
+              <SettingGroup>
+                <TextInput defaultValue={g.name} onEndEditing={(e) => renameGroup(e.nativeEvent.text)} maxLength={40} keyboardAppearance="dark" selectionColor={C.red} returnKeyType="done" placeholder="group name" placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={{ height: 54, color: '#fff', fontFamily: F.black, fontSize: 16, paddingHorizontal: 16 }} />
+              </SettingGroup>
+              <SettingGroup>
+                <SettingRow title="people" icon={['person.2.fill', 'account-multiple-outline']} onPress={() => setOpen('people')} right={<RowValue text={`${g.members.length}`} />} />
+                {others.length ? <SettingRow title="add people" icon={['plus', 'plus']} onPress={() => setOpen('add')} right={<RowValue text={g.invited?.length ? `${g.invited.length} invited` : ''} />} /> : null}
+                <SettingRow title="background" icon={['paintpalette', 'palette-outline']} onPress={() => setOpen('bg')} more />
+              </SettingGroup>
               <SectionLabel>notifications</SectionLabel>
               <SettingGroup><MuteRow chat={`g:${id}`} /></SettingGroup>
-              <Squish onPress={() => confirm('leave this group?', 'you won’t get its messages or talks anymore.', 'leave', () => { leaveGroup(id!).catch(() => {}); })} style={{ marginHorizontal: 18, marginTop: 4, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,69,58,0.18)', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: C.danger, fontFamily: F.black, fontSize: 16 }}>leave group</Text>
-              </Squish>
+              <SettingGroup>
+                <SettingRow title="leave group" icon={['rectangle.portrait.and.arrow.right', 'logout']} danger onPress={() => confirm('leave this group?', 'you won’t get its messages or talks anymore.', 'leave', () => { leaveGroup(id!).catch(() => {}); })} />
+              </SettingGroup>
             </ScrollView>
               </Animated.View>
             )}
