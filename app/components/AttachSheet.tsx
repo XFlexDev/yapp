@@ -4,13 +4,14 @@ import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, FadeInDown, LinearTransition, ZoomIn, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, ZoomIn, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { BlurBackdrop } from '../lib/blur';
 import { pickPhotos, preparePhoto, systemCamera, type Photo } from '../lib/chat';
 import { Icon as Symbol, Tap, type Move } from '../lib/icon';
 import { C, F } from '../lib/theme';
+import { Morph } from '../lib/tt';
 
 // In-app camera, only in builds that ship expo-camera; older builds open the phone's own camera screen.
 const Cam: any = requireOptionalNativeModule('ExpoCamera') ? (() => { try { return require('expo-camera'); } catch { return null; } })() : null;
@@ -151,9 +152,10 @@ function Sheet({ onClose, onSend, actions }: { onClose: () => void; onSend: (pho
         <Pressable style={{ flex: 1 }} onPress={() => close()} />
       </Animated.View>
       <GestureDetector gesture={pan}>
-        <Animated.View onLayout={(e) => setSh(e.nativeEvent.layout.height)} layout={LinearTransition.duration(280).easing(OUT)} style={[{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 34, borderCurve: 'continuous', backgroundColor: '#161616', overflow: 'hidden' }, sheet]}>
+        <Animated.View onLayout={(e) => setSh(e.nativeEvent.layout.height)} style={[{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 34, borderCurve: 'continuous', backgroundColor: '#161616', overflow: 'hidden' }, sheet]}>
+          <Morph>
           {mode === 'menu' ? (
-            <Animated.View key="menu" entering={FadeIn.duration(180)} style={{ paddingTop: 10, paddingBottom: 14 }}>
+            <Animated.View key="menu" entering={FadeIn.duration(220)} style={{ paddingTop: 10, paddingBottom: 14 }}>
               <View style={{ alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.22)', marginBottom: 14 }} />
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 10 }}>
                 <Tile icon={['photo.on.rectangle', 'image-multiple-outline']} label="photos" onPress={fromLibrary} />
@@ -225,6 +227,7 @@ function Sheet({ onClose, onSend, actions }: { onClose: () => void; onSend: (pho
               </View>
             </Animated.View>
           )}
+          </Morph>
         </Animated.View>
       </GestureDetector>
     </View>

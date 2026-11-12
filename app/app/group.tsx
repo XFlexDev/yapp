@@ -5,8 +5,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { confirm } from '../lib/native';
 import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
-import { FlatList, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, SlideInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { FlatList, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, SlideInDown, FadeInLeft, FadeInRight, SlideOutDown, interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { haptic } from '../lib/haptic';
 import { focusGroup, leaveGroupTalk, pressGroup, releaseGroup } from '../lib/voice';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +15,7 @@ import { BACKGROUNDS, pickBackgroundPhoto, type Photo } from '../lib/chat';
 import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, reactGroup, sendGroup, setGroupBackground, retryGroup, groupPhotoTo, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
 import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
-import { Squish } from '../lib/tt';
+import { Morph, Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, LookSliders, MsgMenu, drafts, useJump, MuteRow, SectionLabel, SettingGroup, SettingRow, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
@@ -89,6 +89,7 @@ export default function GroupScreen() {
   }));
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
   const look = useLook(`g:${id}`);
+  const { height: winH } = useWindowDimensions();
   const [view, setView] = useState<Shot | null>(null);
   const [attach, setAttach] = useState(false);
   const [kbUp, setKbUp] = useState(false);
@@ -267,9 +268,10 @@ export default function GroupScreen() {
       {sheet ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop /><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
-          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, maxHeight: '82%', borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20, gap: 12 }}>
+          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 30, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingVertical: 20 }}>
+            <Morph max={Math.round(winH * 0.82) - 40}>
             {open ? (
-              <Animated.View key={open} entering={SlideInRight.duration(260).easing(out)} style={{ gap: 10 }}>
+              <Animated.View key={open} entering={FadeInRight.duration(260).easing(out)} style={{ gap: 10, flexShrink: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
                   <Squish onPress={() => setOpen(null)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={20} /></Squish>
                   <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center', marginRight: 44 }}>{open === 'people' ? 'people' : open === 'add' ? 'add people' : 'background'}</Text>
@@ -307,7 +309,7 @@ export default function GroupScreen() {
                 </ScrollView>
               </Animated.View>
             ) : (
-              <Animated.View key="main" entering={FadeIn.duration(180)}>
+              <Animated.View key="main" entering={FadeInLeft.duration(260).easing(out)} style={{ flexShrink: 1 }}>
             <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
               <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center' }}>group settings</Text>
               <SectionLabel>name</SectionLabel>
@@ -328,6 +330,7 @@ export default function GroupScreen() {
             </ScrollView>
               </Animated.View>
             )}
+            </Morph>
           </Animated.View>
         </View>
       ) : null}

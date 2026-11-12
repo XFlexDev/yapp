@@ -12,7 +12,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { ApiError, avatarUrl, nameOf, pfpUrl, req, type Friend, type Me } from '../lib/api';
 import { clearPokeCount, removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
-import { Logo, SPRING, Squish, Swap } from '../lib/tt';
+import { Logo, Morph, SPRING, Squish, Swap } from '../lib/tt';
 import { Avatar, Button } from '../lib/ui';
 import { Bubble } from '../lib/bubble';
 import { LocalVideo, RemoteVideo } from '../lib/callvideo';
@@ -394,6 +394,8 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
             </Text>
           </View>
         </Pressable>
+        <Morph>
+        <Animated.View key={mode === 'mute' || mode === 'report' ? mode : 'main'} entering={FadeIn.duration(240)}>
         {mode === 'mute' ? (
           <>
             {row('for 1 hour', () => chooseMute(60))}
@@ -431,6 +433,8 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
             {row('close', onClose, 'rgba(255,255,255,0.5)')}
           </>
         )}
+        </Animated.View>
+        </Morph>
       </Animated.View>
     </View>
   );

@@ -12,6 +12,7 @@ import { syncAll } from '../lib/realtime';
 import { block, REASONS, report } from '../lib/safety';
 import { removeFriend, set, upsertFriend, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
+import { Morph } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { SettingGroup, SettingRow } from './chat';
 
@@ -152,12 +153,14 @@ export default function UserProfile() {
         ) : null}
 
         {isMe ? null : (
+          <Morph>
           <SettingGroup>
             <SettingRow title={reported ? 'reported, thanks' : `report ${who}`} icon={['flag', 'flag-outline']} onPress={() => { if (!reported) openReport(); }} more={!reported} />
             {reporting ? REASONS.map((r) => <SettingRow key={r} title={r} onPress={() => sendReport(r)} />) : null}
             {friend ? <SettingRow title="remove friend" icon={['person.badge.minus', 'account-minus-outline']} danger onPress={remove} /> : null}
             <SettingRow title="block" icon={['hand.raised', 'hand-back-left-outline']} danger onPress={doBlock} />
           </SettingGroup>
+          </Morph>
         )}
       </View>
     </ScrollView>

@@ -8,15 +8,15 @@ import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Children, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, ZoomIn, ZoomOut, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
+import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, FadeInLeft, FadeInRight, SlideOutDown, ZoomIn, ZoomOut, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
 import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, react as reactMsg, retry, saveImageAsSticker, savePhoto, sendMessage, sendPhotoTo, sendSticker, setBackground, type Photo } from '../lib/chat';
 import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
-import { Squish } from '../lib/tt';
+import { Morph, Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { InlineBody } from '../components/MsgInline';
@@ -677,6 +677,7 @@ export default function ChatScreen() {
   };
   const opened = useRef(Date.now());
   const look = useLook(id!);
+  const { height: winH } = useWindowDimensions();
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
   // Anything that opens over the chat would sit under the keyboard, so the keyboard goes first.
@@ -874,9 +875,10 @@ export default function ChatScreen() {
       {picker ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop /><Pressable style={{ flex: 1 }} onPress={close} /></Animated.View>
-          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 34, borderCurve: 'continuous', backgroundColor: '#161616', paddingTop: 22, paddingBottom: 14, gap: 14, maxHeight: '85%' }}>
+          <Animated.View entering={SlideInDown.duration(320).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 34, borderCurve: 'continuous', backgroundColor: '#161616', paddingTop: 22, paddingBottom: 14 }}>
+            <Morph max={Math.round(winH * 0.85) - 36}>
             {page ? (
-              <Animated.View key={page} entering={SlideInRight.duration(260).easing(out)} style={{ gap: 12 }}>
+              <Animated.View key={page} entering={FadeInRight.duration(260).easing(out)} style={{ gap: 12, flexShrink: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
                   <Squish onPress={() => setPage(null)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={20} /></Squish>
                   <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center', marginRight: 44 }}>{page === 'bg' ? 'background' : page === 'photos' ? 'photos' : 'report'}</Text>
@@ -922,7 +924,7 @@ export default function ChatScreen() {
                 )}
               </Animated.View>
             ) : (
-              <Animated.View key="main" entering={FadeIn.duration(180)} style={{ gap: 12 }}>
+              <Animated.View key="main" entering={FadeInLeft.duration(260).easing(out)} style={{ gap: 12, flexShrink: 1 }}>
                 <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center', marginBottom: 2 }}>chat settings</Text>
                 <SettingGroup>
                   <MuteRow chat={id!} />
@@ -939,6 +941,7 @@ export default function ChatScreen() {
                 </SettingGroup>
               </Animated.View>
             )}
+            </Morph>
           </Animated.View>
         </View>
       ) : null}

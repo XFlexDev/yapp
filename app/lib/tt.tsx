@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Dimensions, Keyboard, Linking, Platform, Pressable, Text, View } from 'react-native';
 import Animated, { Easing, LayoutAnimationConfig, FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -189,5 +189,29 @@ export function Logo({ size = 170, ch = 'y' }: { size?: number; ch?: string }) {
       {rings.map(([x, y], i) => <Text key={'o' + i} style={[t, { color: '#000', position: 'absolute', transform: [{ translateX: x }, { translateY: y }] }]}>{ch}</Text>)}
       <Text style={[t, { color: '#fff' }]}>{ch}</Text>
     </View>
+  );
+}
+
+/**
+ * Holds content whose height changes (sheet pages, lists that load, rows that appear) and glides
+ * to the new height instead of snapping. `max` caps it; the content scrolls past that.
+ */
+export function Morph({ children, max }: { children: ReactNode; max?: number }) {
+  const h = useSharedValue(-1);
+  const target = useRef(-1);
+  const a = useAnimatedStyle(() => (h.value < 0 ? {} : { height: h.value }));
+  return (
+    <Animated.View style={[{ overflow: 'hidden' }, a]}>
+      <View
+        style={{ maxHeight: max }}
+        onLayout={(e) => {
+          const v = e.nativeEvent.layout.height;
+          if (Math.abs(v - target.current) < 0.5) return;
+          h.value = target.current < 0 ? v : withTiming(v, { duration: 340, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+          target.current = v;
+        }}>
+        {children}
+      </View>
+    </Animated.View>
   );
 }
