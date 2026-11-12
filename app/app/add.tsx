@@ -1,8 +1,8 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, Share, Text, View } from 'react-native';
-import { ApiError, nameOf, req, type FriendRequest } from '../lib/api';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { ApiError, nameOf, req, type FriendRequest, type User } from '../lib/api';
 import { set, upsertFriend, useStore } from '../lib/store';
 import { syncAll } from '../lib/realtime';
 import { C, F } from '../lib/theme';
@@ -39,12 +39,28 @@ export default function Add() {
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
-  const send = async () => {
+  // An invite link (yapp://add?u=name) never adds anyone by itself: it shows who it is and asks first.
+  const asked = useRef(false);
+  useEffect(() => {
+    const name = typeof u === 'string' ? u.toLowerCase().replace(/[^a-z0-9_.]/g, '') : '';
+    if (!name || asked.current || name === me?.username) return;
+    asked.current = true;
+    req<User>(`/v1/users/${name}`)
+      .then((who) => {
+        Alert.alert(`add ${nameOf(who).toLowerCase()}?`, `send a friend request to @${name}. they can talk to you once they accept.`, [
+          { text: 'cancel', style: 'cancel' },
+          { text: 'add', onPress: () => { send(name); } },
+        ]);
+      })
+      .catch((e) => setError((e instanceof ApiError ? e.message : 'couldn’t open this invite').toLowerCase()));
+  }, [u]);
+
+  const send = async (name: string = username) => {
     setBusy(true); setError(''); setMsg('');
     try {
-      const r = await req<{ status: string }>('/v1/friends/requests', { method: 'POST', body: { username } });
+      const r = await req<{ status: string }>('/v1/friends/requests', { method: 'POST', body: { username: name } });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setMsg(r.status === 'accepted' ? `you and @${username} are friends` : `request sent to @${username}`);
+      setMsg(r.status === 'accepted' ? `you and @${name} are friends` : `request sent to @${name}`);
       setUsername('');
       syncAll().catch(() => {});
     } catch (e) { setError((e instanceof ApiError ? e.message : 'something went wrong').toLowerCase()); }
@@ -71,7 +87,7 @@ export default function Add() {
           </Pressable>
         </View>
       </View>
-      <Field value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="friend's username" prefix="@" autoCapitalize="none" autoCorrect={false} returnKeyType="send" onSubmitEditing={send} />
+      <Field value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="friend's username" prefix="@" autoCapitalize="none" autoCorrect={false} returnKeyType="send" onSubmitEditing={() => send()} />
       <ErrorText>{error}</ErrorText>
       {msg ? <Text style={{ color: C.online, fontFamily: F.bold, fontSize: 15 }}>{msg}</Text> : null}
       <Pressable disabled={busy || username.length < 3} onPress={() => { Haptics.selectionAsync(); send(); }} style={({ pressed }) => ({ height: 56, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', opacity: busy || username.length < 3 ? 0.4 : pressed ? 0.72 : 1 })}>
