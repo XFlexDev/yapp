@@ -189,7 +189,7 @@ export default function GroupScreen() {
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           style={{ marginBottom: -(barH + insets.bottom + 8) }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64, flexGrow: 1 }} automaticallyAdjustsScrollIndicatorInsets={false} scrollIndicatorInsets={{ top: barH + insets.bottom + 28, bottom: insets.top + 68 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-        <ProgressiveBlur edge="bottom" height={lifted ? barH + 20 : barH + insets.bottom + 28} style={{ bottom: lifted ? 0 : -(insets.bottom + 8) }} />
+        <ProgressiveBlur edge="bottom" height={lifted ? barH + 28 : barH + insets.bottom + 28} style={{ bottom: lifted ? -8 : -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (
@@ -254,7 +254,6 @@ export default function GroupScreen() {
         onBackspace={() => setText((prev) => dropLast(prev))}
         onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
         onPickSticker={(stk) => {
-          setStickersVisible(false);
           const meta = stk.width && stk.height ? `${stk.width}:${stk.height}:${stk.name || ''}` : undefined;
           sendGroupSticker(id!, stk.id, meta, replyingTo?.id).catch(() => {});
           setReplyingTo(null);
