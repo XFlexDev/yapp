@@ -212,6 +212,17 @@ fn fallback_body(model: &str, frames: &[Vec<u8>]) -> Value {
     })
 }
 
+/// Checks a short public text (a pack title). Fails closed: no verdict means not allowed.
+pub async fn review_text(text: &str) -> Result<Verdict, ReviewError> {
+    let model = std::env::var("YAP_MOD_PRIMARY").unwrap_or_else(|_| PRIMARY_DEFAULT.into());
+    let body = json!({ "model": model, "temperature": 0, "max_tokens": 30, "messages": [{ "role": "user", "content": text }] });
+    match completion(body).await {
+        Ok(content) => parse_primary(&content).map_err(|_| ReviewError::Unavailable("could not parse moderation response".into())),
+        Err(CallError::NotFound) => Err(ReviewError::Unavailable("moderation model not found".into())),
+        Err(CallError::Failed(error)) => Err(ReviewError::Unavailable(error)),
+    }
+}
+
 pub async fn review(input: &[u8]) -> Result<Verdict, ReviewError> {
     let frames = crate::converter::moderation_frames(input).await;
     if frames.is_empty() {

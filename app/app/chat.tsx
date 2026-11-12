@@ -22,6 +22,8 @@ import { Avatar } from '../lib/ui';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { InlineBody } from '../components/MsgInline';
 import { AttachSheet } from '../components/AttachSheet';
+import { Slider } from '../components/Slider';
+import { setLook, useLook, type Look } from '../lib/look';
 import { PhotoViewer, type Shot } from '../components/PhotoViewer';
 import { getCachedSticker, loadAllCustomStickers, loadRecentStickers, resolveSticker, saveSticker, type Sticker } from '../lib/stickers';
 
@@ -118,22 +120,36 @@ export function ComposerPill({ text, onChange, placeholder, onSticker }: { text:
   );
 }
 
-export function Backdrop({ bg, photo }: { bg: string | null; photo: string | null }) {
+/** What a background looks like before the user touches the sliders. */
+export function lookOf(bg: string | null, look: Look = {}): { blur: number; bright: number; photo: boolean } {
+  const photo = !!bg && (bg.startsWith('b-') || bg === 'photo');
+  const base = bg?.startsWith('b-') ? { blur: 0, bright: 0.65 } : bg === 'photo' ? { blur: 1, bright: 0.45 } : { blur: 0, bright: 1 };
+  return { blur: photo ? look.blur ?? base.blur : 0, bright: look.bright ?? base.bright, photo };
+}
+
+export function Backdrop({ bg, photo, look }: { bg: string | null; photo: string | null; look?: Look }) {
   const preset = BACKGROUNDS.find((b) => b.id === bg);
+  const { blur, bright } = lookOf(bg, look);
   return (
     <Animated.View key={bg ?? 'none'} entering={FadeIn.duration(260)} exiting={FadeOut.duration(260)} style={StyleSheet.absoluteFill}>
-      {bg?.startsWith('b-') ? (
-        <>
-          <Image source={mediaUrl(bg)} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} cachePolicy="memory-disk" />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
-        </>
-      ) : bg === 'photo' && photo ? (
-        <>
-          <Image source={photo} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={40} />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
-        </>
-      ) : preset ? <LinearGradient colors={preset.colors} style={StyleSheet.absoluteFill} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]} />}
+      {bg?.startsWith('b-') ? <Image source={mediaUrl(bg)} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} cachePolicy="memory-disk" blurRadius={Math.round(blur * 40)} />
+        : bg === 'photo' && photo ? <Image source={photo} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={Math.round(blur * 40)} />
+        : preset ? <LinearGradient colors={preset.colors} style={StyleSheet.absoluteFill} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]} />}
+      {bright < 1 ? <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${(1 - bright) * 0.9})` }]} /> : null}
     </Animated.View>
+  );
+}
+
+/** Blur (photo backgrounds only) and brightness sliders for a chat's background. */
+export function LookSliders({ chat, bg }: { chat: string; bg: string | null }) {
+  const look = useLook(chat);
+  const now = lookOf(bg, look);
+  if (!bg) return null;
+  return (
+    <View style={{ gap: 6, marginTop: 6 }}>
+      {now.photo ? <Slider label="blur" value={now.blur} onChange={(v) => setLook(chat, { blur: v })} /> : null}
+      <Slider label="brightness" value={now.bright} onChange={(v) => setLook(chat, { bright: Math.max(0.1, v) })} />
+    </View>
   );
 }
 
@@ -656,6 +672,7 @@ export default function ChatScreen() {
     confirm(ask[0], ask[1], ask[2], go);
   };
   const opened = useRef(Date.now());
+  const look = useLook(id!);
   const kb = useAnimatedKeyboard();
   const [kbPad, setKbPad] = useState(0);
   // Anything that opens over the chat would sit under the keyboard, so the keyboard goes first.
@@ -725,7 +742,7 @@ export default function ChatScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <Backdrop bg={chat.background} photo={avatarUrl(friend)} />
+      <Backdrop bg={chat.background} photo={avatarUrl(friend)} look={look} />
       <ProgressiveBlur height={insets.top + 68} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
@@ -859,6 +876,7 @@ export default function ChatScreen() {
                   <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 20, textAlign: 'center', marginRight: 44 }}>{page === 'bg' ? 'background' : page === 'photos' ? 'photos' : 'report'}</Text>
                 </View>
                 {page === 'bg' ? (
+            <>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 12 }}>
               <Squish onPress={() => { Haptics.selectionAsync(); pickBackgroundPhoto(id!).catch(() => {}); }} style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
                 <Glyph g="plus" size={20} />
@@ -877,6 +895,8 @@ export default function ChatScreen() {
                 );
               })}
             </ScrollView>
+            <LookSliders chat={id!} bg={chat.background} />
+            </>
                 ) : page === 'photos' ? (
                   <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingHorizontal: 12 }}>
                     {photos === null ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 15, padding: 12 }}>loading…</Text>

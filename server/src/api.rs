@@ -2776,18 +2776,28 @@ pub struct StickerPackView {
     pub slug: String,
     pub title: String,
     pub owner_id: Option<String>,
+    pub owner_name: Option<String>,
     pub is_emoji_pack: bool,
     pub thumbnail_url: Option<String>,
+    /// Listed on the marketplace.
+    pub published: bool,
+    pub mine: bool,
+    pub installed: bool,
+    pub installs: i64,
     pub stickers: Vec<StickerItem>,
 }
 
 #[derive(Deserialize)]
+pub struct UpdatePackReq {
+    pub title: Option<String>,
+    pub published: Option<bool>,
+    pub sticker_ids: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
 pub struct CreatePackReq {
-    pub slug: String,
     pub title: String,
-    pub is_emoji_pack: Option<bool>,
     pub sticker_ids: Vec<String>,
-    pub alt_emojis: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -2918,36 +2928,40 @@ async fn upload_sticker(
     }))
 }
 
-async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<Vec<StickerPackView>>> {
-    let c = st.db();
-    let mut q = c.prepare(
-        "SELECT id, slug, title, owner_id, is_emoji_pack, thumbnail_id FROM sticker_packs
-         WHERE owner_id IS NULL OR owner_id = ?
-         ORDER BY created_at DESC LIMIT 50",
-    )?;
+const PACK_COLS: &str = "p.id, p.slug, p.title, p.owner_id, p.is_emoji_pack, p.thumbnail_id, p.published,
+    (SELECT COUNT(*) FROM user_installed_packs i WHERE i.pack_id = p.id),
+    EXISTS(SELECT 1 FROM user_installed_packs i WHERE i.pack_id = p.id AND i.user_id = ?1),
+    (SELECT COALESCE(NULLIF(u.display_name, ''), u.username) FROM users u WHERE u.id = p.owner_id)";
 
+/// One pack as the caller sees it. `?1` of the query must be the caller's id.
+fn row_pack(r: &rusqlite::Row, me: &str) -> rusqlite::Result<StickerPackView> {
+    let owner_id: Option<String> = r.get(3)?;
+    let thumb: Option<String> = r.get(5)?;
+    Ok(StickerPackView {
+        id: r.get(0)?,
+        slug: r.get(1)?,
+        title: r.get(2)?,
+        mine: owner_id.as_deref() == Some(me),
+        owner_id,
+        is_emoji_pack: r.get::<_, i64>(4)? != 0,
+        thumbnail_url: thumb.as_deref().and_then(|t| crate::storage::get().map(|s| s.url(t))),
+        published: r.get::<_, i64>(6)? != 0,
+        installs: r.get(7)?,
+        installed: r.get(8)?,
+        owner_name: r.get(9)?,
+        stickers: Vec::new(),
+    })
+}
+
+fn pack_stickers(c: &Connection, pack_id: &str) -> R<Vec<StickerItem>> {
     let store = crate::storage::get();
-    let pack_rows = q.query_map([&me], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, Option<String>>(3)?,
-            r.get::<_, i64>(4)? != 0,
-            r.get::<_, Option<String>>(5)?,
-        ))
-    })?.collect::<rusqlite::Result<Vec<_>>>()?;
-
-    let mut out = Vec::new();
-    for (id, slug, title, owner_id, is_emoji_pack, thumb) in pack_rows {
-        let mut sq = c.prepare(
-            "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name, s.owner_id
-             FROM sticker_pack_items i
-             JOIN stickers s ON s.id = i.sticker_id
-             WHERE i.pack_id = ?
-             ORDER BY i.position ASC",
-        )?;
-        let stickers = sq.query_map([&id], |r| {
+    let mut q = c.prepare(
+        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name, s.owner_id
+         FROM sticker_pack_items i JOIN stickers s ON s.id = i.sticker_id
+         WHERE i.pack_id = ? AND s.status = 'ok' ORDER BY i.position ASC",
+    )?;
+    let items = q
+        .query_map([pack_id], |r| {
             let sid: String = r.get(0)?;
             let url = store.map(|s| s.url(&sid)).unwrap_or_default();
             Ok(StickerItem {
@@ -2962,131 +2976,171 @@ async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<V
                 name: r.get(7)?,
                 owner_id: r.get(8)?,
             })
-        })?.collect::<rusqlite::Result<Vec<_>>>()?;
-
-        let thumbnail_url = thumb.as_deref().and_then(|t| store.map(|s| s.url(t)));
-        out.push(StickerPackView {
-            id,
-            slug,
-            title,
-            owner_id,
-            is_emoji_pack,
-            thumbnail_url,
-            stickers,
-        });
-    }
-
-    Ok(Json(out))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(items)
 }
 
-async fn create_sticker_pack(
-    State(st): State<S>,
-    Authed(me): Authed,
-    Json(r): Json<CreatePackReq>,
-) -> R<Json<StickerPackView>> {
-    let slug = r.slug.trim().to_lowercase();
-    if slug.len() < 3 || slug.len() > 32 || !slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(bad("Slug must be 3-32 alphanumeric characters"));
+fn packs_where(c: &Connection, me: &str, cond: &str, limit: usize) -> R<Vec<StickerPackView>> {
+    let mut q = c.prepare(&format!("SELECT {PACK_COLS} FROM sticker_packs p WHERE {cond} LIMIT {limit}"))?;
+    let mut packs = q.query_map([me], |r| row_pack(r, me))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    for p in &mut packs {
+        p.stickers = pack_stickers(c, &p.id)?;
     }
-    let title = r.title.trim();
-    if title.is_empty() || title.len() > 64 {
-        return Err(bad("Title must be 1-64 characters"));
-    }
-    if r.sticker_ids.is_empty() || r.sticker_ids.len() > 100 {
-        return Err(bad("Pack must have between 1 and 100 stickers"));
-    }
+    Ok(packs)
+}
 
-    let is_emoji_pack = r.is_emoji_pack.unwrap_or(false);
-    let pack_id = random_token()[..16].to_string();
-    let now = now_ms();
-    let thumb = r.sticker_ids.first().cloned();
+fn find_pack(c: &Connection, me: &str, key: &str) -> R<StickerPackView> {
+    let mut p = c
+        .query_row(&format!("SELECT {PACK_COLS} FROM sticker_packs p WHERE p.id = ?2 OR p.slug = ?2"), params![me, key], |r| row_pack(r, me))
+        .optional()?
+        .ok_or_else(|| not_found("Sticker pack not found"))?;
+    p.stickers = pack_stickers(c, &p.id)?;
+    Ok(p)
+}
 
-    {
-        let c = st.db();
-        c.execute(
-            "INSERT INTO sticker_packs(id, slug, title, owner_id, is_emoji_pack, thumbnail_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![pack_id, slug, title, me, is_emoji_pack as i64, thumb, now],
-        ).map_err(|e| {
-            if let rusqlite::Error::SqliteFailure(err, _) = &e {
-                if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE {
-                    return bad("A pack with this slug already exists");
-                }
-            }
-            e.into()
-        })?;
+/// The packs in the caller's picker: built-in ones, their own, and published ones they added.
+async fn list_sticker_packs(State(st): State<S>, Authed(me): Authed) -> R<Json<Vec<StickerPackView>>> {
+    let c = st.db();
+    Ok(Json(packs_where(
+        &c,
+        &me,
+        "p.owner_id IS NULL OR p.owner_id = ?1 OR (p.published = 1 AND p.id IN (SELECT pack_id FROM user_installed_packs WHERE user_id = ?1))
+         ORDER BY (p.owner_id = ?1) DESC, p.created_at DESC",
+        80,
+    )?))
+}
 
-        for (pos, sid) in r.sticker_ids.iter().enumerate() {
-            let alt = r.alt_emojis.as_ref().and_then(|a| a.get(pos)).cloned().unwrap_or_default();
-            c.execute(
-                "INSERT OR REPLACE INTO sticker_pack_items(pack_id, sticker_id, position, alt_emoji)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![pack_id, sid, pos as i64, alt],
-            )?;
+/// Published packs from people the caller hasn't blocked, most added first.
+async fn sticker_market(State(st): State<S>, Authed(me): Authed) -> R<Json<Vec<StickerPackView>>> {
+    let c = st.db();
+    let packs = packs_where(
+        &c,
+        &me,
+        "p.published = 1 AND p.owner_id IS NOT NULL AND p.owner_id != ?1
+         ORDER BY (SELECT COUNT(*) FROM user_installed_packs i WHERE i.pack_id = p.id) DESC, p.created_at DESC",
+        100,
+    )?;
+    Ok(Json(packs.into_iter().filter(|p| !p.stickers.is_empty() && !p.owner_id.as_deref().is_some_and(|o| blocked_either(&c, &me, o).unwrap_or(true))).collect()))
+}
+
+/// Stickers a user may put in a pack: their uploads and the ones saved to their collection, never emojis.
+fn own_stickers(c: &Connection, me: &str, ids: &[String]) -> R<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    for sid in ids {
+        let ok = c
+            .query_row(
+                "SELECT 1 FROM stickers s WHERE s.id = ?1 AND s.status = 'ok' AND s.is_emoji = 0
+                 AND (s.owner_id = ?2 OR EXISTS(SELECT 1 FROM user_recent_stickers r WHERE r.sticker_id = s.id AND r.user_id = ?2))",
+                params![sid, me],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if ok && !out.contains(sid) {
+            out.push(sid.clone());
         }
     }
-
-    let store = crate::storage::get();
-    let thumbnail_url = thumb.as_deref().and_then(|t| store.map(|s| s.url(t)));
-
-    Ok(Json(StickerPackView {
-        id: pack_id,
-        slug,
-        title: title.into(),
-        owner_id: Some(me),
-        is_emoji_pack,
-        thumbnail_url,
-        stickers: Vec::new(),
-    }))
+    Ok(out)
 }
 
-async fn get_sticker_pack(
-    State(st): State<S>,
-    Authed(_me): Authed,
-    Path(slug): Path<String>,
-) -> R<Json<StickerPackView>> {
+fn set_pack_items(c: &Connection, pack_id: &str, ids: &[String]) -> R<()> {
+    c.execute("DELETE FROM sticker_pack_items WHERE pack_id = ?", [pack_id])?;
+    for (pos, sid) in ids.iter().enumerate() {
+        c.execute("INSERT OR REPLACE INTO sticker_pack_items(pack_id, sticker_id, position, alt_emoji) VALUES (?1, ?2, ?3, '')", params![pack_id, sid, pos as i64])?;
+    }
+    c.execute("UPDATE sticker_packs SET thumbnail_id = ?2 WHERE id = ?1", params![pack_id, ids.first()])?;
+    Ok(())
+}
+
+fn pack_title(raw: &str) -> R<String> {
+    let title = raw.trim();
+    if title.is_empty() || title.chars().count() > 32 {
+        return Err(bad("Give the pack a name of up to 32 characters"));
+    }
+    Ok(title.to_owned())
+}
+
+async fn create_sticker_pack(State(st): State<S>, Authed(me): Authed, Json(r): Json<CreatePackReq>) -> R<Json<StickerPackView>> {
+    let title = pack_title(&r.title)?;
     let c = st.db();
-    let (id, slug, title, owner_id, is_emoji_pack, thumb): (String, String, String, Option<String>, bool, Option<String>) = c.query_row(
-        "SELECT id, slug, title, owner_id, is_emoji_pack, thumbnail_id FROM sticker_packs WHERE slug = ? OR id = ?",
-        [&slug, &slug],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, i64>(4)? != 0, r.get(5)?)),
-    ).optional()?.ok_or_else(|| not_found("Sticker pack not found"))?;
-
-    let store = crate::storage::get();
-    let mut sq = c.prepare(
-        "SELECT s.id, s.is_animated, s.is_emoji, s.width, s.height, s.size_bytes, i.alt_emoji, s.name, s.owner_id
-         FROM sticker_pack_items i
-         JOIN stickers s ON s.id = i.sticker_id
-         WHERE i.pack_id = ?
-         ORDER BY i.position ASC",
+    let mine: i64 = c.query_row("SELECT COUNT(*) FROM sticker_packs WHERE owner_id = ?", [&me], |x| x.get(0))?;
+    if mine >= 30 {
+        return Err(bad("You can have up to 30 packs"));
+    }
+    let ids = own_stickers(&c, &me, &r.sticker_ids)?;
+    if ids.is_empty() || ids.len() > 100 {
+        return Err(bad("Pick between 1 and 100 of your stickers"));
+    }
+    let pack_id = random_token()[..16].to_string();
+    c.execute(
+        "INSERT INTO sticker_packs(id, slug, title, owner_id, is_emoji_pack, created_at, published) VALUES (?1, ?1, ?2, ?3, 0, ?4, 0)",
+        params![pack_id, title, me, now_ms()],
     )?;
-    let stickers = sq.query_map([&id], |r| {
-        let sid: String = r.get(0)?;
-        let url = store.map(|s| s.url(&sid)).unwrap_or_default();
-        Ok(StickerItem {
-            id: sid,
-            url,
-            is_animated: r.get::<_, i64>(1)? != 0,
-            is_emoji: r.get::<_, i64>(2)? != 0,
-            width: r.get(3)?,
-            height: r.get(4)?,
-            size_bytes: r.get(5)?,
-            alt_emoji: r.get(6)?,
-            name: r.get(7)?,
-            owner_id: r.get(8)?,
-        })
-    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    set_pack_items(&c, &pack_id, &ids)?;
+    Ok(Json(find_pack(&c, &me, &pack_id)?))
+}
 
-    let thumbnail_url = thumb.as_deref().and_then(|t| store.map(|s| s.url(t)));
-    Ok(Json(StickerPackView {
-        id,
-        slug,
-        title,
-        owner_id,
-        is_emoji_pack,
-        thumbnail_url,
-        stickers,
-    }))
+/// Rename a pack, change its stickers, or put it on / take it off the marketplace. Owner only.
+async fn update_sticker_pack(State(st): State<S>, Authed(me): Authed, Path(key): Path<String>, Json(r): Json<UpdatePackReq>) -> R<Json<StickerPackView>> {
+    let before = { let c = st.db(); find_pack(&c, &me, &key)? };
+    if !before.mine {
+        return Err(not_found("Sticker pack not found"));
+    }
+    let title = match &r.title { Some(t) => pack_title(t)?, None => before.title.clone() };
+    let publish = r.published.unwrap_or(before.published);
+    // A name everyone can see gets the same safety check as the stickers did when they were uploaded.
+    if publish && (!before.published || title != before.title) {
+        match crate::moderation::review_text(&title).await {
+            Ok(crate::moderation::Verdict::Allow) => {}
+            Ok(crate::moderation::Verdict::Block(_)) => return Err(bad("This pack name can't be published")),
+            Err(_) => return Err(bad("Couldn't check the pack name, try again")),
+        }
+    }
+    let c = st.db();
+    if let Some(ids) = &r.sticker_ids {
+        let ids = own_stickers(&c, &me, ids)?;
+        if ids.is_empty() || ids.len() > 100 {
+            return Err(bad("Pick between 1 and 100 of your stickers"));
+        }
+        set_pack_items(&c, &before.id, &ids)?;
+    }
+    c.execute("UPDATE sticker_packs SET title = ?2, published = ?3 WHERE id = ?1 AND owner_id = ?4", params![before.id, title, publish as i64, me])?;
+    Ok(Json(find_pack(&c, &me, &before.id)?))
+}
+
+/// The owner deletes the pack for everyone; anyone else just drops it from their picker.
+async fn delete_sticker_pack(State(st): State<S>, Authed(me): Authed, Path(key): Path<String>) -> R<Json<Value>> {
+    let c = st.db();
+    let p = find_pack(&c, &me, &key)?;
+    if p.mine {
+        c.execute("DELETE FROM user_installed_packs WHERE pack_id = ?", [&p.id])?;
+        c.execute("DELETE FROM sticker_pack_items WHERE pack_id = ?", [&p.id])?;
+        c.execute("DELETE FROM sticker_packs WHERE id = ?1 AND owner_id = ?2", params![p.id, me])?;
+    } else {
+        c.execute("DELETE FROM user_installed_packs WHERE pack_id = ?1 AND user_id = ?2", params![p.id, me])?;
+    }
+    Ok(Json(json!({ "ok": true, "deleted": p.mine })))
+}
+
+async fn install_sticker_pack(State(st): State<S>, Authed(me): Authed, Path(key): Path<String>) -> R<Json<Value>> {
+    let c = st.db();
+    let p = find_pack(&c, &me, &key)?;
+    let hidden = !p.published || p.owner_id.as_deref().is_some_and(|o| blocked_either(&c, &me, o).unwrap_or(true));
+    if p.mine || hidden {
+        return Err(not_found("Sticker pack not found"));
+    }
+    c.execute("INSERT OR IGNORE INTO user_installed_packs(user_id, pack_id, position, installed_at) VALUES (?1, ?2, 0, ?3)", params![me, p.id, now_ms()])?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn get_sticker_pack(State(st): State<S>, Authed(me): Authed, Path(slug): Path<String>) -> R<Json<StickerPackView>> {
+    let c = st.db();
+    let p = find_pack(&c, &me, &slug)?;
+    if !(p.mine || p.published || p.owner_id.is_none()) {
+        return Err(not_found("Sticker pack not found"));
+    }
+    Ok(Json(p))
 }
 
 async fn use_recent_sticker(
@@ -3106,7 +3160,7 @@ async fn use_recent_sticker(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// Drops a sticker or emoji from the caller's collection; the uploader's copy is also hidden from everyone's pickers.
+/// Drops a sticker or emoji from the caller's collection; an uploader deleting their own also pulls it from packs and pickers.
 /// The file stays so messages that already use it keep rendering.
 async fn remove_sticker(State(st): State<S>, Authed(me): Authed, Path(sid): Path<String>) -> R<Json<Value>> {
     let c = st.db();
@@ -3182,16 +3236,17 @@ async fn resolve_sticker(
     item.map(Json).ok_or_else(|| not_found("Sticker not found"))
 }
 
+/// The caller's own uploads. Other people's stickers only reach you in a chat or through a pack you added.
 async fn list_all_stickers(
     State(st): State<S>,
-    Authed(_me): Authed,
+    Authed(me): Authed,
 ) -> R<Json<Vec<StickerItem>>> {
     let c = st.db();
     let store = crate::storage::get();
     let mut q = c.prepare(
-        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name, owner_id FROM stickers WHERE status='ok' ORDER BY created_at DESC LIMIT 400",
+        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name, owner_id FROM stickers WHERE status='ok' AND owner_id = ?1 ORDER BY created_at DESC LIMIT 400",
     )?;
-    let items = q.query_map([], |r| {
+    let items = q.query_map([&me], |r| {
         let sid: String = r.get(0)?;
         let url = store.map(|s| s.url(&sid)).unwrap_or_default();
         Ok(StickerItem {
@@ -3428,7 +3483,9 @@ pub fn router(st: S) -> Router {
         .route("/v1/stickers/resolve/{name}", get(resolve_sticker))
         .route("/v1/stickers/upload", post(upload_sticker).layer(DefaultBodyLimit::max(3 * 1024 * 1024)))
         .route("/v1/sticker-packs", get(list_sticker_packs).post(create_sticker_pack))
-        .route("/v1/sticker-packs/{slug}", get(get_sticker_pack))
+        .route("/v1/sticker-packs/{slug}", get(get_sticker_pack).patch(update_sticker_pack).delete(delete_sticker_pack))
+        .route("/v1/sticker-packs/{slug}/install", post(install_sticker_pack))
+        .route("/v1/sticker-market", get(sticker_market))
         .route("/v1/stickers/recent", get(list_recent_stickers))
         .route("/v1/stickers/recent/{sid}", post(use_recent_sticker))
         .route("/v1/stickers/{sid}/save", post(use_recent_sticker))

@@ -17,8 +17,9 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, drafts, useJump, MuteRow, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
+import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, LookSliders, MsgMenu, drafts, useJump, MuteRow, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
+import { useLook } from '../lib/look';
 import { AttachSheet } from '../components/AttachSheet';
 import { PhotoViewer, type Shot } from '../components/PhotoViewer';
 import { req } from '../lib/api';
@@ -87,6 +88,7 @@ export default function GroupScreen() {
     transform: [{ scale: withTiming(sendVisible ? 1 : 0.82, { duration: 160, easing: out }) }],
   }));
   const [sheet, setSheet] = useState<null | 'bg' | 'people'>(null);
+  const look = useLook(`g:${id}`);
   const [view, setView] = useState<Shot | null>(null);
   const [attach, setAttach] = useState(false);
   const [kbUp, setKbUp] = useState(false);
@@ -157,7 +159,7 @@ export default function GroupScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <Backdrop bg={g.background} photo={null} />
+      <Backdrop bg={g.background} photo={null} look={look} />
       <ProgressiveBlur height={insets.top + 68} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
@@ -287,6 +289,7 @@ export default function GroupScreen() {
                     </Squish>
                   ))}
 </>) : (
+                  <>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 12, paddingVertical: 4 }}>
                   <Squish onPress={() => pickBackgroundPhoto(id!, `/v1/groups/${id}/background/photo`).then((r) => r && onGroupUpdated(r as any)).catch(() => {})} style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="plus" /></Squish>
                   {g.background?.startsWith('b-') ? <View style={{ width: 58, height: 58, borderRadius: 29, overflow: 'hidden', borderWidth: 3, borderColor: '#fff' }}><Image source={mediaUrl(g.background)} style={StyleSheet.absoluteFill} /></View> : null}
@@ -296,6 +299,8 @@ export default function GroupScreen() {
                     </Squish>
                   ); })}
                 </ScrollView>
+                  <LookSliders chat={`g:${id}`} bg={g.background} />
+                  </>
                   )}
                 </ScrollView>
               </Animated.View>

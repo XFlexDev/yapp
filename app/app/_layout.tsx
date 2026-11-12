@@ -114,6 +114,7 @@ export default function Root() {
             <Stack.Screen name="index" />
             <Stack.Screen name="add" options={{ presentation: 'formSheet', sheetAllowedDetents: 'fitToContents', sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.bg } }} />
             <Stack.Screen name="user" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
+            <Stack.Screen name="packs" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
             <Stack.Screen name="order" options={{ presentation: 'formSheet', sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: C.surface } }} />
             <Stack.Screen name="chat" options={({ route }) => ({ animation: (route.params as any)?.ax ? 'fade' : 'default', animationDuration: 220, fullScreenGestureEnabled: true, fullScreenGestureShadowEnabled: false })} />
             <Stack.Screen name="group" options={{ animation: 'default', fullScreenGestureEnabled: true, fullScreenGestureShadowEnabled: false }} />

@@ -3,6 +3,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -31,6 +32,7 @@ import {
   uploadCustomSticker,
   type Sticker,
   type StickerPack,
+  onPacksChanged,
 } from '../lib/stickers';
 import { confirm } from '../lib/native';
 import { useStore } from '../lib/store';
@@ -399,6 +401,7 @@ export function StickerPicker({
       })
       .catch(() => {});
     loadStickerPacks().then(setPacks).catch(() => {});
+    return onPacksChanged(() => { loadStickerPacks().then(setPacks).catch(() => {}); });
   }, [visible]);
 
   useEffect(() => () => {
@@ -437,7 +440,7 @@ export function StickerPicker({
     const kind = s.is_emoji ? 'emoji' : 'sticker';
     const own = !!meId && s.owner_id === meId;
     if (!own && !recent.some((x) => x.id === s.id)) return;
-    confirm(own ? `delete this ${kind}?` : `remove this ${kind}?`, own ? 'it disappears from everyone’s picker. messages that already use it stay.' : `it’s removed from your ${kind}s.`, own ? 'delete' : 'remove', async () => {
+    confirm(own ? `delete this ${kind}?` : `remove this ${kind}?`, own ? 'it’s deleted from your collection and your packs. messages that already use it stay.' : `it’s removed from your ${kind}s.`, own ? 'delete' : 'remove', async () => {
       const before = { recent, publicStickers };
       setRecent((prev) => prev.filter((x) => x.id !== s.id));
       if (own) setPublicStickers((prev) => prev.filter((x) => x.id !== s.id));
@@ -470,33 +473,21 @@ export function StickerPicker({
     })).filter((sec) => sec.emojis.length > 0);
   }, [search]);
 
+  // Yours: what you used or saved lately, then the rest of your uploads.
+  const own = useMemo(() => [...new Map([...recent, ...publicStickers].map((s) => [s.id, s])).values()], [recent, publicStickers]);
   const filteredCustomEmojis = useMemo(() => {
-    const list = recent.filter((s) => s.is_emoji);
+    const list = own.filter((s) => s.is_emoji);
     if (!search.trim()) return list;
     const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
     return list.filter((s) => s.name?.toLowerCase().includes(q) || s.alt_emoji?.toLowerCase().includes(q));
-  }, [recent, search]);
+  }, [own, search]);
 
   const filteredCustomStickers = useMemo(() => {
-    const list = recent.filter((s) => !s.is_emoji);
+    const list = own.filter((s) => !s.is_emoji);
     if (!search.trim()) return list;
     const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
     return list.filter((s) => s.name?.toLowerCase().includes(q));
-  }, [recent, search]);
-
-  const myStickerIds = useMemo(() => new Set(recent.map((s) => s.id)), [recent]);
-  const filteredEveryoneEmojis = useMemo(() => {
-    const list = publicStickers.filter((s) => s.is_emoji && !myStickerIds.has(s.id));
-    if (!search.trim()) return list;
-    const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
-    return list.filter((s) => s.name?.toLowerCase().includes(q) || s.alt_emoji?.toLowerCase().includes(q));
-  }, [myStickerIds, publicStickers, search]);
-  const filteredEveryoneStickers = useMemo(() => {
-    const list = publicStickers.filter((s) => !s.is_emoji && !myStickerIds.has(s.id));
-    if (!search.trim()) return list;
-    const q = search.trim().toLowerCase().replace(/^:|:$/g, '');
-    return list.filter((s) => s.name?.toLowerCase().includes(q));
-  }, [myStickerIds, publicStickers, search]);
+  }, [own, search]);
 
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const sectionY = useRef<Record<string, number>>({});
@@ -606,13 +597,11 @@ export function StickerPicker({
         {tab === 'emoji' ? (
           <>
             {section('mine', 'your emojis', [addTile(true, EC), ...filteredCustomEmojis.map((s) => stickerCell(s, EC))])}
-            {filteredEveryoneEmojis.length ? section('everyone', "everyone's emojis", filteredEveryoneEmojis.map((s) => stickerCell(s, EC))) : null}
             {filteredEmojiSections.map((sec) => section(sec.title, sec.title, sec.emojis.map(emojiCell)))}
           </>
         ) : (
           <>
             {section('mine', 'your stickers', [addTile(false, SC), ...filteredCustomStickers.map((s) => stickerCell(s, SC))])}
-            {filteredEveryoneStickers.length ? section('everyone', "everyone's stickers", filteredEveryoneStickers.map((s) => stickerCell(s, SC))) : null}
             {packs.map((p) => section(p.id, p.title, p.stickers.map((s) => stickerCell(s, SC))))}
           </>
         )}
@@ -621,7 +610,12 @@ export function StickerPicker({
       <View style={{ height: RAIL + bottomInset, paddingBottom: bottomInset, flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: '#0c0c0e' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 10 }}>
           {railBtn('mine', <SymbolView name="clock.fill" size={20} tintColor={dim} fallback={<MaterialCommunityIcons name="clock" size={22} color={dim} />} />)}
-          {railBtn('everyone', <SymbolView name="person.2.fill" size={18} tintColor={dim} fallback={<MaterialCommunityIcons name="account-multiple" size={22} color={dim} />} />)}
+          {tab === 'stickers' ? (
+            <Pressable onPress={() => { Haptics.selectionAsync(); router.push('/packs'); }} hitSlop={4} style={({ pressed }) => ({ height: 36, paddingHorizontal: 12, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)' })}>
+              <SymbolView name="square.grid.2x2.fill" size={15} tintColor="#fff" fallback={<MaterialCommunityIcons name="view-grid" size={17} color="#fff" />} />
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>packs</Text>
+            </Pressable>
+          ) : null}
           {tab === 'emoji'
             ? filteredEmojiSections.map((sec) => railBtn(sec.title, <Text style={{ fontSize: 20, opacity: 0.85 }}>{sec.emojis[0]}</Text>))
             : packs.map((p) => railBtn(p.id, p.thumbnail_url

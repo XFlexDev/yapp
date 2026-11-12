@@ -22,6 +22,12 @@ export type StickerPack = {
   owner_id?: string;
   is_emoji_pack: boolean;
   thumbnail_url?: string;
+  /** Listed on the marketplace. */
+  published?: boolean;
+  mine?: boolean;
+  installed?: boolean;
+  installs?: number;
+  owner_name?: string;
   stickers: Sticker[];
 };
 
@@ -101,7 +107,7 @@ export async function saveSticker(sid: string) {
   await req(`/v1/stickers/${sid}/save`, { method: 'POST' });
 }
 
-/** Remove a sticker/emoji from your collection; your own uploads disappear from everyone's picker too. */
+/** Remove a sticker/emoji from your collection; deleting your own upload also pulls it out of your packs. */
 export async function removeSticker(sid: string) {
   await req(`/v1/stickers/${sid}`, { method: 'DELETE' });
   const s = stickerCache.get(sid);
@@ -137,3 +143,24 @@ export async function uploadCustomSticker(
   }
   return stk;
 }
+
+// Open pickers reload their packs when one is made, changed, added or removed.
+const packWatchers = new Set<() => void>();
+export function onPacksChanged(fn: () => void) { packWatchers.add(fn); return () => { packWatchers.delete(fn); }; }
+const packsChanged = () => packWatchers.forEach((fn) => fn());
+
+const keep = (p: StickerPack) => { registerStickers(p.stickers); return p; };
+export const loadMarket = async () => (await req<StickerPack[]>('/v1/sticker-market')).map(keep);
+export async function createPack(title: string, stickerIds: string[]) {
+  const p = keep(await req<StickerPack>('/v1/sticker-packs', { method: 'POST', body: { title, sticker_ids: stickerIds } }));
+  packsChanged();
+  return p;
+}
+export async function updatePack(id: string, change: { title?: string; published?: boolean; sticker_ids?: string[] }) {
+  const p = keep(await req<StickerPack>(`/v1/sticker-packs/${id}`, { method: 'PATCH', body: change }));
+  packsChanged();
+  return p;
+}
+/** Your own pack is deleted for everyone; someone else's is only taken out of your picker. */
+export async function deletePack(id: string) { await req(`/v1/sticker-packs/${id}`, { method: 'DELETE' }); packsChanged(); }
+export async function installPack(id: string) { await req(`/v1/sticker-packs/${id}/install`, { method: 'POST' }); packsChanged(); }
