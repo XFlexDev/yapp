@@ -1,8 +1,7 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from '../lib/icon';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -79,7 +78,7 @@ const GLYPHS = {
 
 function Glyph({ g, size = 24, color = '#fff' }: { g: keyof typeof GLYPHS; size?: number; color?: string }) {
   const [sf, md] = GLYPHS[g];
-  return <SymbolView name={sf as any} tintColor={color} size={size} weight="bold" fallback={<MaterialCommunityIcons name={md as any} size={size + 2} color={color} />} />;
+  return <Icon sf={sf} md={md} size={size} mdSize={size + 2} color={color} move={g === 'down' ? 'down' : g === 'close' ? 'wiggle' : 'bounce'} />;
 }
 
 function TopButton({ g, onPress }: { g: keyof typeof GLYPHS; onPress: () => void }) {

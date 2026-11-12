@@ -1,18 +1,17 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { SymbolView } from 'expo-symbols';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Dimensions, Keyboard, Linking, Platform, Pressable, Text, View } from 'react-native';
 import Animated, { Easing, LayoutAnimationConfig, FadeIn, FadeInDown, FadeOut, interpolateColor, SlideInDown, useAnimatedKeyboard, SlideOutDown, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { F } from './theme';
+import { Icon, PulseProvider, usePulse } from './icon';
 
 export const RED = '#FE0000';
 export const FILL = 'rgba(255,255,255,0.22)';
 export const GHOST = 'rgba(255,255,255,0.45)';
 
 function Sym({ sf, md, size = 26 }: { sf: string; md: string; size?: number }) {
-  return <SymbolView name={sf as any} tintColor="#fff" size={size} weight="bold" fallback={<MaterialCommunityIcons name={md as any} size={size + 4} color="#fff" />} />;
+  return <Icon sf={sf} md={md} size={size} mdSize={size + 4} />;
 }
 
 // Near-critical spring: settles with a hint of give, never wobbles.
@@ -75,10 +74,13 @@ export function Swap({ text, style }: { text: string; style?: any }) {
 export function Squish({ children, onPress, onLongPress, disabled, style }: { children: ReactNode; onPress: () => void; onLongPress?: () => void; disabled?: boolean; style?: any }) {
   const s = useSharedValue(1);
   const a = useAnimatedStyle(() => ({ transform: [{ scaleX: s.value }, { scaleY: s.value }] }));
+  const [tick, bump] = usePulse();
   return (
-    <Pressable disabled={disabled} onPress={onPress} onLongPress={onLongPress} delayLongPress={380} onPressIn={() => { s.value = withSpring(0.96, PRESS); }} onPressOut={() => { s.value = withSpring(1, RELEASE); }}>
-      <Animated.View style={[style, a]}>{children}</Animated.View>
-    </Pressable>
+    <PulseProvider value={tick}>
+      <Pressable disabled={disabled} onPress={() => { bump(); onPress(); }} onLongPress={onLongPress} delayLongPress={380} onPressIn={() => { s.value = withSpring(0.96, PRESS); }} onPressOut={() => { s.value = withSpring(1, RELEASE); }}>
+        <Animated.View style={[style, a]}>{children}</Animated.View>
+      </Pressable>
+    </PulseProvider>
   );
 }
 

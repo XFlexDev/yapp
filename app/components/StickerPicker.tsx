@@ -1,6 +1,7 @@
 import { BlurView } from 'expo-blur';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
+import { Icon, Segmented, Tap } from '../lib/icon';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -510,7 +511,7 @@ export function StickerPicker({
     <Pressable
       key={em}
       onPress={() => handleSelectEmoji(em)}
-      style={({ pressed }) => ({ width: EC, height: EC, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })}>
+      style={({ pressed }) => ({ width: EC, height: EC, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent', transform: [{ scale: pressed ? 0.82 : 1 }] })}>
       <Text style={{ fontSize: EC * 0.62 }}>{em}</Text>
     </Pressable>
   );
@@ -533,7 +534,7 @@ export function StickerPicker({
         }}
         onLongPress={() => handleRemove(stk)}
         delayLongPress={350}
-        style={({ pressed }) => ({ width: sz - 6, height: sz - 6, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })}>
+        style={({ pressed }) => ({ width: sz - 6, height: sz - 6, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent', transform: [{ scale: pressed ? 0.86 : 1 }] })}>
         <Image source={stk.url || mediaUrl(stk.id)} style={{ width: sz * 0.78, height: sz * 0.78 }} contentFit="contain" cachePolicy="memory-disk" />
       </Pressable>
     </Animated.View>
@@ -554,9 +555,9 @@ export function StickerPicker({
   ), isEmoji ? 'add-emoji' : 'add-sticker');
 
   const railBtn = (key: string, child: React.ReactNode) => (
-    <Pressable key={key} onPress={() => jump(key)} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent' })}>
+    <Tap key={key} onPress={() => jump(key)} style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent', transform: [{ scale: pressed ? 0.88 : 1 }] })}>
       {child}
-    </Pressable>
+    </Tap>
   );
   const dim = 'rgba(255,255,255,0.55)';
 
@@ -570,15 +571,8 @@ export function StickerPicker({
         <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.25)' }} />
       </Pressable>
 
-      <View style={{ flexDirection: 'row', marginHorizontal: 10, padding: 3, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' }}>
-        {(['emoji', 'stickers'] as TabType[]).map((t) => (
-          <Pressable
-            key={t}
-            onPress={() => { Haptics.selectionAsync(); setTab(t); setSearch(''); sectionY.current = {}; }}
-            style={{ flex: 1, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: tab === t ? 'rgba(255,255,255,0.12)' : 'transparent' }}>
-            <Text style={{ color: tab === t ? '#fff' : 'rgba(255,255,255,0.5)', fontFamily: F.black, fontSize: 15 }}>{t}</Text>
-          </Pressable>
-        ))}
+      <View style={{ marginHorizontal: 10 }}>
+        <Segmented options={['emoji', 'stickers'] as const} value={tab} onChange={(t) => { Haptics.selectionAsync(); setTab(t); setSearch(''); sectionY.current = {}; }} />
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 10, marginTop: 8, marginBottom: 6, height: 40, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12 }}>
@@ -594,6 +588,7 @@ export function StickerPicker({
       </View>
 
       <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 4, paddingBottom: 12 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Animated.View key={tab} entering={FadeIn.duration(200)}>
         {tab === 'emoji' ? (
           <>
             {section('mine', 'your emojis', [addTile(true, EC), ...filteredCustomEmojis.map((s) => stickerCell(s, EC))])}
@@ -605,16 +600,17 @@ export function StickerPicker({
             {packs.map((p) => section(p.id, p.title, p.stickers.map((s) => stickerCell(s, SC))))}
           </>
         )}
+        </Animated.View>
       </ScrollView>
 
       <View style={{ height: RAIL + bottomInset, paddingBottom: bottomInset, flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: '#0c0c0e' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 10 }}>
-          {railBtn('mine', <SymbolView name="clock.fill" size={20} tintColor={dim} fallback={<MaterialCommunityIcons name="clock" size={22} color={dim} />} />)}
+          {railBtn('mine', <Icon sf="clock.fill" md="clock" size={20} mdSize={22} color={dim} move="spin" />)}
           {tab === 'stickers' ? (
-            <Pressable onPress={() => { Haptics.selectionAsync(); router.push('/packs'); }} hitSlop={4} style={({ pressed }) => ({ height: 36, paddingHorizontal: 12, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)' })}>
-              <SymbolView name="square.grid.2x2.fill" size={15} tintColor="#fff" fallback={<MaterialCommunityIcons name="view-grid" size={17} color="#fff" />} />
+            <Tap onPress={() => { Haptics.selectionAsync(); router.push('/packs'); }} hitSlop={4} style={({ pressed }) => ({ height: 36, paddingHorizontal: 12, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)', transform: [{ scale: pressed ? 0.95 : 1 }] })}>
+              <Icon sf="square.grid.2x2.fill" md="view-grid" size={15} mdSize={17} />
               <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13 }}>packs</Text>
-            </Pressable>
+            </Tap>
           ) : null}
           {tab === 'emoji'
             ? filteredEmojiSections.map((sec) => railBtn(sec.title, <Text style={{ fontSize: 20, opacity: 0.85 }}>{sec.emojis[0]}</Text>))
@@ -623,9 +619,9 @@ export function StickerPicker({
               : <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 12 }}>{p.title.slice(0, 2).toLowerCase()}</Text>))}
         </ScrollView>
         {tab === 'emoji' && onBackspace ? (
-          <Pressable onPress={() => { Haptics.selectionAsync(); onBackspace(); }} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 38, marginRight: 8, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent' })}>
-            <SymbolView name="delete.left.fill" size={22} tintColor={dim} fallback={<MaterialCommunityIcons name="backspace" size={22} color={dim} />} />
-          </Pressable>
+          <Tap onPress={() => { Haptics.selectionAsync(); onBackspace(); }} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 38, marginRight: 8, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent' })}>
+            <Icon sf="delete.left.fill" md="backspace" size={22} mdSize={22} color={dim} move="left" />
+          </Tap>
         ) : null}
       </View>
 

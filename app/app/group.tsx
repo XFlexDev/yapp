@@ -103,11 +103,13 @@ export default function GroupScreen() {
   const opened = useRef(Date.now());
   const kb = useAnimatedKeyboard();
   const pk = useSharedValue(0);
-  useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H + insets.bottom : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible, insets.bottom]);
+  useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H + insets.bottom - 8 : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible, insets.bottom]);
   useEffect(() => { const a = Keyboard.addListener('keyboardWillShow', () => { setStickersVisible(false); setKbUp(true); }); const b = Keyboard.addListener('keyboardDidShow', () => { setStickersVisible(false); setKbUp(true); }); const c = Keyboard.addListener('keyboardDidHide', () => setKbUp(false)); return () => { a.remove(); b.remove(); c.remove(); }; }, []);
   const covered = !!menu || !!sheet || !!forwarding || !!view || attach;
   useEffect(() => { if (covered) Keyboard.dismiss(); }, [covered]);
   const lifted = kbUp || stickersVisible;
+  // How far the blur reaches below the typing box: to the screen edge, to the keyboard, or a little behind the picker's rounded top.
+  const under = stickersVisible ? 24 : lifted ? 8 : insets.bottom + 8;
   const [barH, setBarH] = useState(50);
   const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(kb.height.value, insets.bottom, pk.value) + 8 }));
 
@@ -191,7 +193,7 @@ export default function GroupScreen() {
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
           style={{ marginBottom: -(barH + insets.bottom + 8) }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64, flexGrow: 1 }} automaticallyAdjustsScrollIndicatorInsets={false} scrollIndicatorInsets={{ top: barH + insets.bottom + 28, bottom: insets.top + 68 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-        <ProgressiveBlur edge="bottom" height={lifted ? barH + 28 : barH + insets.bottom + 28} style={{ bottom: lifted ? -8 : -(insets.bottom + 8) }} />
+        <ProgressiveBlur edge="bottom" height={barH + 20 + under} style={{ bottom: -under }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (

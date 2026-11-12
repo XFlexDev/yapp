@@ -1,16 +1,15 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { setMuted, useMuted } from '../lib/notifs';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { Icon, Tap, type Move } from '../lib/icon';
 import { confirm } from '../lib/native';
 import { BlurBackdrop, ProgressiveBlur } from '../lib/blur';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Children, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, LinearTransition, SlideInDown, SlideInRight, SlideOutDown, ZoomIn, ZoomOut, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withSpring, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
@@ -43,15 +42,15 @@ export function MuteRow({ chat }: { chat: string }) {
 export function SettingRow({ title, onPress, more, danger, icon, right }: { title: string; onPress: () => void; more?: boolean; danger?: boolean; icon?: [string, string]; right?: ReactNode }) {
   const col = danger ? C.red : '#fff';
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ height: 54, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
+    <Tap onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ height: 54, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
       {icon ? (
         <View style={{ width: 28, marginRight: 12, alignItems: 'center' }}>
-          <SymbolView name={icon[0] as any} size={21} weight="medium" tintColor={col} fallback={<MaterialCommunityIcons name={icon[1] as any} size={23} color={col} />} />
+          <Icon sf={icon[0]} md={icon[1]} size={21} mdSize={23} weight="medium" color={col} move={danger ? 'wiggle' : 'bounce'} />
         </View>
       ) : null}
       <Text numberOfLines={1} style={{ flex: 1, color: col, fontFamily: F.black, fontSize: 16 }}>{title}</Text>
-      {right ?? (more ? <SymbolView name="chevron.right" size={13} weight="bold" tintColor="rgba(255,255,255,0.3)" fallback={<MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.3)" />} /> : null)}
-    </Pressable>
+      {right ?? (more ? <Icon sf="chevron.right" md="chevron-right" size={13} mdSize={22} color="rgba(255,255,255,0.3)" move="right" /> : null)}
+    </Tap>
   );
 }
 
@@ -74,8 +73,11 @@ export function SectionLabel({ children }: { children: string }) {
   return <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.black, fontSize: 13, paddingHorizontal: 24, marginTop: 4 }}>{children}</Text>;
 }
 
+// What each glyph does when its button is tapped; the rest bounce.
+const GLYPH_MOVES: Partial<Record<keyof typeof G, Move>> = { back: 'left', gear: 'spin', send: 'up', add: 'spin', minus: 'wiggle' };
+
 export function Glyph({ g, size = 20, color = '#fff' }: { g: keyof typeof G; size?: number; color?: string }) {
-  return <SymbolView name={G[g][0] as any} tintColor={color} size={size} weight="bold" fallback={<MaterialCommunityIcons name={G[g][1] as any} size={size + 4} color={color} />} />;
+  return <Icon sf={G[g][0]} md={G[g][1]} size={size} mdSize={size + 4} color={color} move={GLYPH_MOVES[g]} />;
 }
 
 const ZWSP = '​';
@@ -403,10 +405,12 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
       {chips.length > 0 ? (
         <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
           {chips.map((r) => (
-            <Pressable key={r.emoji} onPress={() => { Haptics.selectionAsync(); onReact?.(r.emoji); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.12)' }}>
+            <Animated.View key={r.emoji} entering={ZoomIn.duration(200).easing(out)} exiting={ZoomOut.duration(140)} layout={LinearTransition.duration(200).easing(out)}>
+            <Pressable onPress={() => { Haptics.selectionAsync(); onReact?.(r.emoji); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.12)' }}>
               <Text style={{ fontSize: 13 }}>{r.emoji}</Text>
               {r.users.length > 1 ? <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: F.bold, fontSize: 11 }}>{r.users.length}</Text> : null}
             </Pressable>
+            </Animated.View>
           ))}
         </View>
       ) : null}
@@ -529,12 +533,12 @@ export function MsgMenu({
             {rows.map((row) => {
               const col = row.danger ? C.red : '#fff';
               return (
-                <Pressable key={row.label} onPress={() => { Haptics.selectionAsync(); row.go(); }} style={({ pressed }) => ({ height: ROW, paddingHorizontal: PAD + 6, flexDirection: 'row', alignItems: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
+                <Tap key={row.label} onPress={() => { Haptics.selectionAsync(); row.go(); }} style={({ pressed }) => ({ height: ROW, paddingHorizontal: PAD + 6, flexDirection: 'row', alignItems: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
                   <View style={{ width: 30, alignItems: 'center' }}>
-                    <SymbolView name={row.icon[0] as any} size={23} weight="medium" tintColor={col} fallback={<MaterialCommunityIcons name={row.icon[1] as any} size={25} color={col} />} />
+                    <Icon sf={row.icon[0]} md={row.icon[1]} size={23} mdSize={25} weight="medium" color={col} move={row.danger ? 'wiggle' : 'bounce'} />
                   </View>
                   <Text style={{ marginLeft: 16, color: col, fontFamily: F.black, fontSize: 17 }}>{row.label}</Text>
-                </Pressable>
+                </Tap>
               );
             })}
           </View>
@@ -686,7 +690,7 @@ export default function ChatScreen() {
     return () => { a.remove(); b.remove(); c.remove(); };
   }, [insets.bottom]);
   const pk = useSharedValue(0);
-  useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible]);
+  useEffect(() => { pk.value = withTiming(stickersVisible ? PICKER_H - 8 : 0, { duration: 260, easing: Easing.out(Easing.cubic) }); }, [stickersVisible]);
   const lift = useAnimatedStyle(() => ({ transform: [{ translateY: -Math.max(kb.height.value - insets.bottom, pk.value, 0) }] }));
 
   useEffect(() => {
@@ -724,6 +728,8 @@ export default function ChatScreen() {
   const lastMine = msgs.find((m) => m.from === meId && !m.pending && !m.failed);
   // With the keyboard or the picker up, the blur ends at the typing box instead of running into them.
   const lifted = kbPad > 0 || stickersVisible;
+  // How far the blur reaches below the typing box: to the screen edge, to the keyboard, or a little behind the picker's rounded top.
+  const under = stickersVisible ? 24 : lifted ? 8 : insets.bottom + 8;
   const sendPhotos = async (list: Photo[]) => {
     const r = replyingTo?.id;
     setReplyingTo(null);
@@ -795,7 +801,7 @@ export default function ChatScreen() {
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}
         />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-        <ProgressiveBlur edge="bottom" height={lifted ? barH + 28 : barH + insets.bottom + 28} style={{ bottom: lifted ? -8 : -(insets.bottom + 8) }} />
+        <ProgressiveBlur edge="bottom" height={barH + 20 + under} style={{ bottom: -under }} />
         {suggestions.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 6 }}>
             {suggestions.map((s: Sticker) => (

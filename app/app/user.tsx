@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, avatarUrl, nameOf, req, type User } from '../lib/api';
 import { choose, confirm } from '../lib/native';
@@ -120,24 +121,24 @@ export default function UserProfile() {
       </View>
 
       <View style={{ paddingHorizontal: 16, paddingTop: 18, gap: 16 }}>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Animated.View entering={FadeInDown.duration(260)} style={{ flexDirection: 'row', gap: 10 }}>
           {isMe ? <Action title="edit profile" onPress={() => { router.back(); setTimeout(() => router.push('/settings'), 250); }} />
             : friend ? <Action strong title="message" onPress={message} />
             : incoming ? <Action strong title="accept request" disabled={busy} onPress={accept} />
             : outgoing || sent ? <Action title="request sent" disabled onPress={() => {}} />
             : user.username ? <Action strong title="add friend" disabled={busy} onPress={add} />
             : null}
-        </View>
+        </Animated.View>
 
-        <View style={{ flexDirection: 'row', borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.06)', paddingVertical: 16 }}>
+        <Animated.View entering={FadeInDown.delay(50).duration(260)} style={{ flexDirection: 'row', borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.06)', paddingVertical: 16 }}>
           <Stat value={p ? String(p.friends) : '–'} label="friends" />
           {isMe ? null : <Stat value={p ? String(p.mutual) : '–'} label="mutual" />}
           {friend ? <Stat value={String(friend.streak)} label="day streak" /> : null}
           <Stat value={p ? joined(p.joined_at) : '–'} label="joined" />
-        </View>
+        </Animated.View>
 
         {p?.trophies.length ? (
-          <View style={{ gap: 8 }}>
+          <Animated.View entering={FadeInDown.duration(260)} style={{ gap: 8 }}>
             <Text style={{ color: C.dim, fontFamily: F.black, fontSize: 13, marginLeft: 6 }}>trophies</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {p.trophies.map((t) => (
@@ -147,7 +148,7 @@ export default function UserProfile() {
                 </View>
               ))}
             </View>
-          </View>
+          </Animated.View>
         ) : null}
 
         {isMe ? null : (

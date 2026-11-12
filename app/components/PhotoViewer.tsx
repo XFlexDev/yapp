@@ -1,8 +1,7 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SymbolView } from 'expo-symbols';
+import { Icon, Tap } from '../lib/icon';
 import { useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -21,9 +20,9 @@ const MAX_ZOOM = 5;
 
 function Round({ icon, onPress }: { icon: [string, string]; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(30,30,30,0.72)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <SymbolView name={icon[0] as any} tintColor="#fff" size={18} weight="bold" fallback={<MaterialCommunityIcons name={icon[1] as any} size={22} color="#fff" />} />
-    </Pressable>
+    <Tap onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(30,30,30,0.72)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+      <Icon sf={icon[0]} md={icon[1]} size={18} mdSize={22} move={icon[0] === 'arrow.down.to.line' ? 'down' : 'bounce'} />
+    </Tap>
   );
 }
 

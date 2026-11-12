@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { router, DarkTheme, ThemeProvider } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
+import { Icon, Tap } from '../lib/icon';
 import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Dimensions, Linking, Platform, Pressable, Share, StyleSheet, Switch, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
@@ -28,7 +29,7 @@ const MOVE = LinearTransition.duration(240);
 const PILL_SPRING = { damping: 28, stiffness: 320, mass: 0.8 };
 
 function Chevron() {
-  return <SymbolView name="chevron.right" tintColor="rgba(255,255,255,0.3)" size={14} weight="bold" fallback={<MaterialCommunityIcons name="chevron-right" size={20} color="rgba(255,255,255,0.3)" />} />;
+  return <Icon sf="chevron.right" md="chevron-right" size={14} mdSize={20} color="rgba(255,255,255,0.3)" move="right" />;
 }
 
 type Trophy = { id: string; title: string; sub: string; goal: number; progress: number; done: boolean };
@@ -44,13 +45,13 @@ function Section({ title, children }: { title?: string; children: ReactNode }) {
 
 function Row({ label, sub, onPress, right, color = '#fff', first }: { label: string; sub?: string; onPress?: () => void; right?: ReactNode; color?: string; first?: boolean }) {
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ minHeight: 56, paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.05)' : 'transparent', borderTopWidth: first ? 0 : 1, borderTopColor: SEP })}>
+    <Tap onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ minHeight: 56, paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? 'rgba(255,255,255,0.05)' : 'transparent', borderTopWidth: first ? 0 : 1, borderTopColor: SEP })}>
       <View style={{ flex: 1 }}>
         <Swap text={label} style={{ color, fontFamily: F.bold, fontSize: 16 }} />
         {sub ? <Text style={{ color: 'rgba(255,255,255,0.42)', fontFamily: F.regular, fontSize: 13, marginTop: 1 }}>{sub}</Text> : null}
       </View>
       {right === undefined && onPress ? <Chevron /> : right}
-    </Pressable>
+    </Tap>
   );
 }
 

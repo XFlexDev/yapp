@@ -1,16 +1,15 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { requireOptionalNativeModule } from 'expo';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, LinearTransition, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, LinearTransition, ZoomIn, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { BlurBackdrop } from '../lib/blur';
 import { pickPhotos, preparePhoto, systemCamera, type Photo } from '../lib/chat';
+import { Icon as Symbol, Tap, type Move } from '../lib/icon';
 import { C, F } from '../lib/theme';
 
 // In-app camera, only in builds that ship expo-camera; older builds open the phone's own camera screen.
@@ -24,24 +23,24 @@ export type AttachAction = { title: string; sub: string; icon: [string, string];
 const OUT = Easing.bezier(0.23, 1, 0.32, 1);
 const TILE = 104;
 
-function Icon({ icon, size = 22, color = '#fff' }: { icon: [string, string]; size?: number; color?: string }) {
-  return <SymbolView name={icon[0] as any} tintColor={color} size={size} weight="semibold" fallback={<MaterialCommunityIcons name={icon[1] as any} size={size + 3} color={color} />} />;
+function Icon({ icon, size = 22, color = '#fff', move }: { icon: [string, string]; size?: number; color?: string; move?: Move }) {
+  return <Symbol sf={icon[0]} md={icon[1]} size={size} color={color} weight="semibold" move={move} />;
 }
 
 function Tile({ icon, label, onPress }: { icon: [string, string]; label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ width: TILE, height: TILE, borderRadius: 30, borderCurve: 'continuous', backgroundColor: pressed ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', gap: 8 })}>
+    <Tap onPress={() => { Haptics.selectionAsync(); onPress(); }} style={({ pressed }) => ({ width: TILE, height: TILE, borderRadius: 30, borderCurve: 'continuous', backgroundColor: pressed ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', gap: 8, transform: [{ scale: pressed ? 0.95 : 1 }] })}>
       <Icon icon={icon} size={24} />
       <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 15 }}>{label}</Text>
-    </Pressable>
+    </Tap>
   );
 }
 
-function Round({ icon, onPress }: { icon: [string, string]; onPress: () => void }) {
+function Round({ icon, onPress, move }: { icon: [string, string]; onPress: () => void; move?: Move }) {
   return (
-    <Pressable onPress={() => { Haptics.selectionAsync(); onPress(); }} hitSlop={8} style={({ pressed }) => ({ width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(20,20,20,0.6)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <Icon icon={icon} size={19} />
-    </Pressable>
+    <Tap onPress={() => { Haptics.selectionAsync(); onPress(); }} hitSlop={8} style={({ pressed }) => ({ width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(20,20,20,0.6)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+      <Icon icon={icon} size={19} move={move} />
+    </Tap>
   );
 }
 
@@ -162,18 +161,20 @@ function Sheet({ onClose, onSend, actions }: { onClose: () => void; onSend: (pho
                 {recents.map((a) => {
                   const n = picked.indexOf(a.id);
                   return (
-                    <Pressable key={a.id} onPress={() => toggle(a.id)} style={{ width: TILE, height: TILE, borderRadius: 30, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)' }}>
+                    <Animated.View key={a.id} entering={FadeIn.duration(220)}>
+                    <Pressable onPress={() => toggle(a.id)} style={({ pressed }) => ({ width: TILE, height: TILE, borderRadius: 30, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)', transform: [{ scale: pressed ? 0.95 : 1 }] })}>
                       <Image source={a.uri} style={StyleSheet.absoluteFill} contentFit="cover" recyclingKey={a.id} />
                       {n >= 0 ? <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.28)' }]} /> : null}
                       <View style={{ position: 'absolute', top: 9, right: 9, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: n >= 0 ? C.red : 'rgba(0,0,0,0.25)', borderWidth: n >= 0 ? 0 : 2, borderColor: 'rgba(255,255,255,0.9)' }}>
-                        {n >= 0 ? <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 13, fontVariant: ['tabular-nums'] }}>{n + 1}</Text> : null}
+                        {n >= 0 ? <Animated.Text entering={ZoomIn.duration(180)} style={{ color: '#fff', fontFamily: F.black, fontSize: 13, fontVariant: ['tabular-nums'] }}>{n + 1}</Animated.Text> : null}
                       </View>
                     </Pressable>
+                    </Animated.View>
                   );
                 })}
               </ScrollView>
               {picked.length ? (
-                <Animated.View entering={FadeIn.duration(160)} style={{ paddingHorizontal: 14, paddingTop: 14 }}>
+                <Animated.View entering={FadeInDown.duration(200).easing(OUT)} style={{ paddingHorizontal: 14, paddingTop: 14 }}>
                   <Pressable disabled={busy} onPress={sendPicked} style={({ pressed }) => ({ height: 52, borderRadius: 26, borderCurve: 'continuous', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}>
                     {busy ? <ActivityIndicator color="#000" /> : <Text style={{ color: '#000', fontFamily: F.black, fontSize: 16 }}>{picked.length === 1 ? 'send photo' : `send ${picked.length} photos`}</Text>}
                   </Pressable>
@@ -181,13 +182,13 @@ function Sheet({ onClose, onSend, actions }: { onClose: () => void; onSend: (pho
               ) : actions.length ? (
                 <View style={{ marginTop: 10 }}>
                   {actions.map((a) => (
-                    <Pressable key={a.title} onPress={() => { Haptics.selectionAsync(); close(a.onPress); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 22, paddingVertical: 11, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
+                    <Tap key={a.title} onPress={() => { Haptics.selectionAsync(); close(a.onPress); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 22, paddingVertical: 11, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
                       <View style={{ width: 28, alignItems: 'center' }}><Icon icon={a.icon} /></View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{a.title}</Text>
                         <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 13 }}>{a.sub}</Text>
                       </View>
-                    </Pressable>
+                    </Tap>
                   ))}
                 </View>
               ) : null}
@@ -211,13 +212,13 @@ function Sheet({ onClose, onSend, actions }: { onClose: () => void; onSend: (pho
                     </>
                   ) : (
                     <>
-                      <Round icon={['chevron.left', 'chevron-left']} onPress={back} />
+                      <Round icon={['chevron.left', 'chevron-left']} onPress={back} move="left" />
                       {denied ? null : (
                         <Pressable onPress={shoot} style={({ pressed }) => ({ width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', transform: [{ scale: pressed ? 0.92 : 1 }] })}>
                           <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' }} />
                         </Pressable>
                       )}
-                      {denied ? <View style={{ width: 46 }} /> : <Round icon={['arrow.triangle.2.circlepath', 'camera-flip-outline']} onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} />}
+                      {denied ? <View style={{ width: 46 }} /> : <Round icon={['arrow.triangle.2.circlepath', 'camera-flip-outline']} move="spin" onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} />}
                     </>
                   )}
                 </View>

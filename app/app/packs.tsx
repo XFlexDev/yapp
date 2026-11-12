@@ -2,7 +2,9 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Segmented } from '../lib/icon';
 import { mediaUrl } from '../lib/api';
 import { confirm } from '../lib/native';
 import { createPack, deletePack, installPack, loadAllCustomStickers, loadMarket, loadRecentStickers, loadStickerPacks, recordRecentSticker, updatePack, uploadCustomSticker, type Sticker, type StickerPack } from '../lib/stickers';
@@ -27,8 +29,8 @@ function Strip({ stickers }: { stickers: Sticker[] }) {
   );
 }
 
-function Card({ children }: { children: React.ReactNode }) {
-  return <View style={{ borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.06)', padding: 16, gap: 12 }}>{children}</View>;
+function Card({ children, at = 0 }: { children: React.ReactNode; at?: number }) {
+  return <Animated.View entering={FadeInDown.delay(Math.min(at, 6) * 45).duration(260)} layout={LinearTransition.duration(240)} style={{ borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.06)', padding: 16, gap: 12 }}>{children}</Animated.View>;
 }
 
 export default function Packs() {
@@ -90,14 +92,8 @@ export default function Packs() {
   return (
     <ScrollView style={{ backgroundColor: C.surface }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 26, paddingBottom: insets.bottom + 28, gap: 12 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
       <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 26, letterSpacing: -0.4, marginLeft: 4 }}>sticker packs</Text>
-      <View style={{ flexDirection: 'row', padding: 3, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' }}>
-        {(['mine', 'market'] as const).map((t) => (
-          <Pressable key={t} onPress={() => { Haptics.selectionAsync(); setTab(t); setError(''); }} style={{ flex: 1, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: tab === t ? 'rgba(255,255,255,0.14)' : 'transparent' }}>
-            <Text style={{ color: tab === t ? '#fff' : 'rgba(255,255,255,0.5)', fontFamily: F.black, fontSize: 15 }}>{t === 'mine' ? 'my packs' : 'marketplace'}</Text>
-          </Pressable>
-        ))}
-      </View>
-      {error ? <Text style={{ color: C.danger, fontFamily: F.bold, fontSize: 14, marginLeft: 6 }}>{error}</Text> : null}
+      <Segmented options={['mine', 'market'] as const} value={tab} height={38} label={(t) => (t === 'mine' ? 'my packs' : 'marketplace')} onChange={(t) => { Haptics.selectionAsync(); setTab(t); setError(''); }} />
+      {error ? <Animated.Text entering={FadeIn.duration(180)} style={{ color: C.danger, fontFamily: F.bold, fontSize: 14, marginLeft: 6 }}>{error}</Animated.Text> : null}
 
       {tab === 'mine' ? (
         making ? (
@@ -112,7 +108,7 @@ export default function Packs() {
               {mine.map((s) => {
                 const n = picked.indexOf(s.id);
                 return (
-                  <Pressable key={s.id} onPress={() => { Haptics.selectionAsync(); setPicked((v) => (n >= 0 ? v.filter((x) => x !== s.id) : v.length < 100 ? [...v, s.id] : v)); }} style={{ width: 68, height: 68, borderRadius: 18, borderCurve: 'continuous', padding: 5, backgroundColor: n >= 0 ? 'rgba(255,255,255,0.16)' : 'transparent', borderWidth: 2, borderColor: n >= 0 ? '#fff' : 'transparent' }}>
+                  <Pressable key={s.id} onPress={() => { Haptics.selectionAsync(); setPicked((v) => (n >= 0 ? v.filter((x) => x !== s.id) : v.length < 100 ? [...v, s.id] : v)); }} style={({ pressed }) => ({ width: 68, height: 68, borderRadius: 18, borderCurve: 'continuous', padding: 5, backgroundColor: n >= 0 ? 'rgba(255,255,255,0.16)' : 'transparent', borderWidth: 2, borderColor: n >= 0 ? '#fff' : 'transparent', transform: [{ scale: pressed ? 0.9 : 1 }] })}>
                     <Image source={src(s)} style={{ flex: 1 }} contentFit="contain" cachePolicy="memory-disk" />
                   </Pressable>
                 );
@@ -129,8 +125,8 @@ export default function Packs() {
             {packs === null ? <ActivityIndicator color="#fff" style={{ marginTop: 20 }} /> : null}
             {packs && !owned.length && !added.length ? <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 18, paddingHorizontal: 20 }}>no packs yet. make one from your stickers, or add one from the marketplace.</Text> : null}
             {owned.length ? label('made by you') : null}
-            {owned.map((p) => (
-              <Card key={p.id}>
+            {owned.map((p, i) => (
+              <Card key={p.id} at={i}>
                 <View>
                   <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{p.title}</Text>
                   <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 13 }}>{p.stickers.length} {p.stickers.length === 1 ? 'sticker' : 'stickers'}{p.published ? ` · ${p.installs ?? 0} ${p.installs === 1 ? 'add' : 'adds'}` : ' · only you'}</Text>
@@ -147,8 +143,8 @@ export default function Packs() {
               </Card>
             ))}
             {added.length ? label('added from the marketplace') : null}
-            {added.map((p) => (
-              <Card key={p.id}>
+            {added.map((p, i) => (
+              <Card key={p.id} at={owned.length + i}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <View style={{ flex: 1 }}>
                     <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{p.title}</Text>
@@ -165,8 +161,8 @@ export default function Packs() {
         <>
           {market === null ? <ActivityIndicator color="#fff" style={{ marginTop: 20 }} /> : null}
           {market && !market.length ? <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 18, paddingHorizontal: 20 }}>nothing here yet. publish one of your packs to be first.</Text> : null}
-          {(market ?? []).map((p) => (
-            <Card key={p.id}>
+          {(market ?? []).map((p, i) => (
+            <Card key={p.id} at={i}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{p.title}</Text>
