@@ -19,6 +19,7 @@ ICONS = {
     'flag': ('flag', None, ['ring', 9]),
     'hand.raised': ('hand', None, ['ring', 12]),
     'moon.fill': ('moon', None, ['ring', 10]),
+    'bell': ('bell', None, ['ring', 10]),
     'bell.slash': ('bell-off', [2], ['draw']),
     'lock.fill': ('lock', None, ['ring', 5]),
     'phone.fill': ('phone', None, ['ring', 12]),

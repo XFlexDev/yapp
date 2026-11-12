@@ -34,7 +34,7 @@ export const G = { back: ['chevron.left', 'chevron-left'], palette: ['paintpalet
 export function MuteRow({ chat }: { chat: string }) {
   const muted = useMuted(chat);
   return (
-    <SettingRow title="mute notifications" icon={['bell.slash', 'bell-off-outline']} onPress={() => setMuted(chat, !muted)}
+    <SettingRow title="mute notifications" icon={muted ? ['bell.slash', 'bell-off-outline'] : ['bell', 'bell-outline']} onPress={() => setMuted(chat, !muted)}
       right={<Switch value={muted} onValueChange={(v) => { Haptics.selectionAsync(); setMuted(chat, v); }} trackColor={{ false: 'rgba(255,255,255,0.16)', true: C.red }} thumbColor="#fff" ios_backgroundColor="rgba(255,255,255,0.16)" style={{ alignSelf: 'center' }} />} />
   );
 }

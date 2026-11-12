@@ -1,7 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SymbolView } from 'expo-symbols';
 import { drawnIcon } from './drawn';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View, type PressableProps } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { F } from './theme';
@@ -23,8 +23,12 @@ export function usePulse(): [number, () => void] {
  */
 export function Icon({ sf, md, size = 20, mdSize, color = '#fff', weight = 'bold' }: { sf: string; md: string; size?: number; mdSize?: number; color?: string; weight?: 'medium' | 'semibold' | 'bold'; move?: Move }) {
   const tick = useContext(Pulse);
+  // An icon that turns into another one (bell to muted bell) plays the new one's motion once, however it was switched.
+  const [swaps, setSwaps] = useState(0);
+  const shown = useRef(sf);
+  useEffect(() => { if (shown.current !== sf) { shown.current = sf; setSwaps((n) => n + 1); } }, [sf]);
   const Drawn = drawnIcon(sf);
-  if (Drawn) return <Drawn tick={tick} size={size} color={color} />;
+  if (Drawn) return <Drawn tick={tick + swaps} size={size} color={color} />;
   return <SymbolView name={sf as any} tintColor={color} size={size} weight={weight} fallback={<MaterialCommunityIcons name={md as any} size={mdSize ?? size + 3} color={color} />} />;
 }
 
