@@ -111,7 +111,7 @@ export default function Inbox() {
           <Glyph g="people" size={15} /><Text style={{ color: '#fff', fontFamily: F.black, fontSize: 14 }}>new group</Text>
         </Squish>
       </View>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 54, paddingBottom: insets.bottom + 40 }} scrollIndicatorInsets={{ top: insets.top + 54 }}><Requests />{items.map((i) => i.node)}</ScrollView>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 54, paddingBottom: insets.bottom + 40 }} automaticallyAdjustsScrollIndicatorInsets={false} scrollIndicatorInsets={{ top: insets.top + 64, bottom: insets.bottom + 28 }}><Requests />{items.map((i) => i.node)}</ScrollView>
       {make ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
           <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop /><Pressable style={{ flex: 1 }} onPress={() => setMake(false)} /></Animated.View>

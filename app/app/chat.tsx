@@ -728,6 +728,8 @@ export default function ChatScreen() {
           onEndReachedThreshold={0.4}
           style={{ marginBottom: -(barH + insets.bottom + 8) }}
           contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64 + Math.max(kbPad, stickersVisible ? PICKER_H : 0), flexGrow: 1 }}
+          automaticallyAdjustsScrollIndicatorInsets={false}
+          scrollIndicatorInsets={{ top: barH + insets.bottom + 28, bottom: insets.top + 68 + Math.max(kbPad, stickersVisible ? PICKER_H : 0) }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={chat.loaded && !msgs.length ? <Text style={{ color: 'rgba(255,255,255,0.4)', fontFamily: F.bold, fontSize: 15, textAlign: 'center', marginTop: 40 }}>say hi to {nameOf(friend).toLowerCase()}</Text> : undefined}

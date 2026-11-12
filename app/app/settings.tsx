@@ -348,6 +348,8 @@ export default function Settings() {
           paddingHorizontal: 16,
           gap: 18,
         }}
+        automaticallyAdjustsScrollIndicatorInsets={false}
+        scrollIndicatorInsets={{ top: headerHeight + 12, bottom: insets.bottom }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets>

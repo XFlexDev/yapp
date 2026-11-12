@@ -168,7 +168,7 @@ export default function GroupScreen() {
             );
           }}
           onEndReached={() => loadGroupMessages(id!, true).catch(() => {})} onEndReachedThreshold={0.4}
-          style={{ marginBottom: -(barH + insets.bottom + 8) }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64, flexGrow: 1 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
+          style={{ marginBottom: -(barH + insets.bottom + 8) }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: barH + insets.bottom + 16, paddingBottom: insets.top + 64, flexGrow: 1 }} automaticallyAdjustsScrollIndicatorInsets={false} scrollIndicatorInsets={{ top: barH + insets.bottom + 28, bottom: insets.top + 68 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" />
         <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
         <ProgressiveBlur edge="bottom" height={barH + insets.bottom + 8 + 20} style={{ bottom: -(insets.bottom + 8) }} />
         {suggestions.length > 0 ? (
