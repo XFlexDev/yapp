@@ -28,21 +28,21 @@ export async function loadGroupMessages(id: string, older = false) {
 }
 export async function sendGroup(id: string, body: string, replyTo?: string, kind = 'text', meta?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind, body, meta, created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind, body, meta, reply_to: replyTo, created_at: Date.now(), pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
   try { const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body, kind, meta, reply_to: replyTo } }); patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) })); }
   catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
 }
-async function groupPhotoTo(id: string, p: Photo) {
+async function groupPhotoTo(id: string, p: Photo, replyTo?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), reply_to: replyTo, created_at: Date.now(), pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
   try {
-    const m = await uploadPhoto(`/v1/groups/${id}/photo`, p);
+    const m = await uploadPhoto(`/v1/groups/${id}/photo`, p, replyTo);
     patch(id, (g) => (g.messages.some((x) => x.id === m.id) ? { messages: g.messages.filter((x) => x.id !== tmp.id) } : { messages: g.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch { patch(id, (g) => ({ messages: g.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) })); }
 }
-export async function sendGroupPhoto(id: string) { const p = await pickPhoto(); if (p) await groupPhotoTo(id, p); }
+export async function sendGroupPhoto(id: string, replyTo?: string, onPicked?: () => void) { const p = await pickPhoto(); if (!p) return; onPicked?.(); await groupPhotoTo(id, p, replyTo); }
 export async function deleteGroupMessage(id: string, m: ChatMsg) {
   patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== m.id) }));
   if (!m.id.startsWith('tmp-')) await req(`/v1/groups/${id}/messages/${m.id}`, { method: 'DELETE' });
@@ -50,8 +50,10 @@ export async function deleteGroupMessage(id: string, m: ChatMsg) {
 export const onGroupMessageDeleted = (id: string, mid: string) => patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== mid) }));
 export async function retryGroup(id: string, m: ChatMsg) {
   patch(id, (g) => ({ messages: g.messages.filter((x) => x.id !== m.id) }));
-  if (m.kind === 'image') return groupPhotoTo(id, await photoFromMsg(m));
-  return sendGroup(id, m.body);
+  const r = m.reply_to ?? undefined;
+  if (m.kind === 'image') return groupPhotoTo(id, await photoFromMsg(m), r);
+  if (m.kind === 'sticker') return sendGroupSticker(id, m.body, m.meta, r);
+  return sendGroup(id, m.body, r);
 }
 export function markGroupRead(id: string) {
   const top = get().groups[id]?.messages.find((m) => !m.pending && !m.failed);
@@ -81,7 +83,7 @@ export const onLeft = (id: string) => set((s) => { const { [id]: _, ...rest } = 
 
 export async function sendGroupSticker(id: string, stickerId: string, meta?: string, replyTo?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, reply_to: replyTo, pending: true };
   patch(id, (g) => ({ messages: [tmp, ...g.messages] }));
   try {
     const m = await req<ChatMsg>(`/v1/groups/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta, reply_to: replyTo } });

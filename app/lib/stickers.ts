@@ -101,6 +101,13 @@ export async function saveSticker(sid: string) {
   await req(`/v1/stickers/${sid}/save`, { method: 'POST' });
 }
 
+/** Remove a sticker/emoji from your collection; your own uploads disappear from everyone's picker too. */
+export async function removeSticker(sid: string) {
+  await req(`/v1/stickers/${sid}`, { method: 'DELETE' });
+  const s = stickerCache.get(sid);
+  if (s?.name && nameLookup.get(s.name.toLowerCase().trim())?.id === sid) nameLookup.delete(s.name.toLowerCase().trim());
+}
+
 export async function uploadCustomSticker(
   isEmoji = false,
   name?: string,

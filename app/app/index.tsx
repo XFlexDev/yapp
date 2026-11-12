@@ -384,7 +384,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
         <Pressable style={{ flex: 1 }} onPress={onClose} />
       </Animated.View>
       <Animated.View entering={SlideInDown.duration(340).easing(out)} exiting={SlideOutDown.duration(200)} style={{ position: 'absolute', left: 8, right: 8, bottom: insets.bottom + 8, borderRadius: 32, borderCurve: 'continuous', backgroundColor: '#1C1C1E', paddingTop: 24, paddingBottom: 6, alignItems: 'stretch' }}>
-        <View style={{ alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <Pressable onPress={() => { Haptics.selectionAsync(); onClose(); requestAnimationFrame(() => router.push({ pathname: '/user', params: { id: friend.id } })); }} style={({ pressed }) => ({ alignItems: 'center', gap: 10, marginBottom: 10, opacity: pressed ? 0.7 : 1 })}>
           <Avatar user={friend} size={72} />
           <View style={{ alignItems: 'center' }}>
             <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>{nameOf(friend)}</Text>
@@ -394,7 +394,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
               {muted ? <Text style={{ color: 'rgba(255,255,255,0.55)' }}> · {muteLabel()}</Text> : null}
             </Text>
           </View>
-        </View>
+        </Pressable>
         {mode === 'mute' ? (
           <>
             {row('for 1 hour', () => chooseMute(60))}
@@ -420,6 +420,7 @@ function FriendSheet({ friend, onClose }: { friend: Friend; onClose: () => void 
                     <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{muted ? 'unmute' : 'mute'}</Text>
                   </Pressable>
                 </View>
+                {row('view profile', () => { onClose(); requestAnimationFrame(() => router.push({ pathname: '/user', params: { id: friend.id } })); })}
                 {row('reorder friends', () => { onClose(); router.push('/order'); })}
                 {row('report', openReport)}
               </>

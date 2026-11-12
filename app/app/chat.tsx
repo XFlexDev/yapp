@@ -354,13 +354,15 @@ export function ReplyQuote({ reply, name }: { reply: { from: string; kind: strin
     <View style={{ flexDirection: 'row', gap: 8, borderLeftWidth: 3, borderLeftColor: 'rgba(255,255,255,0.7)', paddingLeft: 8, marginBottom: 5 }}>
       <View style={{ flexShrink: 1 }}>
         <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 12, opacity: 0.9 }}>{name}</Text>
-        <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.75)', fontFamily: F.bold, fontSize: 12 }}>{label}</Text>
+        {reply.kind === 'image' || reply.kind === 'sticker' ? <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.75)', fontFamily: F.bold, fontSize: 12 }}>{label}</Text>
+          : <InlineBody body={label} singleLine emojiSize={13} style={{ color: 'rgba(255,255,255,0.75)', fontFamily: F.bold, fontSize: 12 }} />}
       </View>
     </View>
   );
 }
 
-export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number, r?: MenuRect) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string }) {
+export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete, onMenu, onReact, author, friendName, nameFor, onQuote, onAuthor }: { m: ChatMsg; mine: boolean; joined: boolean; fresh: boolean; seen: boolean | string; onRetry: () => void; onOpen?: (uri: string) => void; onDelete?: () => void; onMenu?: (m: ChatMsg, y: number, x: number, r?: MenuRect) => void; onReact?: (emoji: string) => void; author?: string; friendName?: string; nameFor?: (uid: string) => string; onQuote?: () => void; onAuthor?: () => void }) {
+  const quoteName = !m.reply ? '' : nameFor ? nameFor(m.reply.from) : m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you');
   const hold = !m.pending && onMenu ? (e: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const py = e.nativeEvent.pageY, px = e.nativeEvent.pageX;
@@ -371,9 +373,9 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
   const chips = m.reactions ?? [];
   return (
     <Animated.View entering={fresh ? FadeInDown.duration(220).easing(out) : undefined} style={{ alignItems: mine ? 'flex-end' : 'flex-start', marginTop: joined ? 2 : 8 }}>
-      {author && !joined ? <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
+      {author && !joined ? <Text onPress={onAuthor} suppressHighlighting style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 12, marginBottom: 3, marginLeft: 12 }}>{author}</Text> : null}
       {m.reply && (m.kind === 'image' || m.kind === 'sticker') ? (
-        <View style={{ marginBottom: 4, paddingHorizontal: 6 }}><ReplyQuote reply={m.reply} name={m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')} /></View>
+        <Pressable onPress={onQuote} style={{ marginBottom: 4, paddingHorizontal: 6 }}><ReplyQuote reply={m.reply} name={quoteName} /></Pressable>
       ) : null}
       {m.kind === 'image' ? (
         <PhotoBubble m={m} onOpen={onOpen} onRetry={onRetry} onLongPress={hold} />
@@ -381,7 +383,7 @@ export function Bubble({ m, mine, joined, fresh, seen, onRetry, onOpen, onDelete
         <StickerBubble m={m} onLongPress={hold} />
       ) : (
         <Pressable onPress={m.failed ? onRetry : undefined} onLongPress={hold} delayLongPress={350} style={{ maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderCurve: 'continuous', backgroundColor: mine ? C.red : 'rgba(255,255,255,0.13)', opacity: m.pending ? 0.6 : 1 }}>
-          {m.reply ? <ReplyQuote reply={m.reply} name={m.reply.from === m.from ? (mine ? 'you' : friendName || 'them') : (mine ? friendName || 'them' : 'you')} /> : null}
+          {m.reply ? <Pressable onPress={onQuote} onLongPress={hold} delayLongPress={350}><ReplyQuote reply={m.reply} name={quoteName} /></Pressable> : null}
           <FormattedMessageText text={m.body} />
         </Pressable>
       )}
@@ -578,6 +580,29 @@ export function ForwardSheet({ m, onClose }: { m: ChatMsg; onClose: () => void }
   );
 }
 
+/** Unsent text per chat, kept while the app is open so leaving a chat doesn't lose what you typed. */
+export const drafts = new Map<string, string>();
+
+/** Scrolls an inverted message list to a message and flashes it. */
+export function useJump(msgs: ChatMsg[]) {
+  const listRef = useRef<any>(null);
+  const [lit, setLit] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const jump = (mid?: string | null) => {
+    const i = mid ? msgs.findIndex((x) => x.id === mid) : -1;
+    if (i < 0) return;
+    Haptics.selectionAsync();
+    listRef.current?.scrollToIndex({ index: i, animated: true, viewPosition: 0.5 });
+    setLit(mid!);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setLit(null), 1200);
+  };
+  const toLatest = () => listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  const onScrollToIndexFailed = (e: { index: number; averageItemLength: number }) => listRef.current?.scrollToOffset({ offset: e.averageItemLength * e.index, animated: true });
+  return { listRef, lit, jump, toLatest, onScrollToIndexFailed };
+}
+
 export default function ChatScreen() {
   const { id, ax, ay, as } = useLocalSearchParams<{ id: string; ax?: string; ay?: string; as?: string }>();
   const insets = useSafeAreaInsets();
@@ -608,7 +633,8 @@ export default function ChatScreen() {
   const talking = useStore((s) => !!s.talkingTo[id!]);
   const chat = useStore((s) => s.chats[id!]) ?? chatOf(id!);
   const meId = useStore((s) => s.me?.id);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => drafts.get(id!) ?? '');
+  useEffect(() => { drafts.set(id!, text); }, [id, text]);
   const sendVisible = !!text.trim();
   const sendButtonStyle = useAnimatedStyle(() => ({
     width: withTiming(sendVisible ? 44 : 0, { duration: 160, easing: out }),
@@ -676,8 +702,10 @@ export default function ChatScreen() {
     setText(replaced);
   };
 
-  if (!friend) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
   const msgs = chat.messages;
+  const { listRef, lit, jump, toLatest, onScrollToIndexFailed } = useJump(msgs);
+  if (!friend) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  const nameFor = (uid: string) => (uid === meId ? 'you' : nameOf(friend).toLowerCase());
   const lastMine = msgs.find((m) => m.from === meId && !m.pending && !m.failed);
   const send = () => {
     const b = text.trim();
@@ -686,6 +714,7 @@ export default function ChatScreen() {
     setText('');
     sendMessage(id!, b, replyingTo?.id);
     setReplyingTo(null);
+    toLatest();
   };
 
   return (
@@ -694,16 +723,21 @@ export default function ChatScreen() {
       <ProgressiveBlur height={insets.top + 68} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Squish onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="back" size={22} /></Squish>
+        <Pressable onPress={() => { Haptics.selectionAsync(); router.push({ pathname: '/user', params: { id: friend.id } }); }} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Animated.View ref={avRef} onLayout={onAvLayout} style={avStyle}><Avatar user={friend} size={AV} /></Animated.View>
         <Animated.View style={[{ flex: 1 }, textIn]}>
           <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 18 }}>{nameOf(friend)}</Text>
-          <Text style={{ color: talking ? C.red : friend.online ? C.online : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>{talking ? `${nameOf(friend).toLowerCase()} is talking` : friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline'}</Text>
+          <Text style={{ color: talking ? C.red : friend.online && !friend.dnd ? C.online : 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>{talking ? `${nameOf(friend).toLowerCase()} is talking` : friend.dnd ? 'do not disturb' : friend.online ? 'online' : 'offline'}</Text>
         </Animated.View>
+        </Pressable>
         <Squish onPress={() => { Haptics.selectionAsync(); setPicker(true); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="gear" /></Squish>
       </View>
       <View style={{ flex: 1, overflow: 'hidden' }}>
       <Animated.View entering={FadeIn.duration(260)} style={[{ flex: 1, paddingBottom: insets.bottom + 8 }, lift]}>
         <Animated.FlatList
+          ref={listRef}
+          extraData={lit}
+          onScrollToIndexFailed={onScrollToIndexFailed}
           itemLayoutAnimation={LinearTransition.duration(220).easing(out)}
           windowSize={9}
           maxToRenderPerBatch={12}
@@ -712,15 +746,18 @@ export default function ChatScreen() {
           keyExtractor={(m) => m.cid ?? m.id}
           renderItem={({ item, index }) => {
             const older = msgs[index + 1];
-            const joined = !!older && older.from === item.from && item.created_at >= older.created_at && item.created_at - older.created_at <= 120_000;
+            // The label sits above the first message of each day, and a new day always starts a new group.
+            const newDay = older ? !sameCalendarDay(item.created_at, older.created_at) : !chat.more;
+            const joined = !!older && !newDay && older.from === item.from && item.created_at >= older.created_at && item.created_at - older.created_at <= 120_000;
             return (
-              <View>
+              <View style={lit === item.id ? { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16 } : undefined}>
+                {newDay ? <DatePill timestamp={item.created_at} /> : null}
                 <Bubble m={item} mine={item.from === meId} joined={joined} fresh={item.created_at > opened.current} friendName={nameOf(friend)}
+                  nameFor={nameFor} onQuote={() => jump(item.reply_to)}
                   seen={item.id === lastMine?.id && chat.theirReadAt >= item.created_at} onRetry={() => retry(id!, item)} onOpen={setView}
                   onReact={(e: string) => reactMsg(id!, item.id, e).catch(() => {})}
                   onMenu={(mm, y, x, r) => setMenu({ m: mm, y, x, r })}
                   onDelete={item.from === meId ? () => deleteMessage(id!, item).catch(() => {}) : undefined} />
-                {older && !sameCalendarDay(item.created_at, older.created_at) ? <DatePill timestamp={older.created_at} /> : null}
               </View>
             );
           }}
@@ -772,7 +809,7 @@ export default function ChatScreen() {
           </Animated.View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
-          <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
+          <Squish onPress={() => { Haptics.selectionAsync(); sendPhoto(id!, replyingTo?.id, () => { setReplyingTo(null); toLatest(); }).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <ComposerPill text={text} onChange={setText} placeholder="message" onSticker={() => { Haptics.selectionAsync(); Keyboard.dismiss(); setStickersVisible((v) => !v); }} />
           <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
             {sendVisible ? <Squish onPress={send} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Glyph g="send" size={18} color="#000" /></Squish> : null}
@@ -801,7 +838,9 @@ export default function ChatScreen() {
         onPickSticker={(stk) => {
           setStickersVisible(false);
           const meta = stk.width && stk.height ? `${stk.width}:${stk.height}:${stk.name || ''}` : undefined;
-          sendSticker(id!, stk.id, meta).catch(() => {});
+          sendSticker(id!, stk.id, meta, replyingTo?.id).catch(() => {});
+          setReplyingTo(null);
+          toLatest();
         }}
       />
       {picker ? (

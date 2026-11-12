@@ -34,7 +34,7 @@ export async function loadMessages(id: string, older = false) {
 
 export async function sendMessage(id: string, body: string, replyTo?: string, kind = 'text', meta?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind, body, meta, created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind, body, meta, reply_to: replyTo, created_at: Date.now(), pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
     const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body, kind, meta, reply_to: replyTo } });
@@ -46,8 +46,10 @@ export async function sendMessage(id: string, body: string, replyTo?: string, ki
 
 export function retry(id: string, m: ChatMsg) {
   patch(id, (c) => ({ messages: c.messages.filter((x) => x.id !== m.id) }));
-  if (m.kind === 'image') return photoFromMsg(m).then((p) => sendPhotoTo(id, p));
-  return sendMessage(id, m.body);
+  const r = m.reply_to ?? undefined;
+  if (m.kind === 'image') return photoFromMsg(m).then((p) => sendPhotoTo(id, p, r));
+  if (m.kind === 'sticker') return sendSticker(id, m.body, m.meta, r);
+  return sendMessage(id, m.body, r);
 }
 
 export type Photo = { uri: string; w: number; h: number; thumb: string };
@@ -69,25 +71,27 @@ export async function photoFromMsg(m: ChatMsg): Promise<Photo> {
   return { uri: m.body, w: +w, h: +h, thumb: thumb ?? '' };
 }
 /** Uploads a picked photo; the server stores each unique photo once. */
-export async function uploadPhoto(path: string, p: Photo) {
+export async function uploadPhoto(path: string, p: Photo, replyTo?: string) {
   const blob = await (await fetch(p.uri)).blob();
-  return req<ChatMsg>(`${path}?w=${p.w}&h=${p.h}&t=${encodeURIComponent(p.thumb)}`, { method: 'POST', raw: blob, ctype: 'image/webp' });
+  return req<ChatMsg>(`${path}?w=${p.w}&h=${p.h}&t=${encodeURIComponent(p.thumb)}${replyTo ? `&r=${replyTo}` : ''}`, { method: 'POST', raw: blob, ctype: 'image/webp' });
 }
 
-async function sendPhotoTo(id: string, p: Photo) {
+async function sendPhotoTo(id: string, p: Photo, replyTo?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), created_at: Date.now(), pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'image', body: p.uri, meta: photoMeta(p), reply_to: replyTo, created_at: Date.now(), pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
-    const m = await uploadPhoto(`/v1/chats/${id}/photo`, p);
+    const m = await uploadPhoto(`/v1/chats/${id}/photo`, p, replyTo);
     patch(id, (c) => (c.messages.some((x) => x.id === m.id) ? { messages: c.messages.filter((x) => x.id !== tmp.id) } : { messages: c.messages.map((x) => (x.id === tmp.id ? { ...m, cid: tmp.id } : x)) }));
   } catch {
     patch(id, (c) => ({ messages: c.messages.map((x) => (x.id === tmp.id ? { ...x, pending: false, failed: true } : x)) }));
   }
 }
-export async function sendPhoto(id: string) {
+export async function sendPhoto(id: string, replyTo?: string, onPicked?: () => void) {
   const p = await pickPhoto();
-  if (p) await sendPhotoTo(id, p);
+  if (!p) return;
+  onPicked?.();
+  await sendPhotoTo(id, p, replyTo);
 }
 
 /** Deletes my copy of the chat; the server wipes it for good once both sides have. */
@@ -150,7 +154,7 @@ export const BACKGROUNDS: { id: string; colors: [string, string, ...string[]] }[
 
 export async function sendSticker(id: string, stickerId: string, meta?: string, replyTo?: string) {
   const me = get().me!.id;
-  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, pending: true };
+  const tmp: ChatMsg = { id: `tmp-${Date.now()}`, from: me, to: id, kind: 'sticker', body: stickerId, created_at: Date.now(), meta, reply_to: replyTo, pending: true };
   patch(id, (c) => ({ messages: [tmp, ...c.messages] }));
   try {
     const m = await req<ChatMsg>(`/v1/chats/${id}/messages`, { method: 'POST', body: { body: stickerId, kind: 'sticker', meta, reply_to: replyTo } });

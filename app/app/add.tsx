@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { ApiError, nameOf, req, type FriendRequest } from '../lib/api';
@@ -11,11 +11,13 @@ import { Avatar, ErrorText, Field } from '../lib/ui';
 function Row({ r, actions }: { r: FriendRequest; actions: React.ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10 }}>
-      <Avatar user={r.user} size={48} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }} numberOfLines={1}>{nameOf(r.user)}</Text>
-        <Text style={{ color: C.dim, fontFamily: F.regular, fontSize: 14 }}>@{r.user.username}</Text>
-      </View>
+      <Pressable onPress={() => router.push({ pathname: '/user', params: { id: r.user.id } })} style={({ pressed }) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14, opacity: pressed ? 0.6 : 1 })}>
+        <Avatar user={r.user} size={48} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 17 }} numberOfLines={1}>{nameOf(r.user)}</Text>
+          <Text style={{ color: C.dim, fontFamily: F.regular, fontSize: 14 }}>@{r.user.username}</Text>
+        </View>
+      </Pressable>
       {actions}
     </View>
   );

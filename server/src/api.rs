@@ -1606,6 +1606,26 @@ fn bump(st: &S, uid: &str, col: &'static str, by: i64) {
 
 async fn achievements(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
     let c = st.db();
+    Ok(Json(json!(trophy_list(&c, &me)?)))
+}
+
+/// What anyone who isn't blocked can see about a user: when they joined, friend counts and earned trophies.
+async fn user_profile(State(st): State<S>, Authed(me): Authed, Path(id): Path<String>) -> R<Json<Value>> {
+    let c = st.db();
+    let found: Option<(PublicUser, i64)> = c
+        .query_row(&format!("SELECT {USER_COLS}, u.created_at FROM users u WHERE u.id=?"), [&id], |r| Ok((row_user(r, 0)?, r.get(6)?)))
+        .optional()?;
+    let Some((user, joined)) = found.filter(|(u, _)| u.id == me || !blocked_either(&c, &me, &u.id).unwrap_or(true)) else {
+        return Err(not_found("No one here"));
+    };
+    let theirs = friend_ids(&c, &user.id)?;
+    let mine: std::collections::HashSet<String> = friend_ids(&c, &me)?.into_iter().collect();
+    let mutual = theirs.iter().filter(|f| mine.contains(*f)).count();
+    let trophies: Vec<Value> = trophy_list(&c, &user.id)?.into_iter().filter(|t| t["done"] == json!(true)).collect();
+    Ok(Json(json!({ "user": user, "joined_at": joined, "friends": theirs.len(), "mutual": mutual, "is_friend": mine.contains(&user.id), "trophies": trophies })))
+}
+
+fn trophy_list(c: &Connection, me: &str) -> R<Vec<Value>> {
     let (talks, calls, pokes, group_talks): (i64, i64, i64, i64) = c
         .query_row("SELECT talks, calls, pokes, group_talks FROM stats WHERE user_id=?", [&me], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .optional()?
@@ -1619,7 +1639,7 @@ async fn achievements(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>>
             json!({ "id": t.0, "title": t.2, "sub": t.3, "goal": t.4, "progress": have.min(t.4), "done": have >= t.4 })
         })
         .collect();
-    Ok(Json(json!(list)))
+    Ok(list)
 }
 
 const CLIP_TTL_MS: i64 = 7 * 24 * 3600 * 1000;
@@ -1901,7 +1921,7 @@ struct ChatMsg {
     reply: Option<ReplyView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     reactions: Vec<ReactionView>,
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     reply_to: Option<String>,
 }
 
@@ -2146,6 +2166,8 @@ struct PhotoMeta {
     h: u32,
     #[serde(default)]
     t: String,
+    /// Message this photo replies to.
+    r: Option<String>,
 }
 
 /// Stores a chat photo once (content-addressed `c-` key on B2/CDN) plus its size and blur preview.
@@ -2169,7 +2191,7 @@ async fn save_chat_photo(st: &S, body: &[u8], p: &PhotoMeta) -> R<(String, Strin
 async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
     if !are_friends(&st.db(), &me, &other)? { return Err(not_friends()); }
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
-    post_dm(&st, me, other, "image", key, Some(meta), None).await
+    post_dm(&st, me, other, "image", key, Some(meta), p.r.clone()).await
 }
 
 fn sticker_exists(st: &S, id: &str) -> bool {
@@ -2492,7 +2514,7 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
 async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
     if !is_member(&st.db(), &g, &me)? { return Err(not_found("Group not found")); }
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
-    post_group(&st, me, g, "image", key, Some(meta), None).await
+    post_group(&st, me, g, "image", key, Some(meta), p.r.clone()).await
 }
 
 async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, meta: Option<String>, reply_to: Option<String>) -> R<Json<ChatMsg>> {
@@ -3084,6 +3106,18 @@ async fn use_recent_sticker(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Drops a sticker or emoji from the caller's collection; the uploader's copy is also hidden from everyone's pickers.
+/// The file stays so messages that already use it keep rendering.
+async fn remove_sticker(State(st): State<S>, Authed(me): Authed, Path(sid): Path<String>) -> R<Json<Value>> {
+    let c = st.db();
+    c.execute("DELETE FROM user_recent_stickers WHERE user_id=?1 AND sticker_id=?2", params![me, sid])?;
+    let gone = c.execute("UPDATE stickers SET status='removed' WHERE id=?1 AND owner_id=?2 AND status='ok'", params![sid, me])? > 0;
+    if gone {
+        c.execute("DELETE FROM user_recent_stickers WHERE sticker_id=?", [&sid])?;
+    }
+    Ok(Json(json!({ "ok": true, "deleted": gone })))
+}
+
 async fn list_recent_stickers(
     State(st): State<S>,
     Authed(me): Authed,
@@ -3125,7 +3159,7 @@ async fn resolve_sticker(
     let store = crate::storage::get();
     let clean = name.trim().to_lowercase();
     let item = c.query_row(
-        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name, owner_id FROM stickers WHERE status='ok' AND (name = ?1 OR id = ?1) LIMIT 1",
+        "SELECT id, is_animated, is_emoji, width, height, size_bytes, name, owner_id FROM stickers WHERE status IN ('ok', 'removed') AND (name = ?1 OR id = ?1) ORDER BY status='ok' DESC LIMIT 1",
         [&clean],
         |r| {
             let sid: String = r.get(0)?;
@@ -3331,6 +3365,7 @@ pub fn router(st: S) -> Router {
         .route("/avatars/{file}", get(get_avatar))
         .route("/v1/status", put(set_status))
         .route("/v1/users/{username}", get(lookup_user))
+        .route("/v1/users/{id}/profile", get(user_profile))
         .route("/v1/friends", get(list_friends))
         .route("/v1/friends/order", put(update_friend_order))
         .route("/v1/friends/{id}", axum::routing::delete(remove_friend))
@@ -3397,6 +3432,7 @@ pub fn router(st: S) -> Router {
         .route("/v1/stickers/recent", get(list_recent_stickers))
         .route("/v1/stickers/recent/{sid}", post(use_recent_sticker))
         .route("/v1/stickers/{sid}/save", post(use_recent_sticker))
+        .route("/v1/stickers/{sid}", axum::routing::delete(remove_sticker))
         .route("/v1/poke", post(poke))
         .route("/v1/wave", post(wave))
         .route("/v1/stream", get(stream))

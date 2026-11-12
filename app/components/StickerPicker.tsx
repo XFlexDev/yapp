@@ -28,10 +28,13 @@ import {
   loadRecentStickers,
   loadStickerPacks,
   recordRecentSticker,
+  removeSticker,
   uploadCustomSticker,
   type Sticker,
   type StickerPack,
 } from '../lib/stickers';
+import { confirm } from '../lib/native';
+import { useStore } from '../lib/store';
 import { C, F } from '../lib/theme';
 
 // Standard high-frequency native emojis grouped cleanly
@@ -417,13 +420,35 @@ export function StickerPicker({
       setTimeout(() => setNewStickerId((id) => id === sticker.id ? null : id), 500);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      setUploadError(String(e?.message || 'couldn’t upload this image, try again').toLowerCase());
-      if (errorTimer.current) clearTimeout(errorTimer.current);
-      errorTimer.current = setTimeout(() => setUploadError(''), 3000);
+      flash(String(e?.message || 'couldn’t upload this image, try again').toLowerCase());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setBusyType(null);
     }
+  };
+
+  const meId = useStore((s) => s.me?.id);
+  const flash = (text: string) => {
+    setUploadError(text);
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    errorTimer.current = setTimeout(() => setUploadError(''), 3000);
+  };
+  // Long press: your own uploads are deleted for everyone, anything else just leaves your collection.
+  const handleRemove = (s: Sticker) => {
+    const kind = s.is_emoji ? 'emoji' : 'sticker';
+    const own = !!meId && s.owner_id === meId;
+    if (!own && !recent.some((x) => x.id === s.id)) return;
+    confirm(own ? `delete this ${kind}?` : `remove this ${kind}?`, own ? 'it disappears from everyone’s picker. messages that already use it stay.' : `it’s removed from your ${kind}s.`, own ? 'delete' : 'remove', async () => {
+      const before = { recent, publicStickers };
+      setRecent((prev) => prev.filter((x) => x.id !== s.id));
+      if (own) setPublicStickers((prev) => prev.filter((x) => x.id !== s.id));
+      try { await removeSticker(s.id); }
+      catch {
+        setRecent(before.recent); setPublicStickers(before.publicStickers);
+        flash(`couldn’t remove this ${kind}, try again`);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    });
   };
 
   const handleSelectSticker = (s: Sticker) => {
@@ -516,6 +541,8 @@ export function StickerPicker({
             handleSelectSticker(stk);
           }
         }}
+        onLongPress={() => handleRemove(stk)}
+        delayLongPress={350}
         style={({ pressed }) => ({ width: sz - 6, height: sz - 6, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })}>
         <Image source={stk.url || mediaUrl(stk.id)} style={{ width: sz * 0.78, height: sz * 0.78 }} contentFit="contain" cachePolicy="memory-disk" />
       </Pressable>

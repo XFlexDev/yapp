@@ -17,13 +17,14 @@ import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Squish } from '../lib/tt';
 import { Avatar } from '../lib/ui';
-import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, MuteRow, PhotoViewer, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
+import { type MenuRect, Backdrop, Bubble, ComposerPill, DatePill, ForwardSheet, Glyph, MsgMenu, drafts, useJump, MuteRow, PhotoViewer, SectionLabel, SettingGroup, sameCalendarDay } from './chat';
 import { InlineBody } from '../components/MsgInline';
 import { req } from '../lib/api';
 import { PICKER_H, StickerPicker, dropLast } from '../components/StickerPicker';
 import { loadAllCustomStickers, loadRecentStickers, type Sticker } from '../lib/stickers';
 
 const out = Easing.bezier(0.23, 1, 0.32, 1);
+const NONE: ChatMsg[] = [];
 
 const SPRING = { damping: 18, stiffness: 320, mass: 0.7 };
 
@@ -75,7 +76,8 @@ export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const g = useStore((s) => s.groups[id!]);
   const { me, friends } = useStore();
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => drafts.get(`g:${id}`) ?? '');
+  useEffect(() => { drafts.set(`g:${id}`, text); }, [id, text]);
   const sendVisible = !!text.trim();
   const sendButtonStyle = useAnimatedStyle(() => ({
     width: withTiming(sendVisible ? 44 : 0, { duration: 160, easing: out }),
@@ -125,14 +127,17 @@ export default function GroupScreen() {
   };
   useEffect(() => { if (talk === 'hint') { const t = setTimeout(() => setTalk('idle'), 1600); return () => clearTimeout(t); } }, [talk]);
   useEffect(() => { if (!g) router.back(); }, [!g]);
+  const msgs = g?.messages ?? NONE;
+  const { listRef, lit, jump, toLatest, onScrollToIndexFailed } = useJump(msgs);
   if (!g) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
 
-  const msgs = g.messages;
   const who = (uid: string) => g.members.find((u) => u.id === uid);
   const lastMine = msgs.find((m) => m.from === me?.id && !m.pending && !m.failed);
   const seenBy = lastMine ? g.members.filter((u) => u.id !== me?.id && (g.reads[u.id] ?? 0) >= lastMine.created_at).map((u) => nameOf(u).toLowerCase()) : [];
   const others = friends.filter((f) => !g.members.some((u) => u.id === f.id));
-  const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b, replyingTo?.id); setReplyingTo(null); };
+  const send = () => { const b = text.trim(); if (!b) return; Haptics.selectionAsync(); setText(''); sendGroup(id!, b, replyingTo?.id); setReplyingTo(null); toLatest(); };
+  const nameFor = (uid: string) => (uid === me?.id ? 'you' : nameOf(who(uid) ?? ({ display_name: 'someone' } as any)).toLowerCase());
+  const profile = (uid: string) => { Haptics.selectionAsync(); router.push({ pathname: '/user', params: { id: uid } }); };
   const close = () => { setSheet(null); setOpen(null); };
   const renameGroup = (name: string) => { const n = name.trim(); if (!n || n === g.name) return; req(`/v1/groups/${id}`, { method: 'PATCH', body: { name: n } }).catch(() => {}); };
   const removeMember = (uid: string) => { Haptics.selectionAsync(); req(`/v1/groups/${id}/members/${uid}`, { method: 'DELETE' }).catch(() => {}); };
@@ -150,20 +155,21 @@ export default function GroupScreen() {
         <Squish onPress={() => { Haptics.selectionAsync(); setSheet('people'); }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Glyph g="gear" /></Squish>
       </View>
       <Animated.View style={[{ flex: 1 }, lift]}>
-        <FlatList inverted data={msgs} keyExtractor={(m) => m.id}
+        <FlatList ref={listRef} extraData={lit} onScrollToIndexFailed={onScrollToIndexFailed} inverted data={msgs} keyExtractor={(m) => m.cid ?? m.id}
           renderItem={({ item, index }) => {
             const mine = item.from === me?.id;
             const older = msgs[index + 1];
-            const joined = !!older && older.from === item.from && item.created_at >= older.created_at && item.created_at - older.created_at <= 120_000;
+            const newDay = older ? !sameCalendarDay(item.created_at, older.created_at) : !g.more;
+            const joined = !!older && !newDay && older.from === item.from && item.created_at >= older.created_at && item.created_at - older.created_at <= 120_000;
             return (
-              <View>
-                <Bubble m={item} mine={mine} joined={joined} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
+              <View style={lit === item.id ? { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16 } : undefined}>
+                {newDay ? <DatePill timestamp={item.created_at} /> : null}
+                <Bubble nameFor={nameFor} onQuote={() => jump(item.reply_to)} onAuthor={() => profile(item.from)} m={item} mine={mine} joined={joined} fresh={item.created_at > opened.current} author={mine ? undefined : nameOf(who(item.from) ?? { display_name: 'someone' } as any).toLowerCase()}
                   seen={item.id === lastMine?.id && seenBy.length ? `seen by ${seenBy.length === g.members.length - 1 ? 'everyone' : seenBy.join(', ')}` : false} onRetry={() => retryGroup(id!, item)} onOpen={setView}
                   friendName={item.from === me?.id ? 'you' : nameOf(who(item.from) ?? ({ display_name: 'someone' } as any)).toLowerCase()}
                   onReact={(e: string) => reactGroup(id!, item.id, e).catch(() => {})}
                   onMenu={(mm, y, x, r) => setMenu({ m: mm, y, x, r })}
                   onDelete={mine ? () => deleteGroupMessage(id!, item).catch(() => {}) : undefined} />
-                {older && !sameCalendarDay(item.created_at, older.created_at) ? <DatePill timestamp={older.created_at} /> : null}
               </View>
             );
           }}
@@ -207,7 +213,7 @@ export default function GroupScreen() {
           </Animated.View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
-          <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
+          <Squish onPress={() => { Haptics.selectionAsync(); sendGroupPhoto(id!, replyingTo?.id, () => { setReplyingTo(null); toLatest(); }).catch(() => {}); }} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}><Glyph g="photo" size={19} /></Squish>
           <ComposerPill text={text} onChange={setText} placeholder={`message ${g.name}`} onSticker={() => { Haptics.selectionAsync(); Keyboard.dismiss(); setStickersVisible((v) => !v); }} />
           {sendVisible ? (
             <Animated.View style={[{ overflow: 'hidden' }, sendButtonStyle]}>
@@ -237,7 +243,9 @@ export default function GroupScreen() {
         onPickSticker={(stk) => {
           setStickersVisible(false);
           const meta = stk.width && stk.height ? `${stk.width}:${stk.height}:${stk.name || ''}` : undefined;
-          sendGroupSticker(id!, stk.id, meta).catch(() => {});
+          sendGroupSticker(id!, stk.id, meta, replyingTo?.id).catch(() => {});
+          setReplyingTo(null);
+          toLatest();
         }}
       />
       {sheet ? (
@@ -252,12 +260,12 @@ export default function GroupScreen() {
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled">
                   {open === 'people' ? (<>{g.members.map((u) => (
-                  <View key={u.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7 }}>
+                  <Pressable key={u.id} onPress={() => profile(u.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7, opacity: pressed ? 0.6 : 1 })}>
                     <Avatar user={u} size={40} />
                     <Text style={{ flex: 1, color: '#fff', fontFamily: F.black, fontSize: 16 }}>{u.id === me?.id ? 'you' : nameOf(u)}</Text>
                     {u.id === g.owner ? <Text style={{ color: 'rgba(255,255,255,0.45)', fontFamily: F.bold, fontSize: 13 }}>creator</Text>
                       : g.owner === me?.id ? <Squish onPress={() => removeMember(u.id)} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Glyph g="minus" size={18} color="rgba(255,255,255,0.6)" /></Squish> : null}
-                  </View>
+                  </Pressable>
                 ))}
 </>) : open === 'add' ? (<>{others.map((f) => (
                     <Squish key={f.id} disabled={g.invited?.includes(f.id)} onPress={() => { Haptics.selectionAsync(); addMember(id!, f.id).catch(() => {}); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 7 }}>
