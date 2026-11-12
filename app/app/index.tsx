@@ -299,9 +299,21 @@ function DndPill() {
 }
 
 function Round({ g, bg, onPress, size = 64 }: { g: keyof typeof GLYPHS; bg: string; onPress: () => void; size?: number }) {
+  // Toggles (mute, camera) blend between their two fills and icon colours instead of snapping.
+  const on = bg === '#fff';
+  const off = useRef('rgba(255,255,255,0.2)');
+  if (!on) off.current = bg;
+  const base = off.current;
+  const k = useSharedValue(on ? 1 : 0);
+  useEffect(() => { k.value = withTiming(on ? 1 : 0, { duration: 240 }); }, [on]);
+  const fill = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(k.value, [0, 1], [base, '#ffffff']) }));
+  const dark = useAnimatedStyle(() => ({ opacity: k.value }));
+  const light = useAnimatedStyle(() => ({ opacity: 1 - k.value }));
   return (
-    <Squish onPress={onPress} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
-      <Glyph g={g} size={size * 0.38} color={bg === '#fff' ? '#000' : '#fff'} />
+    <Squish onPress={onPress} style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View style={[StyleSheet.absoluteFill, fill]} />
+      <Animated.View style={[{ position: 'absolute' }, light]}><Glyph g={g} size={size * 0.38} color="#fff" /></Animated.View>
+      <Animated.View style={[{ position: 'absolute' }, dark]}><Glyph g={g} size={size * 0.38} color="#000" /></Animated.View>
     </Squish>
   );
 }
