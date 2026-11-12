@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Icon, Tap } from '../lib/icon';
 import { useEffect, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { BackHandler, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
