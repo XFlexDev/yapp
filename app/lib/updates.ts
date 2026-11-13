@@ -1,6 +1,7 @@
 import * as Updates from 'expo-updates';
 import { AppState } from 'react-native';
 import { useStore } from './store';
+import { stopVoice } from './voice';
 
 let pending = false;
 let busy = false;
@@ -20,6 +21,12 @@ const idle = () => {
   return !s.call && !Object.values(s.talkingTo).some(Boolean) && !Object.values(s.groupTalk).some(Boolean);
 };
 
+// Hang up cleanly first: a reload with live voice connections leaves Android unable to reconnect for minutes.
+async function apply() {
+  await Promise.race([stopVoice().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
+  Updates.reloadAsync().catch(() => {});
+}
+
 // Android keeps Yapp running in the background to listen, so it may not cold start for days.
 // Updates are therefore fetched while it sits there and applied the moment it is opened again.
 // Reloading in the background itself is not an option: voice stays unstable until the next open.
@@ -31,7 +38,7 @@ export function startUpdates() {
     if (s === 'background') { hiddenAt = Date.now(); pull(); }
     if (s !== 'active') return;
     // A short trip to the photo picker or a permission prompt must not restart the app.
-    if (pending && idle() && hiddenAt && Date.now() - hiddenAt > 30_000) Updates.reloadAsync().catch(() => {});
+    if (pending && idle() && hiddenAt && Date.now() - hiddenAt > 30_000) apply();
     else pull();
   });
 }
