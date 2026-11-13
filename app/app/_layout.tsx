@@ -18,7 +18,7 @@ import { C, F } from '../lib/theme';
 import { RED, Squish } from '../lib/tt';
 import { Intro } from '../lib/intro';
 import { startUpdates } from '../lib/updates';
-import { startListening, stopVoice } from '../lib/voice';
+import { pendingCall, startListening, stopVoice } from '../lib/voice';
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ fade: true, duration: 200 });
@@ -82,13 +82,15 @@ export default function Root() {
     startListening().catch(() => {});
     startBackground();
     registerPush();
-    const open = (d: any) => {
-      if (d?.type === 'group_message' && d.group_id) router.push({ pathname: '/group', params: { id: d.group_id } });
+    const open = (d: any, action?: string) => {
+      // Tapping a call notification answers it, like picking up a phone.
+      if (d?.type === 'call') pendingCall(action === 'decline' ? 'decline' : 'answer').catch(() => {});
+      else if (d?.type === 'group_message' && d.group_id) router.push({ pathname: '/group', params: { id: d.group_id } });
       else if (d?.type === 'message' && d.from) router.push({ pathname: '/chat', params: { id: d.from } });
     };
     const last = Notifications.getLastNotificationResponse();
-    if (last) open(last.notification.request.content.data);
-    const sub = Notifications.addNotificationResponseReceivedListener((r) => open(r.notification.request.content.data));
+    if (last) open(last.notification.request.content.data, last.actionIdentifier);
+    const sub = Notifications.addNotificationResponseReceivedListener((r) => open(r.notification.request.content.data, r.actionIdentifier));
     return () => { sub.remove(); bsub.remove(); };
   }, [status]);
 

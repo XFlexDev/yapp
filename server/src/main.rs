@@ -26,6 +26,8 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub pokes: DashMap<(String, String), Instant>,
     pub waves: DashMap<(String, String), Instant>,
+    /// Calls still ringing: callee -> (caller, started).
+    pub calls: DashMap<String, (String, Instant)>,
     pub sticker_uploads: DashMap<String, Vec<Instant>>,
     pub media_cache: DashMap<String, (axum::body::Bytes, &'static str, Instant)>,
     pub media_cache_bytes: AtomicUsize,
@@ -69,6 +71,7 @@ async fn main() {
             .expect("http client"),
         pokes: DashMap::new(),
         waves: DashMap::new(),
+        calls: DashMap::new(),
         sticker_uploads: DashMap::new(),
         media_cache: DashMap::new(),
         media_cache_bytes: AtomicUsize::new(0),

@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { accessToken, avatarUrl, req, type Friend, type FriendRequest, type Me } from './api';
 import { clearPokeCount, get, patchFriend, patchUser, removeFriend, set, upsertFriend } from './store';
 import { API } from './theme';
-import { remoteEnded } from './voice';
+import { pendingCall, remoteEnded } from './voice';
 import { haptic } from './haptic';
 import { applyReactions, loadChats, onBackground, onMessage, onRead, onCleared, onMessageDeleted } from './chat';
 import { loadNotifs } from './notifs';
@@ -111,7 +111,7 @@ function connect() {
   if (!t) return;
   const sock = new WebSocket(`${API.replace('https', 'wss')}/v1/stream?access_token=${encodeURIComponent(t)}`);
   ws = sock;
-  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); loadInvites().catch(() => {}); loadNotifs().catch(() => {}); loadClips().catch(() => {}); };
+  sock.onopen = () => { retry = 0; set({ connected: true }); syncAll().catch(() => {}); pendingCall().catch(() => {}); loadChats().catch(() => {}); loadGroups().catch(() => {}); loadInvites().catch(() => {}); loadNotifs().catch(() => {}); loadClips().catch(() => {}); };
   sock.onmessage = (m) => { try { onEvent(JSON.parse(String(m.data))); } catch {} };
   sock.onclose = () => {
     if (ws === sock) ws = null;

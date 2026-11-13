@@ -233,6 +233,20 @@ export async function acceptCall() {
   await pressTalk(c.friendId);
 }
 
+/** A call that started while the app was closed never reached it: ask the server, then show, answer or decline it. */
+export async function pendingCall(act?: 'answer' | 'decline') {
+  const r = await req<{ from: { id: string } | null }>('/v1/call/pending').catch(() => null);
+  const id = r?.from?.id;
+  if (!id) return;
+  if (act === 'decline') {
+    if (get().call?.friendId === id) await endCall(); else await req('/v1/call/end', { method: 'POST', body: { friend_id: id } }).catch(() => {});
+    return;
+  }
+  if (!get().call) set({ call: { friendId: id, state: 'incoming', since: Date.now() }, selectedId: id });
+  const c = get().call;
+  if (act === 'answer' && c?.friendId === id && c.state === 'incoming') await acceptCall();
+}
+
 export function setMuted(muted: boolean) {
   return talk?.room.localParticipant.setMicrophoneEnabled(!muted);
 }

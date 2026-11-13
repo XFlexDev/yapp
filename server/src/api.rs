@@ -247,7 +247,9 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
                 }
             }
         }
-        let Ok(mut s) = c.prepare("SELECT token, COALESCE(channel, 'yap') FROM devices WHERE user_id=?") else { return };
+        // A call rings on its own channel when the app made one.
+        let pick = if kind == "call" { "COALESCE(call_channel, channel, 'yap')" } else { "COALESCE(channel, 'yap')" };
+        let Ok(mut s) = c.prepare(&format!("SELECT token, {pick} FROM devices WHERE user_id=?")) else { return };
         let Ok(rows) = s.query_map([user], |r| Ok((r.get(0)?, r.get(1)?))) else { return };
         rows.filter_map(Result::ok).collect()
     };
@@ -259,11 +261,17 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
         let msgs: Vec<Value> = tokens
             .iter()
             .map(|(t, channel)| {
-                json!({
+                let mut m = json!({
                     "to": t, "title": title, "body": body, "data": data,
                     "sound": "default", "priority": "high", "channelId": channel,
                     "interruptionLevel": "time-sensitive",
-                })
+                });
+                if data["type"] == "call" {
+                    // Answer and decline buttons, and no late delivery once the ring is over.
+                    m["categoryId"] = json!("call");
+                    m["ttl"] = json!(RING_SECS);
+                }
+                m
             })
             .collect();
         match st.http.post("https://exp.host/--/api/v2/push/send").json(&msgs).send().await {
@@ -1490,6 +1498,7 @@ struct DeviceReq {
     token: String,
     platform: Option<String>,
     channel: Option<String>,
+    call_channel: Option<String>,
 }
 
 async fn add_device(State(st): State<S>, Authed(uid): Authed, Json(r): Json<DeviceReq>) -> R<Json<Value>> {
@@ -1498,11 +1507,13 @@ async fn add_device(State(st): State<S>, Authed(uid): Authed, Json(r): Json<Devi
     }
     let platform = r.platform.unwrap_or_default().chars().take(16).collect::<String>();
     // Android notification channels can't change their sound once created, so newer apps name the one they made.
-    let channel = r.channel.filter(|c| !c.is_empty() && c.len() <= 32 && c.chars().all(|x| x.is_ascii_alphanumeric() || x == '_'));
+    let ok = |c: &String| !c.is_empty() && c.len() <= 32 && c.chars().all(|x| x.is_ascii_alphanumeric() || x == '_');
+    let (channel, call_channel) = (r.channel.filter(ok), r.call_channel.filter(ok));
     st.db().execute(
-        "INSERT INTO devices(token, user_id, platform, updated_at, channel) VALUES(?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, platform=excluded.platform, updated_at=excluded.updated_at, channel=excluded.channel",
-        params![r.token, uid, platform, now(), channel],
+        "INSERT INTO devices(token, user_id, platform, updated_at, channel, call_channel) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, platform=excluded.platform, updated_at=excluded.updated_at,
+           channel=excluded.channel, call_channel=excluded.call_channel",
+        params![r.token, uid, platform, now(), channel, call_channel],
     )?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -1873,11 +1884,29 @@ async fn call_start(State(st): State<S>, Authed(me): Authed, Json(r): Json<Frien
         return Err(friend_unavailable());
     }
     let online = st.hub.online(&r.friend_id);
+    st.calls.insert(r.friend_id.clone(), (me.clone(), Instant::now()));
     st.hub.send(&r.friend_id, &json!({ "type": "call_ringing", "from": &u }));
-    if !online {
-        push(&st, &r.friend_id, label(&u), "is calling you".into(), json!({ "type": "call", "from": u.id }));
-    }
+    // Always push: a phone with the app in the background still has a live socket but shows nothing.
+    push(&st, &r.friend_id, label(&u), "is calling you".into(), json!({ "type": "call", "from": u.id }));
     Ok(Json(json!({ "ok": true, "delivered_live": online })))
+}
+
+const RING_SECS: u64 = 60;
+
+fn stop_ringing(st: &S, a: &str, b: &str) {
+    st.calls.remove_if(a, |_, (from, _)| from == b);
+    st.calls.remove_if(b, |_, (from, _)| from == a);
+}
+
+/// The call still ringing for me, so an app opened from the notification can pick it up.
+async fn call_pending(State(st): State<S>, Authed(me): Authed) -> R<Json<Value>> {
+    let from = st.calls.get(&me).filter(|e| e.1.elapsed().as_secs() < RING_SECS).map(|e| e.0.clone());
+    let Some(from) = from else { return Ok(Json(json!({ "from": null }))) };
+    let c = st.db();
+    if !are_friends(&c, &me, &from)? {
+        return Ok(Json(json!({ "from": null })));
+    }
+    Ok(Json(json!({ "from": public_user(&c, &from)? })))
 }
 
 async fn call_signal(st: &S, me: &str, friend: &str, kind: &str) -> R<Json<Value>> {
@@ -1896,6 +1925,7 @@ async fn call_accept(State(st): State<S>, Authed(me): Authed, Json(r): Json<Frie
         }
         touch_streak(&c, &me, &r.friend_id)?
     };
+    stop_ringing(&st, &me, &r.friend_id);
     st.hub.send(&r.friend_id, &json!({ "type": "call_accepted", "from_id": me }));
     bump(&st, &me, "calls", 1);
     bump(&st, &r.friend_id, "calls", 1);
@@ -1904,6 +1934,7 @@ async fn call_accept(State(st): State<S>, Authed(me): Authed, Json(r): Json<Frie
 }
 
 async fn call_end(State(st): State<S>, Authed(me): Authed, Json(r): Json<FriendReq>) -> R<Json<Value>> {
+    stop_ringing(&st, &me, &r.friend_id);
     call_signal(&st, &me, &r.friend_id, "call_ended").await
 }
 
@@ -3454,6 +3485,7 @@ pub fn router(st: S) -> Router {
         .route("/internal/clips", post(internal_clip))
         .route("/{seg}", get(invite_page))
         .route("/v1/call/start", post(call_start))
+        .route("/v1/call/pending", get(call_pending))
         .route("/v1/call/accept", post(call_accept))
         .route("/v1/call/end", post(call_end))
         .route("/v1/chats", get(list_chats))
