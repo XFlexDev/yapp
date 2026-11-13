@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { Icon } from '../lib/icon';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View , Platform } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, SlideOutDown, cancelAnimation, interpolate, interpolateColor, useAnimatedReaction, useAnimatedStyle, useDerivedValue, useSharedValue, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -211,6 +211,11 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { f
     return { width: s, height: s, borderRadius: s / 2 };
   });
   const letter = useAnimatedStyle(() => ({ fontSize: (AV + (SEL - AV) * focus.value) * 0.42 }));
+  // Android reloads an image every time its box changes size and ends up blank mid-swipe, so there the photo keeps one size and is scaled.
+  const photo = useAnimatedStyle(() => {
+    const s = AV + (SEL - AV) * focus.value;
+    return { left: (s - SEL) / 2, top: (s - SEL) / 2, transform: [{ scale: s / SEL }] };
+  });
   const activeDotStyle = useAnimatedStyle(() => ({
     opacity: focus.value,
   }));
@@ -245,7 +250,11 @@ function TalkAvatar({ friend, talking, hearing, pokeAt, pokeSquish, focus }: { f
         ) : null}
 
         <Animated.View style={[{ overflow: 'hidden', backgroundColor: SWATCH[friend.color] ?? C.red, alignItems: 'center', justifyContent: 'center' }, face]}>
-          {url ? (
+          {url ? Platform.OS === 'android' ? (
+            <Animated.View style={[{ position: 'absolute', width: SEL, height: SEL }, photo]}>
+              <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
+            </Animated.View>
+          ) : (
             <Image source={url} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} cachePolicy="memory-disk" recyclingKey={friend.id} />
           ) : (
             <Animated.Text style={[{ color: '#fff', fontFamily: F.black }, letter]}>{nameOf(friend).slice(0, 1).toUpperCase()}</Animated.Text>
