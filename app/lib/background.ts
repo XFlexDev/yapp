@@ -1,11 +1,15 @@
 import { requireOptionalNativeModule } from 'expo';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { AppRegistry, Platform } from 'react-native';
 import { useStore } from './store';
 
 type Bg = { start(title: string, text: string): boolean; stop(): void; setActive(active: boolean): void; isBatteryExcluded(): boolean; excludeBattery(): boolean; openAppSettings?(): boolean };
 // Missing on iOS and on Android builds made before the module existed; every call is then a no-op.
 const native = Platform.OS === 'android' ? requireOptionalNativeModule<Bg>('YappBackground') : null;
+
+// Never finishes on purpose: while this task runs, Android keeps JS timers going in the background,
+// which LiveKit needs to stay connected and play friends' voice. The native module ends it on stop.
+if (Platform.OS === 'android') AppRegistry.registerHeadlessTask('YappKeepAlive', () => () => new Promise<void>(() => {}));
 
 let selfTalking = false;
 let unsub: (() => void) | null = null;

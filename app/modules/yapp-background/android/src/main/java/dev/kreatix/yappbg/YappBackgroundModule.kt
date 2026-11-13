@@ -2,10 +2,37 @@ package dev.kreatix.yappbg
 
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReactContext
+import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.jstasks.HeadlessJsTaskConfig
+import com.facebook.react.jstasks.HeadlessJsTaskContext
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class YappBackgroundModule : Module() {
+  private var task = 0
+
+  // React Native stops JS timers once the app leaves the screen unless a headless task is running.
+  // LiveKit's signalling runs on those timers, so without this nothing is heard in the background.
+  private fun keepJsAwake(on: Boolean) {
+    val rc = appContext.reactContext as? ReactContext ?: return
+    UiThreadUtil.runOnUiThread {
+      try {
+        val tasks = HeadlessJsTaskContext.getInstance(rc)
+        if (on) {
+          if (task == 0 || !tasks.isTaskRunning(task)) {
+            task = tasks.startTask(HeadlessJsTaskConfig("YappKeepAlive", Arguments.createMap(), 0, true))
+          }
+        } else if (task != 0) {
+          if (tasks.isTaskRunning(task)) tasks.finishTask(task)
+          task = 0
+        }
+      } catch (e: Exception) {
+      }
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("YappBackground")
 
@@ -13,6 +40,7 @@ class YappBackgroundModule : Module() {
       val ctx = appContext.reactContext ?: return@Function false
       try {
         ContextCompat.startForegroundService(ctx, Intent(ctx, YappAudioService::class.java).putExtra("title", title).putExtra("text", text))
+        keepJsAwake(true)
         true
       } catch (e: Exception) {
         false
@@ -21,6 +49,7 @@ class YappBackgroundModule : Module() {
 
     Function("stop") {
       val ctx = appContext.reactContext ?: return@Function null
+      keepJsAwake(false)
       YappAudioService.setActive(ctx, false)
       ctx.stopService(Intent(ctx, YappAudioService::class.java))
     }
