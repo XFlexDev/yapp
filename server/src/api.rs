@@ -225,7 +225,7 @@ fn label(u: &PublicUser) -> String {
 
 /// Fire-and-forget Expo push to every device of `user`.
 fn push(st: &S, user: &str, title: String, body: String, data: Value) {
-    let tokens: Vec<String> = {
+    let tokens: Vec<(String, String)> = {
         let c = st.db();
         let kind = data["type"].as_str().unwrap_or("");
         let col = match kind {
@@ -247,8 +247,8 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
                 }
             }
         }
-        let Ok(mut s) = c.prepare("SELECT token FROM devices WHERE user_id=?") else { return };
-        let Ok(rows) = s.query_map([user], |r| r.get(0)) else { return };
+        let Ok(mut s) = c.prepare("SELECT token, COALESCE(channel, 'yap') FROM devices WHERE user_id=?") else { return };
+        let Ok(rows) = s.query_map([user], |r| Ok((r.get(0)?, r.get(1)?))) else { return };
         rows.filter_map(Result::ok).collect()
     };
     if tokens.is_empty() {
@@ -258,10 +258,10 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
     tokio::spawn(async move {
         let msgs: Vec<Value> = tokens
             .iter()
-            .map(|t| {
+            .map(|(t, channel)| {
                 json!({
                     "to": t, "title": title, "body": body, "data": data,
-                    "sound": "default", "priority": "high", "channelId": "yap",
+                    "sound": "default", "priority": "high", "channelId": channel,
                     "interruptionLevel": "time-sensitive",
                 })
             })
@@ -272,7 +272,7 @@ fn push(st: &S, user: &str, title: String, body: String, data: Value) {
                     if let Some(arr) = v["data"].as_array() {
                         for (i, t) in arr.iter().enumerate() {
                             if t["details"]["error"] == "DeviceNotRegistered" {
-                                if let Some(tok) = tokens.get(i) {
+                                if let Some((tok, _)) = tokens.get(i) {
                                     let _ = st.db().execute("DELETE FROM devices WHERE token=?", [tok]);
                                 }
                             }
@@ -1489,6 +1489,7 @@ async fn admin_users(State(st): State<S>, _: Admin, Query(q): Query<UserSearch>)
 struct DeviceReq {
     token: String,
     platform: Option<String>,
+    channel: Option<String>,
 }
 
 async fn add_device(State(st): State<S>, Authed(uid): Authed, Json(r): Json<DeviceReq>) -> R<Json<Value>> {
@@ -1496,10 +1497,12 @@ async fn add_device(State(st): State<S>, Authed(uid): Authed, Json(r): Json<Devi
         return Err(bad("Unsupported push token"));
     }
     let platform = r.platform.unwrap_or_default().chars().take(16).collect::<String>();
+    // Android notification channels can't change their sound once created, so newer apps name the one they made.
+    let channel = r.channel.filter(|c| !c.is_empty() && c.len() <= 32 && c.chars().all(|x| x.is_ascii_alphanumeric() || x == '_'));
     st.db().execute(
-        "INSERT INTO devices(token, user_id, platform, updated_at) VALUES(?1, ?2, ?3, ?4)
-         ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, platform=excluded.platform, updated_at=excluded.updated_at",
-        params![r.token, uid, platform, now()],
+        "INSERT INTO devices(token, user_id, platform, updated_at, channel) VALUES(?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, platform=excluded.platform, updated_at=excluded.updated_at, channel=excluded.channel",
+        params![r.token, uid, platform, now(), channel],
     )?;
     Ok(Json(json!({ "ok": true })))
 }

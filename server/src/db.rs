@@ -73,6 +73,7 @@ pub fn open(path: &str) -> rusqlite::Result<Connection> {
         "#,
     )?;
     let _ = c.execute("ALTER TABLE users ADD COLUMN avatar TEXT", []);
+    let _ = c.execute("ALTER TABLE devices ADD COLUMN channel TEXT", []);
     let _ = c.execute("ALTER TABLE users ADD COLUMN pfp TEXT", []);
     c.execute_batch(
         r#"
