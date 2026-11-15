@@ -256,19 +256,6 @@ pub fn valid_media_key(key: &str) -> bool {
         && matches!(ext, "jpg" | "webp" | "png")
 }
 
-/// Image sniffing: returns (extension, content type) for JPEG, WebP, or PNG.
-pub fn image_kind(b: &[u8]) -> Option<(&'static str, &'static str)> {
-    if b.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        Some(("jpg", "image/jpeg"))
-    } else if b.len() > 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
-        Some(("webp", "image/webp"))
-    } else if b.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some(("png", "image/png"))
-    } else {
-        None
-    }
-}
-
 /// Content-addressed key, so identical uploads are stored once.
 pub fn key_for(prefix: &str, b: &[u8], ext: &str) -> String {
     format!("{prefix}-{}.{ext}", &sha_hex(b)[..32])

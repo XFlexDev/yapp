@@ -1,4 +1,5 @@
 mod api;
+mod compress;
 mod converter;
 mod db;
 mod hub;

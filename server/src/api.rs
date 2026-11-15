@@ -910,9 +910,8 @@ async fn put_pfp(State(st): State<S>, Authed(uid): Authed, body: axum::body::Byt
 
 /// The full 9:16 photo lives in `avatar`, the square crop in `pfp`. A new full photo clears the old crop.
 async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>> {
-    let Some((ext, ctype)) = crate::storage::image_kind(body).filter(|_| body.len() >= 100) else {
-        return Err(bad("Upload a JPEG or WebP photo"));
-    };
+    let photo = crate::compress::run(body, if square { crate::compress::PFP } else { crate::compress::AVATAR }).await.map_err(bad)?;
+    let (body, ext, ctype) = (photo.bytes.as_slice(), "webp", "image/webp");
     let dir = std::path::PathBuf::from(&st.cfg.avatar_dir);
     let name = if let Some(store) = crate::storage::get() {
         let key = crate::storage::key_for(if square { "q" } else { "p" }, body, ext);
@@ -2196,8 +2195,6 @@ async fn send_message(State(st): State<S>, Authed(me): Authed, Path(other): Path
 
 #[derive(Deserialize)]
 struct PhotoMeta {
-    w: u32,
-    h: u32,
     #[serde(default)]
     t: String,
     /// Message this photo replies to.
@@ -2206,19 +2203,17 @@ struct PhotoMeta {
 
 /// Stores a chat photo once (content-addressed `c-` key on B2/CDN) plus its size and blur preview.
 async fn save_chat_photo(st: &S, body: &[u8], p: &PhotoMeta) -> R<(String, String)> {
-    let Some((ext, ctype)) = crate::storage::image_kind(body).filter(|_| body.len() >= 100) else {
-        return Err(bad("Upload a JPEG or WebP photo"));
-    };
-    if p.w == 0 || p.h == 0 || p.w > 4096 || p.h > 4096 { return Err(bad("Bad photo size")); }
+    let photo = crate::compress::run(body, crate::compress::CHAT).await.map_err(bad)?;
+    let (body, w, h) = (photo.bytes.as_slice(), photo.width, photo.height);
     let thumb: String = p.t.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')).take(3000).collect();
     let store = crate::storage::get().ok_or_else(|| bad("Photos aren't available right now"))?;
-    let key = crate::storage::key_for("c", body, ext);
+    let key = crate::storage::key_for("c", body, "webp");
     let known = st.db().query_row("SELECT 1 FROM media_meta WHERE key=?", [&key], |_| Ok(())).optional()?.is_some();
     if !known {
-        store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
-        st.db().execute("INSERT OR IGNORE INTO media_meta(key, w, h, thumb) VALUES (?,?,?,?)", params![key, p.w, p.h, thumb])?;
+        store.put(&key, body.to_vec(), "image/webp").await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+        st.db().execute("INSERT OR IGNORE INTO media_meta(key, w, h, thumb) VALUES (?,?,?,?)", params![key, w, h, thumb])?;
     }
-    let meta = format!("{},{},{}", p.w, p.h, thumb);
+    let meta = format!("{w},{h},{thumb}");
     Ok((key, meta))
 }
 
@@ -2330,15 +2325,13 @@ struct BgReq {
 }
 
 async fn put_chat_background_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, body: axum::body::Bytes) -> R<Json<Value>> {
-    let Some((ext, ctype)) = crate::storage::image_kind(&body).filter(|_| body.len() >= 100) else {
-        return Err(bad("Upload a JPEG or WebP photo"));
-    };
     let store = crate::storage::get().ok_or_else(|| bad("Photo backgrounds aren't available"))?;
     if !are_friends(&st.db(), &me, &other)? {
         return Err(not_friends());
     }
-    let key = crate::storage::key_for("b", &body, ext);
-    store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+    let body = crate::compress::run(&body, crate::compress::BACKGROUND).await.map_err(bad)?.bytes;
+    let key = crate::storage::key_for("b", &body, "webp");
+    store.put(&key, body, "image/webp").await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
     apply_background(&st, &me, &other, Some(key)).await
 }
 
@@ -2678,11 +2671,11 @@ async fn group_patch(State(st): State<S>, Authed(me): Authed, Path(g): Path<Stri
 }
 
 async fn group_background_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, body: axum::body::Bytes) -> R<Json<Value>> {
-    let Some((ext, ctype)) = crate::storage::image_kind(&body).filter(|_| body.len() >= 100) else { return Err(bad("Upload a JPEG or WebP photo")); };
     let store = crate::storage::get().ok_or_else(|| bad("Photo backgrounds aren't available"))?;
     if !is_member(&st.db(), &g, &me)? { return Err(not_found("Group not found")); }
-    let key = crate::storage::key_for("b", &body, ext);
-    store.put(&key, body.to_vec(), ctype).await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
+    let body = crate::compress::run(&body, crate::compress::BACKGROUND).await.map_err(bad)?.bytes;
+    let key = crate::storage::key_for("b", &body, "webp");
+    store.put(&key, body, "image/webp").await.map_err(|e| { tracing::error!(error = %e, "b2 put"); bad("Couldn't save photo") })?;
     let old: Option<String> = {
         let c = st.db();
         let old = c.query_row("SELECT background FROM groups WHERE id=?", [&g], |r| r.get(0))?;
