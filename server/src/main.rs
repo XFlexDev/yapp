@@ -1,4 +1,5 @@
 mod api;
+mod backup;
 mod compress;
 mod converter;
 mod db;
@@ -58,6 +59,18 @@ async fn main() {
         }
         return;
     }
+    if let Some(command) = std::env::args().nth(1).filter(|a| matches!(a.as_str(), "backup-now" | "backups" | "prune-backups" | "restore-backup")) {
+        if let Err(error) = load_service_env("/etc/yap.env") {
+            tracing::warn!(error = %error, "could not load /etc/yap.env; using process environment");
+        }
+        let db_path = std::env::var("YAP_DB").unwrap_or_else(|_| "yap.sqlite3".into());
+        let args: Vec<String> = std::env::args().skip(2).collect();
+        if let Err(error) = backup::cli(&command, &args, &db_path).await {
+            eprintln!("{command} failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let cfg = util::Config::from_env();
     let conn = db::open(&cfg.db_path).expect("open database");
     replica::install(&conn).expect("install replica triggers");
@@ -80,6 +93,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&bind).await.expect("bind");
     tracing::info!("yap-server listening on {bind}");
     tokio::spawn(replica::run(state.clone()));
+    tokio::spawn(backup::run(state.clone()));
     tokio::spawn(api::backfill_stickers(state.clone()));
     axum::serve(listener, api::router(state)).await.expect("serve");
 }

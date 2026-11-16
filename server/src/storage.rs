@@ -67,7 +67,7 @@ fn sha_hex(b: &[u8]) -> String {
 }
 
 /// (YYYYMMDD, YYYYMMDDTHHMMSSZ) in UTC without pulling in a date crate.
-fn stamp() -> (String, String) {
+pub fn stamp() -> (String, String) {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let z = days + 719_468;
@@ -117,20 +117,90 @@ impl Storage {
     }
 
     fn signed(&self, method: reqwest::Method, key: &str, body: Vec<u8>) -> reqwest::RequestBuilder {
+        self.signed_query(method, key, "", body)
+    }
+
+    /// `query` must already be in canonical form: sorted, percent-encoded `k=v` pairs joined by `&`.
+    fn signed_query(&self, method: reqwest::Method, key: &str, query: &str, body: Vec<u8>) -> reqwest::RequestBuilder {
         let (date, amz) = stamp();
-        let path = format!("/{}/{key}", self.bucket);
+        let path = if key.is_empty() { format!("/{}", self.bucket) } else { format!("/{}/{key}", self.bucket) };
         let payload = sha_hex(&body);
-        let canonical = format!("{method}\n{path}\n\nhost:{HOST}\nx-amz-content-sha256:{payload}\nx-amz-date:{amz}\n\nhost;x-amz-content-sha256;x-amz-date\n{payload}");
+        let canonical = format!("{method}\n{path}\n{query}\nhost:{HOST}\nx-amz-content-sha256:{payload}\nx-amz-date:{amz}\n\nhost;x-amz-content-sha256;x-amz-date\n{payload}");
         let scope = format!("{date}/{REGION}/s3/aws4_request");
         let to_sign = format!("AWS4-HMAC-SHA256\n{amz}\n{scope}\n{}", sha_hex(canonical.as_bytes()));
         let k = hmac(&hmac(&hmac(&hmac(format!("AWS4{}", self.secret).as_bytes(), &date), REGION), "s3"), "aws4_request");
         let sig = hex::encode(hmac(&k, &to_sign));
+        let url = if query.is_empty() { format!("https://{HOST}{path}") } else { format!("https://{HOST}{path}?{query}") };
         self.http
-            .request(method, format!("https://{HOST}{path}"))
+            .request(method, url)
             .header("x-amz-date", amz)
             .header("x-amz-content-sha256", payload)
             .header("authorization", format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={sig}", self.key_id))
             .body(body)
+    }
+
+    /// Object name of a database backup. The tag comes from the media key, so the name can't be guessed
+    /// even though the bucket is readable through the CDN.
+    pub fn backup_name(&self, slot: &str) -> Result<String, String> {
+        let key = self.encryption_key.as_ref().ok_or_else(|| "backups need YAP_MEDIA_KEY".to_string())?;
+        Ok(format!("backup/{}-{slot}.bin", &hex::encode(hmac(key, "yapp database backup"))[..24]))
+    }
+
+    pub async fn put_backup(&self, name: &str, body: &[u8]) -> Result<(), String> {
+        let r = self
+            .signed(reqwest::Method::PUT, name, self.encrypt(body)?)
+            .header("content-type", "application/octet-stream")
+            .timeout(Duration::from_secs(600))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if r.status().is_success() {
+            Ok(())
+        } else {
+            Err(format!("{}: {}", r.status(), r.text().await.unwrap_or_default().chars().take(200).collect::<String>()))
+        }
+    }
+
+    pub async fn get_backup(&self, name: &str) -> Result<Vec<u8>, String> {
+        let r = self.signed(reqwest::Method::GET, name, Vec::new()).timeout(Duration::from_secs(600)).send().await.map_err(|e| e.to_string())?;
+        if !r.status().is_success() {
+            return Err(format!("b2 {} for {name}", r.status()));
+        }
+        self.decrypt(&r.bytes().await.map_err(|e| e.to_string())?)
+    }
+
+    /// Every stored version under `backup/` as (name, version id), oldest name first.
+    /// Versions are listed because a plain delete only hides a file and B2 keeps billing for it.
+    pub async fn backup_versions(&self) -> Result<Vec<(String, String)>, String> {
+        let r = self
+            .signed_query(reqwest::Method::GET, "", "max-keys=1000&prefix=backup%2F&versions=", Vec::new())
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !r.status().is_success() {
+            return Err(format!("b2 {} listing backups", r.status()));
+        }
+        let xml = r.text().await.map_err(|e| e.to_string())?;
+        let tag = |part: &str, name: &str| {
+            let (open, close) = (format!("<{name}>"), format!("</{name}>"));
+            part.split_once(&open).and_then(|(_, rest)| rest.split_once(&close)).map(|(value, _)| value.to_string())
+        };
+        let mut found: Vec<(String, String)> = xml
+            .split("<Key>")
+            .skip(1)
+            .filter_map(|part| Some((part.split_once("</Key>")?.0.to_string(), tag(part, "VersionId")?)))
+            .collect();
+        found.sort();
+        Ok(found)
+    }
+
+    pub async fn delete_backup(&self, name: &str, version: &str) -> Result<(), String> {
+        let r = self
+            .signed_query(reqwest::Method::DELETE, name, &format!("versionId={version}"), Vec::new())
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if r.status().is_success() || r.status().as_u16() == 404 { Ok(()) } else { Err(format!("b2 {} for {name}", r.status())) }
     }
 
     pub async fn put(&self, key: &str, body: Vec<u8>, ctype: &str) -> Result<(), String> {
