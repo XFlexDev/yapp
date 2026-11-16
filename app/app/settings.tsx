@@ -244,13 +244,29 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [bgOk, setBgOk] = useState(() => batteryExcluded());
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 3500); return () => clearTimeout(t); } }, [error]);
+  const notif = useStore((s) => s.notif);
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollY.value = e.contentOffset.y;
+    },
+  });
+
+  const borderStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [0, 16], [0, 1], 'clamp'),
+  }));
+
+  const prevTab = useRef<TabKey>(tab);
+  useEffect(() => {
+    prevTab.current = tab;
+  }, [tab]);
+  // Signing out clears `me` while this screen is still mounted, so every hook has to run before this return.
   if (!me) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 
   const patch = async (body: Partial<Me>) => {
     try { set({ me: await req<Me>('/v1/me', { method: 'PATCH', body }) }); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
     catch (e) { setError((e instanceof ApiError ? e.message : 'couldn’t save').toLowerCase()); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); throw e; }
   };
-  const notif = useStore((s) => s.notif);
   const setDnd = (dnd: boolean) => {
     set({ me: { ...me, dnd } });
     req<Me>('/v1/status', { method: 'PUT', body: { dnd } }).then((m) => set({ me: m })).catch(() => set({ me: { ...me, dnd: !dnd } }));
@@ -271,17 +287,6 @@ export default function Settings() {
   });
   const version = `${Constants.expoConfig?.version ?? '1.0.0'}${Updates.updateId ? ` · ${Updates.updateId.slice(0, 7)}` : ''}`;
 
-  const scrollY = useSharedValue(0);
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (e) => {
-      scrollY.value = e.contentOffset.y;
-    },
-  });
-
-  const borderStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, 16], [0, 1], 'clamp'),
-  }));
-
   const tabs: TabItem[] = [
     { key: 'profile', label: 'profile' },
     { key: 'friends', label: `friends (${friends.length})`, badge: incoming.length || undefined },
@@ -289,11 +294,7 @@ export default function Settings() {
   ];
 
   const TAB_ORDER: TabKey[] = ['profile', 'friends', 'prefs'];
-  const prevTab = useRef<TabKey>(tab);
   const tabDir = TAB_ORDER.indexOf(tab) >= TAB_ORDER.indexOf(prevTab.current) ? 1 : -1;
-  useEffect(() => {
-    prevTab.current = tab;
-  }, [tab]);
 
   const headerHeight = insets.top + 56;
 

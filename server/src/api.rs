@@ -769,6 +769,8 @@ struct RefreshReq {
     refresh_token: String,
 }
 
+const REFRESH_GRACE: i64 = 24 * 3600;
+
 async fn auth_refresh(State(st): State<S>, Json(r): Json<RefreshReq>) -> R<Json<TokenResp>> {
     let c = st.db();
     let h = sha256(&r.refresh_token);
@@ -777,11 +779,14 @@ async fn auth_refresh(State(st): State<S>, Json(r): Json<RefreshReq>) -> R<Json<
             Ok((r.get(0)?, r.get(1)?))
         })
         .optional()?;
-    c.execute("DELETE FROM refresh_tokens WHERE token_hash=?", [&h])?;
     let Some((uid, exp)) = row else { return Err(unauthorized()) };
     if exp < now() {
+        c.execute("DELETE FROM refresh_tokens WHERE token_hash=?", [&h])?;
         return Err(unauthorized());
     }
+    // The used token stays valid for a day instead of being deleted. A phone that loses the reply
+    // (app killed, network dropped) still holds the old token, and deleting it would sign that user out for good.
+    c.execute("UPDATE refresh_tokens SET expires_at=MIN(expires_at, ?) WHERE token_hash=?", params![now() + REFRESH_GRACE, h])?;
     Ok(Json(issue_tokens(&st, &c, &uid)?))
 }
 

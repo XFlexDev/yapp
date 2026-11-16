@@ -17,7 +17,7 @@ export class ApiError extends Error {
 const KEY = 'yap.session';
 let access: string | null = null;
 let refresh: string | null = null;
-let refreshing: Promise<boolean> | null = null;
+let refreshing: Promise<'ok' | 'denied' | 'failed'> | null = null;
 export let onSignedOut: () => void = () => {};
 export const setSignedOutHandler = (f: () => void) => { onSignedOut = f; };
 
@@ -31,30 +31,35 @@ export const accessToken = () => access;
 async function save(t: Tokens) {
   access = t.access_token;
   refresh = t.refresh_token;
-  await SecureStore.setItemAsync(KEY, JSON.stringify({ refresh: t.refresh_token }));
+  await SecureStore.setItemAsync(KEY, JSON.stringify({ refresh: t.refresh_token, me: t.user }));
 }
 
+/** With no connection the saved profile is used, so opening yapp offline doesn't land on the sign-in screen. */
 export async function restore(): Promise<Me | null> {
   const raw = await SecureStore.getItemAsync(KEY);
   if (!raw) return null;
-  refresh = JSON.parse(raw).refresh;
-  if (!(await doRefresh())) return null;
-  return req<Me>('/v1/me');
+  const saved: { refresh: string; me?: Me } = JSON.parse(raw);
+  refresh = saved.refresh;
+  const r = await doRefresh();
+  if (r === 'denied') return null;
+  if (r === 'failed') return saved.me ?? null;
+  return req<Me>('/v1/me').catch((e) => (e instanceof ApiError && e.status === 0 ? saved.me ?? null : null));
 }
 
-async function doRefresh(): Promise<boolean> {
-  if (!refresh) return false;
+/** 'denied' means the server refused the session. 'failed' is anything else (offline, server restarting) and must not sign the user out. */
+async function doRefresh(): Promise<'ok' | 'denied' | 'failed'> {
+  if (!refresh) return 'denied';
   refreshing ??= (async () => {
     try {
       const r = await fetch(`${API}/v1/auth/refresh`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ refresh_token: refresh }),
       });
-      if (r.status === 401) { await clear(); return false; }
-      if (!r.ok) return false;
+      if (r.status === 401) { await clear(); return 'denied' as const; }
+      if (!r.ok) return 'failed' as const;
       await save(await r.json());
-      return true;
-    } catch { return false; } finally { refreshing = null; }
+      return 'ok' as const;
+    } catch { return 'failed' as const; } finally { refreshing = null; }
   })();
   return refreshing;
 }
@@ -74,7 +79,9 @@ export async function req<T>(path: string, opts: { method?: string; body?: unkno
     throw new ApiError(0, 'Network', "You're offline");
   }
   if (r.status === 401 && retry && refresh) {
-    if (await doRefresh()) return req<T>(path, opts, false);
+    const refreshed = await doRefresh();
+    if (refreshed === 'ok') return req<T>(path, opts, false);
+    if (refreshed === 'failed') throw new ApiError(0, 'Network', "You're offline");
     onSignedOut();
   }
   const j = await r.json().catch(() => ({}));
