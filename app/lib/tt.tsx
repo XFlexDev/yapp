@@ -199,15 +199,19 @@ export function Logo({ size = 170, ch = 'y' }: { size?: number; ch?: string }) {
 export function Morph({ children, max }: { children: ReactNode; max?: number }) {
   const h = useSharedValue(-1);
   const target = useRef(-1);
+  const [first, setFirst] = useState(-1);
   const a = useAnimatedStyle(() => (h.value < 0 ? {} : { height: h.value }));
+  // Once the first height is known the content is taken out of the flow. Left in, it is measured against the
+  // current animated height, so content that can shrink (a scroll view) never asks for more and the box can't grow back.
   return (
-    <Animated.View style={[{ overflow: 'hidden' }, a]}>
+    <Animated.View style={[{ overflow: 'hidden' }, first < 0 ? null : { height: first }, a]}>
       <View
-        style={{ maxHeight: max }}
+        style={[{ maxHeight: max }, first < 0 ? null : { position: 'absolute', top: 0, left: 0, right: 0 }]}
         onLayout={(e) => {
           const v = e.nativeEvent.layout.height;
           if (Math.abs(v - target.current) < 0.5) return;
-          h.value = target.current < 0 ? v : withTiming(v, { duration: 340, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+          if (target.current < 0) { h.set(v); setFirst(v); }
+          else h.set(withTiming(v, { duration: 340, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
           target.current = v;
         }}>
         {children}
