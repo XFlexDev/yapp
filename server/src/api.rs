@@ -57,14 +57,52 @@ fn throttle(key: String, burst: f64, every: Duration) -> R<()> {
     if allowed { Ok(()) } else { Err(too_many("Slow down a little")) }
 }
 
-/// The caller's address as reported by Cloudflare, or by Caddy when the request skipped Cloudflare.
-/// A request sent straight to the origin can fake it, so anything that costs money also needs a global limit.
+/// Cloudflare's edge ranges, from https://www.cloudflare.com/ips/.
+const CLOUDFLARE: &[&str] = &[
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+    "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+    "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+];
+
+fn ip_bits(ip: std::net::IpAddr) -> (u128, u8) {
+    match ip {
+        std::net::IpAddr::V4(v4) => (u128::from(u32::from(v4)), 32),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => (u128::from(u32::from(v4)), 32),
+            None => (u128::from(v6), 128),
+        },
+    }
+}
+
+fn is_cloudflare(ip: std::net::IpAddr) -> bool {
+    let (bits, width) = ip_bits(ip);
+    CLOUDFLARE.iter().any(|net| {
+        let Some((base, len)) = net.split_once('/') else { return false };
+        let (Ok(base), Ok(len)) = (base.parse::<std::net::IpAddr>(), len.parse::<u8>()) else { return false };
+        let (base, base_width) = ip_bits(base);
+        base_width == width && len <= width && (len == 0 || (bits ^ base) >> (width - len) == 0)
+    })
+}
+
+/// The caller's address, used as a rate limit key.
+/// Caddy sets the last X-Forwarded-For entry to the machine that connected to it. `cf-connecting-ip` is only
+/// believed when that machine is Cloudflare: the origin also answers direct requests, and those can put anything
+/// in the header. IPv6 callers are grouped by /64, since one subscriber owns the whole block.
 fn client_ip(headers: &HeaderMap) -> String {
     let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).filter(|v| !v.is_empty());
-    get("cf-connecting-ip")
-        .or_else(|| get("x-forwarded-for").and_then(|v| v.rsplit(',').next()).map(str::trim))
-        .unwrap_or("unknown")
-        .to_string()
+    let peer = get("x-forwarded-for").and_then(|v| v.rsplit(',').next()).and_then(|v| v.trim().parse::<std::net::IpAddr>().ok());
+    let ip = match peer {
+        Some(peer) if is_cloudflare(peer) => get("cf-connecting-ip").and_then(|v| v.parse().ok()).unwrap_or(peer),
+        Some(peer) => peer,
+        None => return "unknown".into(),
+    };
+    match ip {
+        std::net::IpAddr::V6(v6) if v6.to_ipv4_mapped().is_none() => {
+            format!("{}/64", std::net::Ipv6Addr::from(u128::from(v6) & !u128::from(u64::MAX)))
+        }
+        other => other.to_canonical().to_string(),
+    }
 }
 
 fn not_friends() -> ApiError {
@@ -418,7 +456,6 @@ async fn auth_start(State(st): State<S>, headers: HeaderMap, Json(r): Json<Start
         .ok_or_else(|| err(StatusCode::SERVICE_UNAVAILABLE, "Unavailable", "Email sign-in is not configured"))?;
     let n = now();
     let code = random_code();
-    throttle(format!("code-ip:{}", client_ip(&headers)), 6.0, Duration::from_secs(300))?;
     {
         let c = st.db();
         let row: Option<(i64, i64, i64)> = c
@@ -438,6 +475,8 @@ async fn auth_start(State(st): State<S>, headers: HeaderMap, Json(r): Json<Start
             }
             _ => (n, 1),
         };
+        // Charged after the per-email checks, so a rejected resend doesn't use up the address's allowance.
+        throttle(format!("code-ip:{}", client_ip(&headers)), 6.0, Duration::from_secs(300))?;
         // Every code is an email from our domain. Cap the total so nobody can use sign-in to send mail in bulk.
         throttle("code-all".into(), 60.0, Duration::from_secs(30))?;
         c.execute(
@@ -3672,5 +3711,46 @@ mod streak_tests {
             .unwrap_or_else(|_| panic!("friend list query failed"));
         let ids: Vec<String> = ordered.into_iter().map(|friend| friend.user.id).collect();
         assert_eq!(ids, ["f4", "f3", "f1", "f2"]);
+    }
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use super::*;
+
+    fn ip(pairs: &[(&'static str, &str)]) -> String {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.insert(*name, value.parse().unwrap());
+        }
+        client_ip(&headers)
+    }
+
+    #[test]
+    fn cloudflare_header_counts_only_when_cloudflare_connected() {
+        assert_eq!(ip(&[("x-forwarded-for", "172.67.136.49"), ("cf-connecting-ip", "203.0.113.7")]), "203.0.113.7");
+        assert_eq!(ip(&[("x-forwarded-for", "198.51.100.9"), ("cf-connecting-ip", "203.0.113.7")]), "198.51.100.9");
+        assert_eq!(ip(&[("x-forwarded-for", "1.2.3.4, 198.51.100.9"), ("cf-connecting-ip", "203.0.113.7")]), "198.51.100.9");
+        assert_eq!(ip(&[("x-forwarded-for", "2606:4700::1"), ("cf-connecting-ip", "203.0.113.7")]), "203.0.113.7");
+        assert_eq!(ip(&[("cf-connecting-ip", "203.0.113.7")]), "unknown");
+        assert_eq!(ip(&[("x-forwarded-for", "172.67.136.49"), ("cf-connecting-ip", "not an address")]), "172.67.136.49");
+    }
+
+    #[test]
+    fn ipv6_callers_share_a_key_per_64() {
+        let a = ip(&[("x-forwarded-for", "104.16.0.1"), ("cf-connecting-ip", "2001:db8:1:2:aaaa::1")]);
+        let b = ip(&[("x-forwarded-for", "104.16.0.1"), ("cf-connecting-ip", "2001:db8:1:2:bbbb::9")]);
+        let c = ip(&[("x-forwarded-for", "104.16.0.1"), ("cf-connecting-ip", "2001:db8:1:3::1")]);
+        assert_eq!(a, "2001:db8:1:2::/64");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(ip(&[("x-forwarded-for", "::ffff:198.51.100.9")]), "198.51.100.9");
+    }
+
+    #[test]
+    fn cloudflare_ranges_have_edges() {
+        for (addr, inside) in [("104.15.255.255", false), ("104.16.0.0", true), ("104.23.255.255", true), ("104.28.0.0", false), ("2a06:98c7:ffff::1", true), ("2a06:98c8::1", false)] {
+            assert_eq!(is_cloudflare(addr.parse().unwrap()), inside, "{addr}");
+        }
     }
 }
