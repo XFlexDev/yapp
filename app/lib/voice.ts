@@ -2,6 +2,7 @@ import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track, type LocalVideoTrack, type Participant } from 'livekit-client';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { req } from './api';
+import { awakeMissing } from './awake';
 import { setSelfTalking, startBackground } from './background';
 import { get, set } from './store';
 
@@ -157,6 +158,7 @@ async function micPermission() {
 }
 
 export async function pressTalk(friendId: string) {
+  if (awakeMissing()) throw new Error('turn on stay awake to talk');
   pressed = true;
   if (!(await micPermission())) throw new Error('Yapp needs your microphone to talk');
   startBackground();
@@ -193,6 +195,7 @@ export function leaveGroupTalk() {
 }
 
 export async function pressGroup(groupId: string) {
+  if (awakeMissing()) throw new Error('turn on stay awake to talk');
   gpressed = true;
   if (!(await micPermission())) throw new Error('Yapp needs your microphone to talk');
   startBackground();
@@ -235,6 +238,7 @@ export async function lockCall(friendId: string) {
 export async function acceptCall() {
   const c = get().call;
   if (!c || c.state !== 'incoming') return;
+  if (awakeMissing()) throw new Error('turn on stay awake to answer');
   set({ call: { ...c, state: 'active', since: Date.now() } });
   await req('/v1/call/accept', { method: 'POST', body: { friend_id: c.friendId } }).catch(() => {});
   await pressTalk(c.friendId);

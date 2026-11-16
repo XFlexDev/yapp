@@ -1,14 +1,13 @@
 import { requireOptionalNativeModule } from 'expo';
 import * as Notifications from 'expo-notifications';
-import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
-type State = 'ask' | 'on' | 'off' | 'denied';
+export type AwakeState = 'ask' | 'on' | 'off' | 'denied';
+type State = AwakeState;
 type Awake = { start(): Promise<State>; stop(): Promise<void>; state(): Promise<State> };
 // Missing on Android and on iOS builds made before the module existed; every call is then a no-op.
 const native = Platform.OS === 'ios' ? requireOptionalNativeModule<Awake>('YappAwake') : null;
 
-const ASKED_KEY = 'awake-asked';
 const ASLEEP = 'asleep';
 const LINES: [string, string][] = [
   ['yapp fell asleep', "your friends are talking to a wall right now. tap to wake it up"],
@@ -19,6 +18,10 @@ const LINES: [string, string][] = [
   ['hello? anyone?', "yapp can't hear your friends anymore. tap to fix that"],
 ];
 let timer: ReturnType<typeof setInterval> | null = null;
+let wanted = false;
+// null until checked, and for good on builds without stay-awake.
+let current: State | null = null;
+let listener: ((s: State | null) => void) | null = null;
 
 // A notification that is always three minutes away. While yapp is alive it keeps getting pushed back,
 // so it only shows once iOS has put yapp to sleep or closed it.
@@ -40,35 +43,48 @@ function arm() {
   timer ??= setInterval(postpone, 45000);
 }
 
-/** Keep yapp awake on iOS. Returns true when the user has to be asked first. */
-export async function startAwake(): Promise<boolean> {
-  if (!native) return false;
+async function refresh() {
+  if (!native || !wanted) return;
   try {
-    const st = await native.state();
-    if (st === 'denied') return false;
-    if (st === 'ask') return !(await SecureStore.getItemAsync(ASKED_KEY));
-    await native.start();
-    arm();
+    let st = await native.state();
+    if (st !== 'ask' && st !== 'denied') { st = await native.start(); arm(); }
+    if (st !== current) { current = st; listener?.(st); }
   } catch {}
-  return false;
+}
+
+// Coming back from the iOS location prompt or from Settings makes the app active again.
+AppState.addEventListener('change', (st) => { if (st === 'active') refresh(); });
+
+/** Hear about the stay-awake state: 'ask' and 'denied' mean it is missing and the user has to act. */
+export function onAwake(fn: (s: State | null) => void) {
+  listener = fn;
+  fn(current);
+  return () => { if (listener === fn) listener = null; };
+}
+
+/** True while the user still has to turn stay-awake on. Talking and calls are off until then. */
+export function awakeMissing(): boolean {
+  const missing = current === 'ask' || current === 'denied';
+  if (missing) listener?.(current);
+  return missing;
+}
+
+/** Keep yapp awake on iOS. */
+export function startAwake() {
+  wanted = true;
+  refresh();
 }
 
 /** The user agreed: iOS shows its location prompt, and yapp stays awake once they allow it. */
 export async function allowAwake() {
   if (!native) return;
-  try {
-    await SecureStore.setItemAsync(ASKED_KEY, '1');
-    await native.start();
-    arm();
-  } catch {}
-}
-
-export function skipAwake() {
-  SecureStore.setItemAsync(ASKED_KEY, '1').catch(() => {});
+  try { await native.start(); } catch {}
 }
 
 export function stopAwake() {
   if (!native) return;
+  wanted = false;
+  current = null;
   if (timer) { clearInterval(timer); timer = null; }
   Notifications.cancelScheduledNotificationAsync(ASLEEP).catch(() => {});
   native.stop().catch(() => {});

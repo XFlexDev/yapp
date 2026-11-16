@@ -3,13 +3,13 @@ import * as Notifications from 'expo-notifications';
 import { Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from '@expo-google-fonts/nunito';
 import { router, Stack, type ErrorBoundaryProps, DarkTheme, ThemeProvider } from 'expo-router';
 import { requireOptionalNativeModule } from 'expo';
-import { AppState, Appearance, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Appearance, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { restore, setSignedOutHandler } from '../lib/api';
-import { allowAwake, skipAwake, startAwake, stopAwake } from '../lib/awake';
+import { allowAwake, onAwake, startAwake, stopAwake, type AwakeState } from '../lib/awake';
 import { batteryExcluded, excludeBattery, openAppSettings, startBackground, stopBackground } from '../lib/background';
 import { registerPush } from '../lib/push';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
@@ -63,7 +63,7 @@ export default function Root() {
   const [fonts] = useFonts({ Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black });
   const status = useStore((s) => s.status);
   const [askBattery, setAskBattery] = useState(false);
-  const [askAwake, setAskAwake] = useState(false);
+  const [askAwake, setAskAwake] = useState<AwakeState | null>(null);
   const battery = useRef<{ snooze: () => void }>({ snooze: () => {} });
   const me = useStore((s) => s.me);
 
@@ -84,7 +84,8 @@ export default function Root() {
     startRealtime();
     startListening().catch(() => {});
     startBackground();
-    startAwake().then(setAskAwake);
+    const asub = onAwake((st) => setAskAwake(st === 'ask' || st === 'denied' ? st : null));
+    startAwake();
     registerPush();
     const open = (d: any, action?: string) => {
       // Tapping a call notification answers it, like picking up a phone.
@@ -95,7 +96,7 @@ export default function Root() {
     const last = Notifications.getLastNotificationResponse();
     if (last) open(last.notification.request.content.data, last.actionIdentifier);
     const sub = Notifications.addNotificationResponseReceivedListener((r) => open(r.notification.request.content.data, r.actionIdentifier));
-    return () => { sub.remove(); bsub.remove(); };
+    return () => { sub.remove(); bsub.remove(); asub(); };
   }, [status]);
 
   const ready = fonts && status !== 'loading';
@@ -137,23 +138,29 @@ export default function Root() {
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop dim={0.5} /></Animated.View>
           <Animated.View entering={SlideInDown.duration(300)} style={{ position: 'absolute', left: 10, right: 10, bottom: 30, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 24, gap: 12 }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>{askAwake ? 'let yapp stay awake' : 'let yapp run in the background'}</Text>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>{askAwake === 'denied' ? "yapp can't stay awake" : askAwake ? 'let yapp stay awake' : 'let yapp run in the background'}</Text>
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
-              {askAwake
-                ? "iphone puts apps to sleep a minute after you leave them. if yapp sleeps, you can't hear your friends until you open it again."
-                : "android puts apps to sleep to save battery. if yapp sleeps, friends can't talk to you or call you while your screen is off or the app is closed."}
+              {askAwake === 'denied'
+                ? "location is off for yapp, so iphone puts it to sleep and you can't hear your friends. talking and calls are off until you turn it on."
+                : askAwake
+                  ? "iphone puts apps to sleep a minute after you leave them. if yapp sleeps, you can't hear your friends. talking and calls only work with this on."
+                  : "android puts apps to sleep to save battery. if yapp sleeps, friends can't talk to you or call you while your screen is off or the app is closed."}
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
-              {askAwake
-                ? 'yapp can stay awake by asking iphone for your location. it never looks at it, saves it or sends it anywhere. tap allow, then pick "allow while using app".'
-                : 'tap allow, then pick allow on the next popup. if it shows a list instead, choose "unrestricted". skip it and yapp only works while it\'s open.'}
+              {askAwake === 'denied'
+                ? 'tap open settings, then location, then pick "while using the app" or "always". yapp never looks at your location, saves it or sends it anywhere.'
+                : askAwake
+                  ? 'yapp stays awake by asking iphone for your location. it never looks at it, saves it or sends it anywhere. tap allow, then pick "allow while using app".'
+                  : 'tap allow, then pick allow on the next popup. if it shows a list instead, choose "unrestricted". skip it and yapp only works while it\'s open.'}
             </Text>
-            <Squish onPress={() => { if (askAwake) { allowAwake(); setAskAwake(false); } else { if (!excludeBattery()) openAppSettings(); setAskBattery(false); } }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>allow</Text>
+            <Squish onPress={() => { if (askAwake === 'denied') Linking.openSettings(); else if (askAwake) allowAwake(); else { if (!excludeBattery()) openAppSettings(); setAskBattery(false); } }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>{askAwake === 'denied' ? 'open settings' : 'allow'}</Text>
             </Squish>
-            <Pressable onPress={() => { if (askAwake) { skipAwake(); setAskAwake(false); } else { battery.current.snooze(); setAskBattery(false); } }} style={{ alignSelf: 'center', padding: 6 }}>
-              <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 14 }}>not now</Text>
-            </Pressable>
+            {askAwake === 'ask' ? null : (
+              <Pressable onPress={() => { if (askAwake) setAskAwake(null); else { battery.current.snooze(); setAskBattery(false); } }} style={{ alignSelf: 'center', padding: 6 }}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 14 }}>{askAwake ? 'just chat for now' : 'not now'}</Text>
+              </Pressable>
+            )}
           </Animated.View>
         </View>
       ) : null}
