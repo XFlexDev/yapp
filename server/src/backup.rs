@@ -49,13 +49,44 @@ pub async fn prune(keep: usize) -> Result<usize, String> {
     Ok(drop)
 }
 
-/// One backup shortly after every start, then one every six hours.
+/// Seconds since the epoch for the `YYYYMMDDTHHMMSSZ` slot at the end of a backup name.
+fn taken_at(name: &str) -> Option<u64> {
+    let slot = name.rsplit_once('-')?.1.strip_suffix("Z.bin")?;
+    let (date, time) = slot.split_once('T')?;
+    if date.len() != 8 || time.len() != 6 || !slot.bytes().all(|b| b.is_ascii_digit() || b == b'T') {
+        return None;
+    }
+    let n = |text: &str, at: usize, len: usize| text[at..at + len].parse::<i64>().ok();
+    let (y, m, d) = (n(date, 0, 4)?, n(date, 4, 2)?, n(date, 6, 2)?);
+    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let days = y.div_euclid(400) * 146_097 + y.rem_euclid(400) * 365 + y.rem_euclid(400) / 4 - y.rem_euclid(400) / 100 + (153 * m + 2) / 5 + d - 1 - 719_468;
+    u64::try_from(days * 86_400 + n(time, 0, 2)? * 3600 + n(time, 2, 2)? * 60 + n(time, 4, 2)?).ok()
+}
+
+/// How long to wait so backups stay `EVERY` apart, given the names already stored.
+fn until_next(names: &[String], now: u64) -> Duration {
+    let newest = names.iter().filter_map(|name| taken_at(name)).max();
+    newest.map_or(Duration::ZERO, |at| EVERY.saturating_sub(Duration::from_secs(now.saturating_sub(at))))
+}
+
+/// One backup every six hours, counted from the newest stored one: a string of restarts or deploys
+/// must not push a week of history out with copies taken minutes apart.
 pub async fn run(st: Arc<AppState>) {
     if !storage::get().is_some_and(|s| s.encryption_enabled()) {
         tracing::warn!("database backups disabled (B2 storage or YAP_MEDIA_KEY unset)");
         return;
     }
     tokio::time::sleep(Duration::from_secs(120)).await;
+    if let Some(store) = storage::get() {
+        match store.backup_versions().await {
+            Ok(versions) => {
+                let names: Vec<String> = versions.into_iter().map(|(name, _)| name).collect();
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                tokio::time::sleep(until_next(&names, now)).await;
+            }
+            Err(error) => tracing::warn!(error = %error, "stored backups not listed, taking one now"),
+        }
+    }
     loop {
         match take(&st.cfg.db_path).await {
             Ok((name, bytes)) => {
@@ -109,4 +140,33 @@ pub async fn cli(command: &str, args: &[String], db_path: &str) -> Result<(), St
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn name(slot: &str) -> String {
+        format!("backup/45f2edb3e7af811c8ae73738-{slot}.bin")
+    }
+
+    #[test]
+    fn slot_reads_back_as_the_time_it_was_written() {
+        assert_eq!(taken_at(&name("19700101T000000Z")), Some(0));
+        assert_eq!(taken_at(&name("20000229T120000Z")), Some(951_825_600));
+        assert_eq!(taken_at(&name("20261116T202244Z")), Some(1_794_860_564));
+        assert_eq!(taken_at(&name("20261231T235959Z")), Some(1_798_761_599));
+        assert_eq!(taken_at("backup/other.bin"), None);
+        assert_eq!(taken_at(&name("2026111xT202244Z")), None);
+    }
+
+    #[test]
+    fn restarts_wait_for_the_newest_backup_to_age() {
+        let at = taken_at(&name("20261116T202244Z")).unwrap();
+        let stored = vec![name("20261116T201003Z"), name("20261116T202244Z"), "backup/unreadable.bin".to_string()];
+        assert_eq!(until_next(&stored, at + 600), EVERY - Duration::from_secs(600));
+        assert_eq!(until_next(&stored, at + 7 * 3600), Duration::ZERO);
+        assert_eq!(until_next(&stored, at - 60), EVERY);
+        assert_eq!(until_next(&[], at), Duration::ZERO);
+    }
 }
