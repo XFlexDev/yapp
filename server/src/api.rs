@@ -40,6 +40,33 @@ fn not_found(m: impl Into<String>) -> ApiError {
 fn too_many(m: impl Into<String>) -> ApiError {
     err(StatusCode::TOO_MANY_REQUESTS, "TooManyRequests", m)
 }
+
+static LIMITS: std::sync::LazyLock<dashmap::DashMap<String, (f64, Instant)>> = std::sync::LazyLock::new(Default::default);
+
+/// Token bucket per key: `burst` actions at once, then one more every `every`.
+/// Idle entries are dropped after an hour, so `burst * every` must stay under an hour.
+fn throttle(key: String, burst: f64, every: Duration) -> R<()> {
+    let now = Instant::now();
+    if LIMITS.len() > 50_000 {
+        LIMITS.retain(|_, v| now.duration_since(v.1) < Duration::from_secs(3600));
+    }
+    let mut entry = LIMITS.entry(key).or_insert((burst, now));
+    let tokens = (entry.0 + now.duration_since(entry.1).as_secs_f64() / every.as_secs_f64()).min(burst);
+    let allowed = tokens >= 1.0;
+    *entry = (if allowed { tokens - 1.0 } else { tokens }, now);
+    if allowed { Ok(()) } else { Err(too_many("Slow down a little")) }
+}
+
+/// The caller's address as reported by Cloudflare, or by Caddy when the request skipped Cloudflare.
+/// A request sent straight to the origin can fake it, so anything that costs money also needs a global limit.
+fn client_ip(headers: &HeaderMap) -> String {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).filter(|v| !v.is_empty());
+    get("cf-connecting-ip")
+        .or_else(|| get("x-forwarded-for").and_then(|v| v.rsplit(',').next()).map(str::trim))
+        .unwrap_or("unknown")
+        .to_string()
+}
+
 fn not_friends() -> ApiError {
     err(StatusCode::FORBIDDEN, "Forbidden", "You're not friends")
 }
@@ -376,7 +403,7 @@ struct StartReq {
     email: String,
 }
 
-async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Value>> {
+async fn auth_start(State(st): State<S>, headers: HeaderMap, Json(r): Json<StartReq>) -> R<Json<Value>> {
     let email = normalize_email(&r.email).ok_or_else(|| bad("Enter a valid email"))?;
     if is_banned(&st.db(), &email)? {
         return Err(err(StatusCode::FORBIDDEN, "Banned", "This email was banned from Yapp"));
@@ -391,6 +418,7 @@ async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Valu
         .ok_or_else(|| err(StatusCode::SERVICE_UNAVAILABLE, "Unavailable", "Email sign-in is not configured"))?;
     let n = now();
     let code = random_code();
+    throttle(format!("code-ip:{}", client_ip(&headers)), 6.0, Duration::from_secs(300))?;
     {
         let c = st.db();
         let row: Option<(i64, i64, i64)> = c
@@ -410,6 +438,8 @@ async fn auth_start(State(st): State<S>, Json(r): Json<StartReq>) -> R<Json<Valu
             }
             _ => (n, 1),
         };
+        // Every code is an email from our domain. Cap the total so nobody can use sign-in to send mail in bulk.
+        throttle("code-all".into(), 60.0, Duration::from_secs(30))?;
         c.execute(
             "INSERT INTO login_codes(email, code_hash, expires_at, attempts, sent_at, window_start, window_count)
              VALUES(?1, ?2, ?3, 0, ?4, ?5, ?6)
@@ -910,6 +940,7 @@ async fn put_pfp(State(st): State<S>, Authed(uid): Authed, body: axum::body::Byt
 
 /// The full 9:16 photo lives in `avatar`, the square crop in `pfp`. A new full photo clears the old crop.
 async fn save_photo(st: &S, uid: &str, body: &[u8], square: bool) -> R<Json<Me>> {
+    throttle(format!("avatar:{uid}"), 12.0, Duration::from_secs(60))?;
     let photo = crate::compress::run(body, if square { crate::compress::PFP } else { crate::compress::AVATAR }).await.map_err(bad)?;
     let (body, ext, ctype) = (photo.bytes.as_slice(), "webp", "image/webp");
     let dir = std::path::PathBuf::from(&st.cfg.avatar_dir);
@@ -1120,6 +1151,7 @@ struct SendReq {
 }
 
 async fn send_request(State(st): State<S>, Authed(me): Authed, Json(r): Json<SendReq>) -> R<Json<Value>> {
+    throttle(format!("request:{me}"), 20.0, Duration::from_secs(120))?;
     let uname = r.username.trim().trim_start_matches('@').to_lowercase();
     enum Out {
         Accepted(String, Friend, Friend),
@@ -2219,6 +2251,7 @@ async fn save_chat_photo(st: &S, body: &[u8], p: &PhotoMeta) -> R<(String, Strin
 
 async fn send_photo(State(st): State<S>, Authed(me): Authed, Path(other): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
     if !are_friends(&st.db(), &me, &other)? { return Err(not_friends()); }
+    throttle(format!("photo:{me}"), 20.0, Duration::from_secs(10))?;
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
     post_dm(&st, me, other, "image", key, Some(meta), p.r.clone()).await
 }
@@ -2244,6 +2277,7 @@ fn fill_reply(st: &S, mut m: ChatMsg) -> ChatMsg {
 }
 
 async fn post_dm(st: &S, me: String, other: String, kind: &str, body: String, meta: Option<String>, reply_to: Option<String>) -> R<Json<ChatMsg>> {
+    throttle(format!("msg:{me}"), 40.0, Duration::from_millis(500))?;
     let meta = meta.or_else(|| {
         if kind == "sticker" {
             st.db().query_row(
@@ -2481,6 +2515,7 @@ fn clean_name(n: &str) -> R<String> {
 }
 
 async fn create_group(State(st): State<S>, Authed(me): Authed, Json(r): Json<NewGroup>) -> R<Json<Value>> {
+    throttle(format!("group:{me}"), 5.0, Duration::from_secs(600))?;
     let name = clean_name(&r.name)?;
     let mut ids: Vec<String> = r.members.into_iter().filter(|m| *m != me).collect();
     ids.sort();
@@ -2540,11 +2575,13 @@ async fn group_send(State(st): State<S>, Authed(me): Authed, Path(g): Path<Strin
 
 async fn group_photo(State(st): State<S>, Authed(me): Authed, Path(g): Path<String>, Query(p): Query<PhotoMeta>, body: axum::body::Bytes) -> R<Json<ChatMsg>> {
     if !is_member(&st.db(), &g, &me)? { return Err(not_found("Group not found")); }
+    throttle(format!("photo:{me}"), 20.0, Duration::from_secs(10))?;
     let (key, meta) = save_chat_photo(&st, &body, &p).await?;
     post_group(&st, me, g, "image", key, Some(meta), p.r.clone()).await
 }
 
 async fn post_group(st: &S, me: String, g: String, kind: &str, body: String, meta: Option<String>, reply_to: Option<String>) -> R<Json<ChatMsg>> {
+    throttle(format!("msg:{me}"), 40.0, Duration::from_millis(500))?;
     let meta = meta.or_else(|| {
         if kind == "sticker" {
             st.db().query_row(
@@ -2840,6 +2877,7 @@ async fn upload_sticker(
     Query(q): Query<UploadStickerQuery>,
     body: axum::body::Bytes,
 ) -> R<Json<StickerItem>> {
+    throttle(format!("sticker:{me}"), 30.0, Duration::from_secs(60))?;
     if body.is_empty() {
         return Err(bad("Upload file is empty"));
     }

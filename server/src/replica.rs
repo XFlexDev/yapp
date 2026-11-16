@@ -33,12 +33,25 @@ fn obj(cols: &[&Col], prefix: &str) -> String {
     format!("json_object({})", parts.join(", "))
 }
 
+fn enabled() -> bool {
+    std::env::var("YAP_KDB_URL").is_ok() && std::env::var("YAP_KDB_KEY").is_ok()
+}
+
 pub fn install(c: &Connection) -> rusqlite::Result<()> {
     c.execute_batch(
         "CREATE TABLE IF NOT EXISTS outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, op TEXT NOT NULL, row TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS replica_meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);",
     )?;
     let tx = c.unchecked_transaction()?;
+    if !enabled() {
+        // Nothing ships the outbox, so the triggers would only grow it forever.
+        // Clearing `seeded` makes the replica start from a full copy if it is switched on again.
+        for t in TABLES {
+            tx.execute_batch(&format!("DROP TRIGGER IF EXISTS rep_{t}_i; DROP TRIGGER IF EXISTS rep_{t}_u; DROP TRIGGER IF EXISTS rep_{t}_d;"))?;
+        }
+        tx.execute_batch("DELETE FROM outbox; DELETE FROM replica_meta WHERE k='seeded';")?;
+        return tx.commit();
+    }
     for t in TABLES {
         let cols = columns(&tx, t)?;
         let all: Vec<&Col> = cols.iter().collect();
