@@ -46,7 +46,7 @@ export function Sheets() {
     live.current = a;
     after.current = null;
     setAsk(a);
-    p.value = withTiming(1, { duration: 320, easing: OUT });
+    p.set(withTiming(1, { duration: 320, easing: OUT }));
   }, [p]);
   useEffect(() => {
     hosts.push(show);
@@ -64,7 +64,7 @@ export function Sheets() {
   const close = (then?: () => void) => {
     live.current = null;
     after.current = then ?? null;
-    p.value = withTiming(0, { duration: 200, easing: Easing.in(Easing.quad) }, (done) => { if (done) scheduleOnRN(gone); });
+    p.set(withTiming(0, { duration: 200, easing: Easing.in(Easing.quad) }, (done) => { if (done) scheduleOnRN(gone); }));
   };
   const pick = (i: number) => {
     const a = live.current;
