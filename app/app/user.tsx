@@ -10,12 +10,11 @@ import { ApiError, avatarUrl, nameOf, req, type User } from '../lib/api';
 import { choose, confirm } from '../lib/native';
 import { syncAll } from '../lib/realtime';
 import { block, REASONS, report } from '../lib/safety';
+import { Sheets } from '../lib/sheet';
 import { removeFriend, set, upsertFriend, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
-import { Morph } from '../lib/tt';
 import { Icon } from '../lib/icon';
 import { Avatar } from '../lib/ui';
-import { SettingGroup, SettingRow } from './chat';
 
 type Profile = { user: User; joined_at: number; friends: number; mutual: number; is_friend: boolean; trophies: { id: string; title: string; sub: string }[] };
 
@@ -54,8 +53,6 @@ export default function UserProfile() {
   const [gone, setGone] = useState(false);
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [reporting, setReporting] = useState(false);
-  const [more, setMore] = useState(false);
   const [reported, setReported] = useState(false);
 
   useEffect(() => {
@@ -104,16 +101,16 @@ export default function UserProfile() {
     req(`/v1/friends/${user.id}`, { method: 'DELETE' }).then(() => removeFriend(user.id)).catch(() => {});
   });
   const doBlock = () => confirm(`block ${who}?`, 'they can’t talk to you, call you or find you.', 'block', () => { block(user.id).catch(() => {}); router.back(); });
-  const sendReport = (reason: string) => { report(user.id, reason).catch(() => {}); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setReporting(false); setReported(true); };
-  const openReport = () => { if (!choose(`report ${who}`, REASONS, (i) => sendReport(REASONS[i]))) setReporting((v) => !v); };
-  // Report, remove and block sit behind one button: a native sheet on iOS, a list that opens in place on Android.
+  const sendReport = (reason: string) => { report(user.id, reason).catch(() => {}); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setReported(true); };
+  const openReport = () => choose(`report ${who}`, REASONS, (i) => sendReport(REASONS[i]));
   const openMore = () => {
-    const acts: [string, () => void][] = [...(reported ? [] : [[`report ${who}`, () => setTimeout(openReport, 400)] as [string, () => void]]), ...(friend ? [['remove friend', remove] as [string, () => void]] : []), ['block', doBlock]];
-    if (!choose(nameOf(user), acts.map((a) => a[0]), (i) => acts[i][1](), acts.length - 1)) { Haptics.selectionAsync(); setMore((v) => !v); }
+    const acts: [string, () => void][] = [...(reported ? [] : [[`report ${who}`, openReport] as [string, () => void]]), ...(friend ? [['remove friend', remove] as [string, () => void]] : []), ['block', doBlock]];
+    choose(who, acts.map((x) => x[0]), (i) => acts[i][1](), acts.length - 1, true);
   };
 
   return (
     <ScrollView style={{ backgroundColor: C.surface }} contentContainerStyle={{ paddingBottom: insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
+      <Sheets />
       <View style={{ height: 320, backgroundColor: SWATCH[user.color] ?? C.red, justifyContent: 'flex-end' }}>
         {photo ? <Image source={photo} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} cachePolicy="memory-disk" /> : null}
         <LinearGradient colors={['rgba(17,17,17,0)', 'rgba(17,17,17,0.55)', C.surface]} locations={[0, 0.6, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 200 }} />
@@ -164,22 +161,9 @@ export default function UserProfile() {
           </Animated.View>
         ) : null}
 
-        {more ? (
-          <Morph>
-          <View style={{ marginHorizontal: -14 }}>
-          <SettingGroup>
-            <SettingRow title={reported ? 'reported, thanks' : `report ${who}`} icon={['flag', 'flag-outline']} onPress={() => { if (!reported) openReport(); }} more={!reported} />
-            {reporting ? REASONS.map((r) => <SettingRow key={r} title={r} onPress={() => sendReport(r)} />) : null}
-            {friend ? <SettingRow title="remove friend" icon={['person.badge.minus', 'account-minus-outline']} danger onPress={remove} /> : null}
-            <SettingRow title="block" icon={['hand.raised', 'hand-back-left-outline']} danger onPress={doBlock} />
-          </SettingGroup>
-          </View>
-          </Morph>
-        ) : null}
-
         {p || reported ? (
           <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 13, textAlign: 'center' }}>
-            {[reported && !more ? 'reported, thanks' : null, p ? `joined ${joined(p.joined_at)}` : null].filter(Boolean).join(' · ')}
+            {[reported ? 'reported, thanks' : null, p ? `joined ${joined(p.joined_at)}` : null].filter(Boolean).join(' · ')}
           </Text>
         ) : null}
       </View>

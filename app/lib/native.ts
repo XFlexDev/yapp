@@ -1,24 +1,22 @@
-import { ActionSheetIOS, Alert, Linking, Platform } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 import * as Haptics from 'expo-haptics';
+import { present } from './sheet';
 
-/** Native destructive confirm: UIAlertController on iOS, Material dialog on Android. */
-export function confirm(title: string, message: string, action: string, onYes: () => void) {
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+/** Yes/no question in yapp's own sheet. `danger` makes the button red; the system alert is only a fallback. */
+export function confirm(title: string, message: string, action: string, onYes: () => void, danger = true) {
+  Haptics.notificationAsync(danger ? Haptics.NotificationFeedbackType.Warning : Haptics.NotificationFeedbackType.Success);
+  if (present({ title, message, options: [action], destructive: danger ? 0 : undefined, onPick: onYes })) return;
   Alert.alert(title, message, [
     { text: 'cancel', style: 'cancel' },
-    { text: action, style: 'destructive', onPress: onYes },
+    { text: action, style: danger ? 'destructive' : 'default', onPress: onYes },
   ], { cancelable: true, userInterfaceStyle: 'dark' });
 }
 
-/** Native action sheet on iOS. Returns false on Android so callers keep their own list. */
-export function choose(title: string, options: readonly string[], onPick: (i: number) => void, destructive?: number): boolean {
-  if (Platform.OS !== 'ios') return false;
+/** List of options in yapp's own sheet. Returns false when no screen can show it, so callers keep their own list. */
+export function choose(title: string, options: readonly string[], onPick: (i: number) => void, destructive?: number, chain?: boolean): boolean {
+  if (!present({ title, options, destructive, chain, onPick })) return false;
   Haptics.selectionAsync();
-  ActionSheetIOS.showActionSheetWithOptions(
-    { title, options: [...options, 'cancel'], cancelButtonIndex: options.length, destructiveButtonIndex: destructive, userInterfaceStyle: 'dark' },
-    (i) => { if (i < options.length) onPick(i); },
-  );
   return true;
 }
 

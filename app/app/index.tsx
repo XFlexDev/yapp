@@ -10,6 +10,7 @@ import Animated, { Easing, FadeIn, FadeOut, LinearTransition, SlideInDown, Slide
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { ApiError, avatarUrl, nameOf, pfpUrl, req, type Friend, type Me } from '../lib/api';
+import { Sheets } from '../lib/sheet';
 import { clearPokeCount, removeFriend, set, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
 import { Logo, Morph, SPRING, Squish, Swap } from '../lib/tt';
@@ -719,6 +720,7 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <Sheets />
       <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, stage]}>
       <Backdrop friend={friend} connecting={isConnecting} />
       {call?.state === 'active' ? <RemoteVideo id={friend.id} /> : null}

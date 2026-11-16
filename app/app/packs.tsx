@@ -8,6 +8,7 @@ import { Segmented } from '../lib/icon';
 import { mediaUrl } from '../lib/api';
 import { confirm } from '../lib/native';
 import { createPack, deletePack, installPack, loadAllCustomStickers, loadMarket, loadRecentStickers, loadStickerPacks, recordRecentSticker, updatePack, uploadCustomSticker, type Sticker, type StickerPack } from '../lib/stickers';
+import { Sheets } from '../lib/sheet';
 import { C, F } from '../lib/theme';
 
 const src = (s: Sticker) => s.url || mediaUrl(s.id);
@@ -91,6 +92,7 @@ export default function Packs() {
 
   return (
     <ScrollView style={{ backgroundColor: C.surface }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 26, paddingBottom: insets.bottom + 28, gap: 12 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <Sheets />
       <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 26, letterSpacing: -0.4, marginLeft: 4 }}>sticker packs</Text>
       <Segmented options={['mine', 'market'] as const} value={tab} height={38} label={(t) => (t === 'mine' ? 'my packs' : 'marketplace')} onChange={(t) => { Haptics.selectionAsync(); setTab(t); setError(''); }} />
       {error ? <Animated.Text entering={FadeIn.duration(180)} style={{ color: C.danger, fontFamily: F.bold, fontSize: 14, marginLeft: 6 }}>{error}</Animated.Text> : null}

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { avatarUrl, mediaUrl, nameOf, req } from '../lib/api';
 import { block, REASONS, report } from '../lib/safety';
 import { BACKGROUNDS, chatOf, deleteChat, deleteMessage, loadChatPhotos, loadMessages, markRead, pickBackgroundPhoto, react as reactMsg, retry, saveImageAsSticker, savePhoto, sendMessage, sendPhotoTo, sendSticker, setBackground, type Photo } from '../lib/chat';
+import { Sheets } from '../lib/sheet';
 import { removeFriend, set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Morph, Squish } from '../lib/tt';
@@ -749,6 +750,7 @@ export default function ChatScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <Sheets />
       <Backdrop bg={chat.background} photo={avatarUrl(friend)} look={look} />
       <ProgressiveBlur height={insets.top + 68} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>

@@ -1,8 +1,10 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { ApiError, nameOf, req, type FriendRequest, type User } from '../lib/api';
+import { confirm } from '../lib/native';
+import { Sheets } from '../lib/sheet';
 import { set, upsertFriend, useStore } from '../lib/store';
 import { syncAll } from '../lib/realtime';
 import { C, F } from '../lib/theme';
@@ -47,10 +49,7 @@ export default function Add() {
     asked.current = true;
     req<User>(`/v1/users/${name}`)
       .then((who) => {
-        Alert.alert(`add ${nameOf(who).toLowerCase()}?`, `send a friend request to @${name}. they can talk to you once they accept.`, [
-          { text: 'cancel', style: 'cancel' },
-          { text: 'add', onPress: () => { send(name); } },
-        ]);
+        confirm(`add ${nameOf(who).toLowerCase()}?`, `send a friend request to @${name}. they can talk to you once they accept.`, 'add', () => { send(name); }, false);
       })
       .catch((e) => setError((e instanceof ApiError ? e.message : 'couldn’t open this invite').toLowerCase()));
   }, [u]);
@@ -77,6 +76,7 @@ export default function Add() {
 
   return (
     <ScrollView style={{ backgroundColor: C.bg, flexGrow: 0 }} contentContainerStyle={{ padding: 24, paddingTop: 28, gap: 12 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <Sheets />
       <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 32 }}>add friends</Text>
       <View style={{ borderRadius: 24, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 20, gap: 14 }}>
         <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 14 }}>your username</Text>

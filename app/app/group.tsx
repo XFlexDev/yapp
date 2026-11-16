@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mediaUrl, nameOf } from '../lib/api';
 import { BACKGROUNDS, pickBackgroundPhoto, type Photo } from '../lib/chat';
 import { addMember, leaveGroup, loadGroupMessages, markGroupRead, onGroupUpdated, reactGroup, sendGroup, setGroupBackground, retryGroup, groupPhotoTo, deleteGroupMessage, sendGroupSticker } from '../lib/groups';
+import { Sheets } from '../lib/sheet';
 import { set, useStore, type ChatMsg } from '../lib/store';
 import { C, F } from '../lib/theme';
 import { Morph, Squish } from '../lib/tt';
@@ -162,6 +163,7 @@ export default function GroupScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <Sheets />
       <Backdrop bg={g.background} photo={null} look={look} />
       <ProgressiveBlur height={insets.top + 68} style={{ zIndex: 1 }} />
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>

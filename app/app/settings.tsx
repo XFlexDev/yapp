@@ -16,6 +16,7 @@ import { ApiError, clear, logout, nameOf, req, type Friend, type FriendRequest, 
 import { pickAndUploadPhoto } from '../lib/photo';
 import { loadBlocks, unblock } from '../lib/safety';
 import { syncAll } from '../lib/realtime';
+import { Sheets } from '../lib/sheet';
 import { removeFriend, set, upsertFriend, useStore } from '../lib/store';
 import { batteryExcluded, excludeBattery } from '../lib/background';
 import { API, C, F } from '../lib/theme';
@@ -298,6 +299,7 @@ export default function Settings() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Sheets />
       {/* Sticky Header with Real Native Frost Backdrop */}
       <View
         pointerEvents="box-none"
