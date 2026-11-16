@@ -13,13 +13,15 @@ import { block, REASONS, report } from '../lib/safety';
 import { removeFriend, set, upsertFriend, useStore } from '../lib/store';
 import { C, F, SWATCH } from '../lib/theme';
 import { Morph } from '../lib/tt';
+import { Icon } from '../lib/icon';
 import { Avatar } from '../lib/ui';
 import { SettingGroup, SettingRow } from './chat';
 
 type Profile = { user: User; joined_at: number; friends: number; mutual: number; is_friend: boolean; trophies: { id: string; title: string; sub: string }[] };
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const joined = (t: number) => { const d = new Date(t); return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+// The server sends the join time in seconds.
+const joined = (t: number) => { const d = new Date(t < 1e11 ? t * 1000 : t); return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
 
 function Stat({ value, label }: { value: string; label: string }) {
   return (
@@ -53,6 +55,7 @@ export default function UserProfile() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [more, setMore] = useState(false);
   const [reported, setReported] = useState(false);
 
   useEffect(() => {
@@ -103,6 +106,11 @@ export default function UserProfile() {
   const doBlock = () => confirm(`block ${who}?`, 'they can’t talk to you, call you or find you.', 'block', () => { block(user.id).catch(() => {}); router.back(); });
   const sendReport = (reason: string) => { report(user.id, reason).catch(() => {}); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setReporting(false); setReported(true); };
   const openReport = () => { if (!choose(`report ${who}`, REASONS, (i) => sendReport(REASONS[i]))) setReporting((v) => !v); };
+  // Report, remove and block sit behind one button: a native sheet on iOS, a list that opens in place on Android.
+  const openMore = () => {
+    const acts: [string, () => void][] = [...(reported ? [] : [[`report ${who}`, () => setTimeout(openReport, 400)] as [string, () => void]]), ...(friend ? [['remove friend', remove] as [string, () => void]] : []), ['block', doBlock]];
+    if (!choose(nameOf(user), acts.map((a) => a[0]), (i) => acts[i][1](), acts.length - 1)) { Haptics.selectionAsync(); setMore((v) => !v); }
+  };
 
   return (
     <ScrollView style={{ backgroundColor: C.surface }} contentContainerStyle={{ paddingBottom: insets.bottom + 28 }} showsVerticalScrollIndicator={false}>
@@ -110,7 +118,7 @@ export default function UserProfile() {
         {photo ? <Image source={photo} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} cachePolicy="memory-disk" /> : null}
         <LinearGradient colors={['rgba(17,17,17,0)', 'rgba(17,17,17,0.55)', C.surface]} locations={[0, 0.6, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 200 }} />
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 14, paddingHorizontal: 20 }}>
-          <Avatar user={user} size={76} ring />
+          {photo ? null : <Avatar user={user} size={76} ring />}
           <View style={{ flex: 1, paddingBottom: 6 }}>
             <Text numberOfLines={1} style={{ color: '#fff', fontFamily: F.black, fontSize: 28, letterSpacing: -0.4 }}>{nameOf(user)}</Text>
             <Text numberOfLines={1} style={{ fontFamily: F.bold, fontSize: 15 }}>
@@ -129,13 +137,17 @@ export default function UserProfile() {
             : outgoing || sent ? <Action title="request sent" disabled onPress={() => {}} />
             : user.username ? <Action strong title="add friend" disabled={busy} onPress={add} />
             : null}
+          {isMe ? null : (
+            <Pressable accessibilityLabel="more" onPress={openMore} style={({ pressed }) => ({ width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+              <Icon sf="ellipsis" md="dots-horizontal" size={20} mdSize={24} />
+            </Pressable>
+          )}
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(50).duration(260)} style={{ flexDirection: 'row', borderRadius: 24, borderCurve: 'continuous', backgroundColor: 'rgba(255,255,255,0.06)', paddingVertical: 16 }}>
           <Stat value={p ? String(p.friends) : '–'} label="friends" />
           {isMe ? null : <Stat value={p ? String(p.mutual) : '–'} label="mutual" />}
           {friend ? <Stat value={String(friend.streak)} label="day streak" /> : null}
-          <Stat value={p ? joined(p.joined_at) : '–'} label="joined" />
         </Animated.View>
 
         {p?.trophies.length ? (
@@ -152,16 +164,24 @@ export default function UserProfile() {
           </Animated.View>
         ) : null}
 
-        {isMe ? null : (
+        {more ? (
           <Morph>
+          <View style={{ marginHorizontal: -14 }}>
           <SettingGroup>
             <SettingRow title={reported ? 'reported, thanks' : `report ${who}`} icon={['flag', 'flag-outline']} onPress={() => { if (!reported) openReport(); }} more={!reported} />
             {reporting ? REASONS.map((r) => <SettingRow key={r} title={r} onPress={() => sendReport(r)} />) : null}
             {friend ? <SettingRow title="remove friend" icon={['person.badge.minus', 'account-minus-outline']} danger onPress={remove} /> : null}
             <SettingRow title="block" icon={['hand.raised', 'hand-back-left-outline']} danger onPress={doBlock} />
           </SettingGroup>
+          </View>
           </Morph>
-        )}
+        ) : null}
+
+        {p || reported ? (
+          <Text style={{ color: C.dim, fontFamily: F.bold, fontSize: 13, textAlign: 'center' }}>
+            {[reported && !more ? 'reported, thanks' : null, p ? `joined ${joined(p.joined_at)}` : null].filter(Boolean).join(' · ')}
+          </Text>
+        ) : null}
       </View>
     </ScrollView>
   );
