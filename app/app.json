@@ -13,10 +13,13 @@
         "NSMicrophoneUsageDescription": "Yapp uses your microphone while you hold to talk.",
         "NSPhotoLibraryUsageDescription": "Yapp shows your recent photos so you can send them in chats and pick a profile photo.",
         "NSCameraUsageDescription": "Yapp uses your camera for photos you send, your profile photo and video calls.",
+        "NSLocationWhenInUseUsageDescription": "Yapp uses location only to stay awake in the background, so you can hear friends with the screen off. Your location is never saved or sent.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Yapp uses location only to stay awake in the background, so you can hear friends with the screen off. Your location is never saved or sent.",
         "UIBackgroundModes": [
           "audio",
           "voip",
-          "remote-notification"
+          "remote-notification",
+          "location"
         ],
         "ITSAppUsesNonExemptEncryption": false
       },

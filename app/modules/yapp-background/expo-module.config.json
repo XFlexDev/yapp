@@ -1,6 +1,9 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "apple"],
   "android": {
     "modules": ["dev.kreatix.yappbg.YappBackgroundModule"]
+  },
+  "apple": {
+    "modules": ["YappAwakeModule"]
   }
 }

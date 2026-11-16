@@ -25,17 +25,24 @@ function rejoin(delay: number) {
 }
 
 AppState.addEventListener('change', (st) => {
+  if (st === 'background' && Platform.OS === 'ios' && !get().call) {
+    // Let go of the microphone in the background so other apps' audio goes back to normal.
+    if (talk && !pressed) talk.room.disconnect();
+    if (gtalk && !gpressed) gtalk.room.disconnect();
+  }
   if (st !== 'active' || !listening) return;
   if (!inbox || inbox.state === 'disconnected') startListening().catch(() => rejoin(1000));
   if (talk && talk.room.state === 'disconnected' && !pressed) { const id = talk.friendId; talk = null; focusFriend(id); }
+  if (gtalk && gtalk.room.state === 'disconnected' && !gpressed) { const id = gtalk.groupId; gtalk = null; focusGroup(id); }
 });
 
 async function ensureSession() {
-  if (sessionStarted) return;
+  // iOS: index.js hands the audio session to LiveKit, which only turns it on while there is sound.
+  // Starting it here as well paused other apps' music and held the session open for good.
+  if (sessionStarted || Platform.OS === 'ios') return;
   sessionStarted = true;
   await AudioSession.configureAudio({
     android: { preferredOutputList: ['speaker'], audioTypeOptions: { manageAudioFocus: false, audioMode: 'normal', audioFocusMode: 'gain', audioStreamType: 'music', audioAttributesUsageType: 'media', audioAttributesContentType: 'speech' } },
-    ios: { defaultOutput: 'speaker' },
   });
   await AudioSession.startAudioSession();
 }

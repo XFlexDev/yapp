@@ -9,6 +9,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { restore, setSignedOutHandler } from '../lib/api';
+import { allowAwake, skipAwake, startAwake, stopAwake } from '../lib/awake';
 import { batteryExcluded, excludeBattery, openAppSettings, startBackground, stopBackground } from '../lib/background';
 import { registerPush } from '../lib/push';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
@@ -41,6 +42,7 @@ export function signOutLocal() {
   stopRealtime();
   stopVoice();
   stopBackground();
+  stopAwake();
   set({ status: 'out', me: null, friends: [], incoming: [], outgoing: [], selectedId: null, call: null });
 }
 
@@ -61,6 +63,7 @@ export default function Root() {
   const [fonts] = useFonts({ Nunito_600SemiBold, Nunito_800ExtraBold, Nunito_900Black });
   const status = useStore((s) => s.status);
   const [askBattery, setAskBattery] = useState(false);
+  const [askAwake, setAskAwake] = useState(false);
   const battery = useRef<{ snooze: () => void }>({ snooze: () => {} });
   const me = useStore((s) => s.me);
 
@@ -81,6 +84,7 @@ export default function Root() {
     startRealtime();
     startListening().catch(() => {});
     startBackground();
+    startAwake().then(setAskAwake);
     registerPush();
     const open = (d: any, action?: string) => {
       // Tapping a call notification answers it, like picking up a phone.
@@ -129,21 +133,25 @@ export default function Root() {
         </Stack>
         <Intro />
       </GestureHandlerRootView>
-      {askBattery ? (
+      {askBattery || askAwake ? (
         <View style={StyleSheet.absoluteFill}>
           <Animated.View entering={FadeIn.duration(180)} style={StyleSheet.absoluteFill}><BlurBackdrop dim={0.5} /></Animated.View>
           <Animated.View entering={SlideInDown.duration(300)} style={{ position: 'absolute', left: 10, right: 10, bottom: 30, borderRadius: 28, borderCurve: 'continuous', backgroundColor: '#1C1C1E', padding: 24, gap: 12 }}>
-            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>let yapp run in the background</Text>
+            <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 22 }}>{askAwake ? 'let yapp stay awake' : 'let yapp run in the background'}</Text>
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
-              android puts apps to sleep to save battery. if yapp sleeps, friends can't talk to you or call you while your screen is off or the app is closed.
+              {askAwake
+                ? "iphone puts apps to sleep a minute after you leave them. if yapp sleeps, you can't hear your friends until you open it again."
+                : "android puts apps to sleep to save battery. if yapp sleeps, friends can't talk to you or call you while your screen is off or the app is closed."}
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontFamily: F.bold, fontSize: 15, lineHeight: 21 }}>
-              tap allow, then pick allow on the next popup. if it shows a list instead, choose "unrestricted". skip it and yapp only works while it's open.
+              {askAwake
+                ? 'yapp can stay awake by asking iphone for your location. it never looks at it, saves it or sends it anywhere. tap allow, then pick "allow while using app".'
+                : 'tap allow, then pick allow on the next popup. if it shows a list instead, choose "unrestricted". skip it and yapp only works while it\'s open.'}
             </Text>
-            <Squish onPress={() => { if (!excludeBattery()) openAppSettings(); setAskBattery(false); }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
+            <Squish onPress={() => { if (askAwake) { allowAwake(); setAskAwake(false); } else { if (!excludeBattery()) openAppSettings(); setAskBattery(false); } }} style={{ height: 50, borderRadius: 25, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontFamily: F.black, fontSize: 16 }}>allow</Text>
             </Squish>
-            <Pressable onPress={() => { battery.current.snooze(); setAskBattery(false); }} style={{ alignSelf: 'center', padding: 6 }}>
+            <Pressable onPress={() => { if (askAwake) { skipAwake(); setAskAwake(false); } else { battery.current.snooze(); setAskBattery(false); } }} style={{ alignSelf: 'center', padding: 6 }}>
               <Text style={{ color: 'rgba(255,255,255,0.5)', fontFamily: F.bold, fontSize: 14 }}>not now</Text>
             </Pressable>
           </Animated.View>
